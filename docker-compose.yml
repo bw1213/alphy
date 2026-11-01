@@ -1,0 +1,16 @@
+# Synology Container Manager → 프로젝트 → 생성 에서 이 파일을 그대로 사용합니다.
+services:
+  kospi-backtest:
+    build: .
+    image: alphy-kospi-backtest:latest
+    container_name: kospi-backtest
+    restart: unless-stopped
+    # NAS 사용자 권한으로 실행 (SSH 에서 `id` 로 확인. DSM 첫 관리자 계정은 보통 1026:100)
+    user: "${PUID:-1026}:${PGID:-100}"
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - TZ=Asia/Seoul
+    volumes:
+      - ./nas/cache:/app/.cache       # 네이버 시세 캐시 (하루 단위)
+      - ./nas/csv:/app/data/csv       # 내 CSV 데이터 ({종목코드}.csv, KOSPI.csv)
