@@ -1,0 +1,7 @@
+# NAS(또는 PC)에서 소스로 직접 빌드할 때 docker-compose.yml 에 겹쳐 씁니다.
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  kospi-backtest:
+    build: .
+    image: alphy-kospi-backtest:local
+    labels: !reset []

@@ -12,3 +12,5 @@ Dockerfile
 docker-compose.yml
 .env
 .env.*
+docker-compose.build.yml
+.github

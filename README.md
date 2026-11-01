@@ -15,7 +15,7 @@ npm test             # 엔진·KIS 테스트 (26개)
 
 **한국투자증권 API:** 시세 수집과 모의투자 주문·잔고(`/trade`). 앱키는 `.env`에 넣습니다 → [docs/kis.md](docs/kis.md)
 
-**Synology NAS / Docker:** `docker compose up -d --build` → http://NAS-IP:3000. 자세한 순서는 [docs/synology.md](docs/synology.md).
+**Synology NAS:** main 머지 시 GitHub Actions → GHCR → Watchtower로 자동 배포됩니다. 설정은 [docs/synology.md](docs/synology.md).
 
 ## 화면 구성
 - **전략**: 기본 제공 3개(모멘텀+시장필터, 이동평균 정배열, RSI 과매도 반등) 중 선택하고 파라미터 조절
