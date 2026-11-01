@@ -10,8 +10,12 @@ npm install
 npm run dev          # 개발 모드 → http://localhost:3000
 # 또는
 npm run build && npm start
-npm test             # 엔진 테스트 (11개)
+npm test             # 엔진·KIS 테스트 (26개)
 ```
+
+**한국투자증권 API:** 시세 수집과 모의투자 주문·잔고(`/trade`). 앱키는 `.env`에 넣습니다 → [docs/kis.md](docs/kis.md)
+
+**Synology NAS:** main 머지 시 GitHub Actions → GHCR → Watchtower로 자동 배포됩니다. 설정은 [docs/synology.md](docs/synology.md).
 
 ## 화면 구성
 - **전략**: 기본 제공 3개(모멘텀+시장필터, 이동평균 정배열, RSI 과매도 반등) 중 선택하고 파라미터 조절
@@ -35,6 +39,7 @@ return ctx.equal(ctx.topBy((t) => ctx.ret(t, 20), p.k));
 | 소스 | 설명 |
 |---|---|
 | 네이버 증권 | 일봉(수정주가)과 KOSPI 시총 순위. `.cache/`에 하루 동안 캐시 |
+| 한국투자증권 API | 일봉(수정주가)·KOSPI 지수. 앱키 필요, 시총 순위는 네이버 사용 ([docs/kis.md](docs/kis.md)) |
 | 내 CSV | `data/csv/{종목코드}.csv`, 지수는 `KOSPI.csv` |
 | 가짜 데이터 | 랜덤 데이터. 코드 동작 확인용 |
 
@@ -54,6 +59,8 @@ app/api/data/route.ts     데이터 API
 lib/engine/               엔진(engine, context, metrics, costs, indicators)
 lib/strategies/index.ts   기본 전략 + 사용자 코드 컴파일
 lib/data/                 네이버 수집, 캐시, CSV, 가짜 데이터
+lib/kis/                  한국투자증권 API (토큰, 시세, 주문, 잔고)
+app/trade/page.tsx        주문·잔고 화면
 tests/engine.test.ts      테스트
 ```
 

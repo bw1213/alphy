@@ -6,3 +6,12 @@ next-env.d.ts
 python/data/
 python/results/
 __pycache__/
+nas/cache/*
+!nas/cache/.gitkeep
+nas/csv/*
+!nas/csv/.gitkeep
+
+# 비밀값
+.env
+.env.*
+!.env.example

@@ -1,0 +1,42 @@
+# Synology Container Manager → 프로젝트 → 생성 에서 이 파일을 그대로 사용합니다.
+# 이미지는 GitHub Actions 가 main 머지 때마다 만들어 GHCR 에 올리고,
+# 아래 watchtower 가 5분마다 확인해서 새 이미지면 앱 컨테이너를 자동으로 교체합니다.
+# NAS 에서 직접 빌드하려면: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  kospi-backtest:
+    image: ghcr.io/bw1213/alphy:latest
+    container_name: kospi-backtest
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    # NAS 사용자 권한으로 실행 (SSH 에서 `id` 로 확인. DSM 첫 관리자 계정은 보통 1026:100)
+    user: "${PUID:-1026}:${PGID:-100}"
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - TZ=Asia/Seoul
+      # 한국투자증권 Open API — 값은 같은 폴더의 .env 파일에 넣습니다 (.env.example 참고, 저장소에 올리지 마세요)
+      - KIS_REAL_APP_KEY=${KIS_REAL_APP_KEY:-}
+      - KIS_REAL_APP_SECRET=${KIS_REAL_APP_SECRET:-}
+      - KIS_REAL_ACCOUNT=${KIS_REAL_ACCOUNT:-}
+      - KIS_MOCK_APP_KEY=${KIS_MOCK_APP_KEY:-}
+      - KIS_MOCK_APP_SECRET=${KIS_MOCK_APP_SECRET:-}
+      - KIS_MOCK_ACCOUNT=${KIS_MOCK_ACCOUNT:-}
+      - KIS_TRADE_ENV=${KIS_TRADE_ENV:-mock}
+      - KIS_ALLOW_REAL_ORDERS=${KIS_ALLOW_REAL_ORDERS:-}
+      - TRADE_API_TOKEN=${TRADE_API_TOKEN:-}
+    volumes:
+      - ./nas/cache:/app/.cache       # 시세 캐시(하루 단위)·KIS 접근토큰
+      - ./nas/csv:/app/data/csv       # 내 CSV 데이터 ({종목코드}.csv, KOSPI.csv)
+
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: kospi-watchtower
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Seoul
+      - WATCHTOWER_LABEL_ENABLE=true      # 위 라벨이 붙은 컨테이너만 갱신 (NAS 의 다른 컨테이너는 건드리지 않음)
+      - WATCHTOWER_POLL_INTERVAL=300      # 5분마다 확인
+      - WATCHTOWER_CLEANUP=true           # 이전 이미지 삭제
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
