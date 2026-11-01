@@ -45,8 +45,12 @@ git clone -b <브랜치> https://github.com/bw1213/alphy.git kospi-backtest
 - SSH에서 `id` 를 실행해 내 uid/gid를 확인하고 `docker-compose.yml`의 `user:` 값을 바꾸거나,
 - File Station → `nas` 폴더 → 속성 → 권한에서 Everyone에 읽기/쓰기를 줍니다.
 
+### 한국투자증권 앱키
+`/docker/kospi-backtest/.env` 파일에 넣습니다 (`.env.example` 참고). 자세한 내용은 [kis.md](kis.md).
+`.env`는 업데이트할 때 덮어쓰지 않도록 주의하세요.
+
 ## 4. 업데이트
-- A 방법: 새 ZIP의 파일로 덮어쓰기 (`nas/` 폴더는 유지)
+- A 방법: 새 ZIP의 파일로 덮어쓰기 (`nas/` 폴더와 `.env`는 유지)
 - B 방법: `cd /volume1/docker/kospi-backtest && git pull`
 
 그다음 Container Manager → 프로젝트 → `kospi-backtest` → **작업 → 빌드**(다시 빌드 후 재시작).

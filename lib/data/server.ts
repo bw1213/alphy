@@ -4,13 +4,16 @@ import path from "path";
 import type { Bar, PriceData, StockInfo } from "../engine/types";
 import { fetchDaily, fetchTopMarketCap } from "./naver";
 import { syntheticData } from "./synthetic";
+import { quoteCredentials } from "../kis/config";
+import { getClient } from "../kis/client";
+import { kisDaily, kisIndexDaily } from "../kis/market";
 
 const ROOT = process.cwd();
 const CACHE = path.join(ROOT, ".cache");
 const CSV_DIR = path.join(ROOT, "data", "csv");
 const today = () => new Date().toISOString().slice(0, 10);
 
-export type Source = "naver" | "csv" | "synthetic";
+export type Source = "naver" | "kis" | "csv" | "synthetic";
 
 export interface DataRequest {
   source: Source;
@@ -35,14 +38,25 @@ async function writeJson(p: string, v: unknown) {
   await fs.writeFile(p, JSON.stringify(v));
 }
 
-async function cachedDaily(symbol: string, start: string): Promise<Bar[]> {
-  const p = path.join(CACHE, "naver", `${symbol}.json`);
+type DailyFetcher = (symbol: string, start: string) => Promise<Bar[]>;
+
+async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" = "naver", fetcher: DailyFetcher = fetchDaily): Promise<Bar[]> {
+  const p = path.join(CACHE, src, `${symbol}.json`);
   const c = await readJson<{ fetched: string; bars: Bar[] }>(p);
   // 오늘 받은 캐시이고 시작일을 덮으면 재사용 (첫 데이터가 시작일보다 늦으면 신규상장 종목일 수 있으므로 그대로 사용)
   if (c && c.fetched === today() && c.bars.length && (c.bars[0].date <= start || c.bars.length > 200)) return c.bars;
-  const bars = await fetchDaily(symbol, start);
+  const bars = await fetcher(symbol, start);
   await writeJson(p, { fetched: today(), bars });
   return bars;
+}
+
+/** 한국투자증권 일봉 (오늘까지 받아 캐시, 요청 구간은 호출부에서 자름) */
+function kisFetcher(): DailyFetcher {
+  const cred = quoteCredentials();
+  if (!cred) throw new Error("한국투자증권 앱키가 설정되지 않았습니다. KIS_REAL_APP_KEY/KIS_REAL_APP_SECRET 또는 KIS_MOCK_APP_KEY/KIS_MOCK_APP_SECRET 환경변수를 넣고 컨테이너를 다시 시작하세요.");
+  const client = getClient(cred);
+  const end = today();
+  return (symbol, start) => symbol === "KOSPI" ? kisIndexDaily(client, start, end) : kisDaily(client, symbol, start, end);
 }
 
 async function cachedUniverse(n: number): Promise<StockInfo[]> {
@@ -108,7 +122,10 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
     return { data, names, benchmark, warnings };
   }
 
-  // naver
+  // naver / kis (kis 는 시세만 한국투자증권, 시총 순위는 네이버)
+  const isKis = req.source === "kis";
+  const fetcher = isKis ? kisFetcher() : fetchDaily;
+  const src = isKis ? "kis" : "naver";
   let list: StockInfo[];
   if (req.tickers?.length) list = req.tickers.map((code) => ({ code, name: code }));
   else {
@@ -116,11 +133,11 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
       list = await cachedUniverse(req.universeSize ?? 100);
     } catch (e) {
       const cause = (e as any)?.cause?.code ?? (e as Error).message;
-      throw new Error(`네이버 증권에 접속하지 못했습니다 (${cause}). 인터넷 연결이나 회사 방화벽을 확인하세요. 오프라인이면 '내 CSV 파일' 데이터를 쓰세요.`);
+      throw new Error(`네이버 증권에서 시총 순위를 받지 못했습니다 (${cause}). 인터넷 연결이나 방화벽을 확인하세요.${isKis ? " 한국투자증권 시세만 쓰려면 '종목 직접 입력'으로 종목코드를 넣으세요." : " 오프라인이면 '내 CSV 파일' 데이터를 쓰세요."}`);
     }
     warnings.push("유니버스는 '현재' 시총 상위 종목입니다. 과거에 상장폐지된 종목이 빠져 있어 성과가 실제보다 좋게 나올 수 있습니다(생존편향).");
   }
-  const results = await pool(list, 6, (s) => cachedDaily(s.code, req.start));
+  const results = await pool(list, 6, (s) => cachedDaily(s.code, req.start, src, fetcher));
   const data: PriceData = {}, names: Record<string, string> = {};
   results.forEach((r, k) => {
     const s = list[k];
@@ -130,7 +147,14 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
   if (!Object.keys(data).length) throw new Error(`가격 데이터를 하나도 받지 못했습니다. 네트워크 상태를 확인하세요. (${warnings[0] ?? ""})`);
   let benchmark = null;
   try {
-    benchmark = clip(await cachedDaily("KOSPI", req.start), req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
+    let idx: Bar[];
+    try { idx = await cachedDaily("KOSPI", req.start, src, fetcher); }
+    catch (e) {
+      if (!isKis) throw e;
+      warnings.push(`한국투자증권 KOSPI 지수 조회 실패(${(e as Error).message}), 네이버 지수로 대체했습니다.`);
+      idx = await cachedDaily("KOSPI", req.start);
+    }
+    benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
   } catch (e) { warnings.push(`KOSPI 지수 조회 실패: ${(e as Error).message}`); }
   return { data, names, benchmark, warnings };
 }

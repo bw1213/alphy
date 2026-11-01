@@ -118,7 +118,7 @@ export default function Page() {
       const key = JSON.stringify(req);
       let data = dataCache.current.get(key);
       if (!data) {
-        setBusy(source === "naver" ? "시세 데이터를 받는 중입니다 (처음 한 번은 1~2분 걸릴 수 있어요)" : "데이터 준비 중");
+        setBusy(source === "naver" || source === "kis" ? "시세 데이터를 받는 중입니다 (처음 한 번은 몇 분 걸릴 수 있어요)" : "데이터 준비 중");
         const r = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
         const j = await r.json();
         if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -151,6 +151,7 @@ export default function Page() {
   const paramSpecs = builtin?.params ?? [];
   const sourceHelp = useMemo(() => ({
     naver: "네이버 증권 일봉(수정주가). 서버가 받아 .cache/ 에 하루 동안 저장합니다.",
+    kis: "한국투자증권 Open API 일봉(수정주가). 서버에 앱키 환경변수가 필요합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요.",
     csv: "data/csv/{종목코드}.csv (Date,Open,High,Low,Close,Volume). 지수는 KOSPI.csv",
     synthetic: "랜덤 가짜 데이터. 전략 코드가 돌아가는지 확인할 때만 쓰세요.",
   }[source]), [source]);
@@ -160,6 +161,7 @@ export default function Page() {
       <header className="top">
         <h1>KOSPI 백테스트</h1>
         <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 30%</p>
+        <a href="/trade" style={{ marginLeft: "auto", fontSize: 13 }}>한국투자증권 주문·잔고 →</a>
       </header>
       <main className="app">
         <section className="stack">
@@ -234,6 +236,7 @@ export default function Page() {
             <label className="f" style={{ marginTop: 10 }}>데이터
               <select value={source} onChange={(e) => setSource(e.target.value as Source)}>
                 <option value="naver">네이버 증권 (실제 시세)</option>
+                <option value="kis">한국투자증권 API (실제 시세)</option>
                 <option value="csv">내 CSV 파일</option>
                 <option value="synthetic">가짜 데이터 (테스트용)</option>
               </select>
