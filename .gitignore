@@ -1,0 +1,8 @@
+node_modules
+.next
+.cache
+next-env.d.ts
+*.tsbuildinfo
+python/data/
+python/results/
+__pycache__/

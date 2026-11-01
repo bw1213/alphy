@@ -1,0 +1,26 @@
+{
+  "name": "kospi-backtest-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "15.5.28",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "recharts": "3.10.1",
+    "iconv-lite": "0.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
