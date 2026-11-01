@@ -1,0 +1,5 @@
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7
+pykrx>=1.0.45
+finance-datareader>=0.9.90

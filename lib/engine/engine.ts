@@ -1,0 +1,173 @@
+/**
+ * 일봉 포트폴리오 백테스트 엔진.
+ *
+ * 타이밍 규칙 (미래 데이터 사용 방지)
+ *  - t일 장 마감 후: 전략이 t일까지의 데이터로 목표 비중 결정, 손절/익절 조건 확인
+ *  - t+1일 시가: 매도 먼저, 그 다음 매수 (정수 주)
+ *  - 거래정지(거래량 0)·가격 없음 종목은 그날 매매하지 않음
+ */
+import { buildPanel, StrategyContext, type Panel } from "./context";
+import { DEFAULT_COSTS, sellTax } from "./costs";
+import type { BacktestResult, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Trade, Weights } from "./types";
+
+export type TargetFn = (ctx: StrategyContext) => Weights | null | undefined;
+
+export interface RunOptions {
+  data: PriceData;
+  benchmark?: { date: string; close: number }[] | null;
+  strategy: TargetFn;
+  settings: RunSettings;
+  costs?: CostSettings;
+  initialCash?: number;
+  /** 이 날짜부터 성과 집계 (이전 구간은 지표 워밍업용) */
+  startDate?: string;
+  names?: Record<string, string>;
+}
+
+export function rebalanceDays(dates: string[], rule: Rebalance): Set<number> {
+  const out = new Set<number>();
+  if (rule === "D") dates.forEach((_, k) => out.add(k));
+  else if (typeof rule === "number") for (let k = 0; k < dates.length; k += Math.max(1, rule)) out.add(k);
+  else {
+    const key = (d: string) => {
+      const y = d.slice(0, 4), m = Number(d.slice(5, 7));
+      if (rule === "M") return `${y}-${m}`;
+      if (rule === "Q") return `${y}-Q${Math.ceil(m / 3)}`;
+      // 주: 월요일 기준 주 시작일
+      const dt = new Date(d + "T00:00:00Z");
+      const dow = (dt.getUTCDay() + 6) % 7;
+      dt.setUTCDate(dt.getUTCDate() - dow);
+      return dt.toISOString().slice(0, 10);
+    };
+    // 각 기간의 마지막 영업일에 신호 → 다음 기간 첫 영업일 시가에 체결
+    for (let k = 0; k < dates.length; k++) {
+      if (k === dates.length - 1 || key(dates[k]) !== key(dates[k + 1])) out.add(k);
+    }
+  }
+  return out;
+}
+
+export function runBacktest(opt: RunOptions): BacktestResult {
+  const costs = opt.costs ?? DEFAULT_COSTS;
+  const st = opt.settings;
+  const P: Panel = buildPanel(opt.data, opt.benchmark);
+  const { dates, tickers } = P;
+  const N = dates.length;
+  const reb = rebalanceDays(dates, st.rebalance);
+  const startIdx = opt.startDate ? Math.max(0, dates.findIndex((d) => d >= opt.startDate!)) : 0;
+
+  let cash = opt.initialCash ?? 10_000_000;
+  const pos: Record<string, number> = {};
+  const avg: Record<string, number> = {};
+  const trades: Trade[] = [];
+  const equity: EquityPoint[] = [];
+  let pending: Weights | null = null;
+  let forced = new Map<string, Trade["reason"]>();
+
+  const col = (t: string) => P.index.get(t)!;
+
+  for (let i = 0; i < N; i++) {
+    const d = dates[i];
+
+    // ---------- 1) 시가 체결 ----------
+    if (pending || forced.size) {
+      const tradable = (t: string) => {
+        const k = P.index.get(t);
+        if (k === undefined) return false;
+        const o = P.open[k][i], v = P.volume[k][i];
+        return Number.isFinite(o) && o > 0 && Number.isFinite(v) && v > 0;
+      };
+      const mark = (t: string) => (tradable(t) ? P.open[col(t)][i] : P.closeFilled[col(t)][Math.max(0, i - 1)]);
+      const eqOpen = cash + Object.entries(pos).reduce((s, [t, q]) => s + q * mark(t), 0);
+
+      let target: Record<string, number> = { ...pos };
+      if (pending) {
+        target = {};
+        for (const [t, w] of Object.entries(pending)) {
+          if (!(w > 0) || !tradable(t)) continue;
+          const o = P.open[col(t)][i];
+          if (pos[t] && Math.abs((pos[t] * o) / eqOpen - w) < st.rebalanceBand) {
+            target[t] = pos[t];
+            continue;
+          }
+          const px = o * (1 + costs.slippage) * (1 + costs.commission);
+          target[t] = Math.floor((eqOpen * w) / px);
+        }
+        for (const t of Object.keys(pos)) if (!tradable(t)) target[t] = pos[t];
+      }
+      for (const t of forced.keys()) if (tradable(t)) target[t] = 0;
+
+      const tax = sellTax(costs, Number(d.slice(0, 4)));
+      // 매도
+      for (const t of Object.keys(pos)) {
+        const q = pos[t], tgt = target[t] ?? 0;
+        if (q > tgt && tradable(t)) {
+          const n = q - tgt;
+          const px = P.open[col(t)][i] * (1 - costs.slippage);
+          const gross = n * px;
+          const fee = gross * (costs.commission + tax);
+          cash += gross - fee;
+          trades.push({ date: d, ticker: t, side: "SELL", qty: n, price: px, fee,
+            pnl: (px - avg[t]) * n - fee, ret: px / avg[t] - 1, reason: forced.get(t) ?? "rebalance" });
+          if (tgt === 0) { delete pos[t]; delete avg[t]; } else pos[t] = tgt;
+        }
+      }
+      // 매수 (현금 부족 시 가능한 만큼)
+      for (const [t, tgt] of Object.entries(target)) {
+        const q = pos[t] ?? 0;
+        if (tgt > q && tradable(t)) {
+          const px = P.open[col(t)][i] * (1 + costs.slippage);
+          const n = Math.min(tgt - q, Math.floor(cash / (px * (1 + costs.commission))));
+          if (n <= 0) continue;
+          const fee = n * px * costs.commission;
+          cash -= n * px + fee;
+          avg[t] = ((avg[t] ?? 0) * q + px * n) / (q + n);
+          pos[t] = q + n;
+          trades.push({ date: d, ticker: t, side: "BUY", qty: n, price: px, fee, pnl: null, ret: null, reason: "rebalance" });
+        }
+      }
+      pending = null;
+      forced = new Map();
+    }
+
+    // ---------- 2) 종가 평가 ----------
+    let invested = 0;
+    for (const [t, q] of Object.entries(pos)) invested += q * P.closeFilled[col(t)][i];
+    const eq = cash + invested;
+    equity.push({ date: d, equity: eq, cash, invested, benchmark: P.bench ? P.bench[i] : null });
+
+    if (i === N - 1) break;
+
+    // ---------- 3) 장 마감 후 신호 ----------
+    if (st.stopLoss || st.takeProfit) {
+      for (const t of Object.keys(pos)) {
+        const r = P.closeFilled[col(t)][i] / avg[t] - 1;
+        if (st.stopLoss && r <= -st.stopLoss) forced.set(t, "stop_loss");
+        else if (st.takeProfit && r >= st.takeProfit) forced.set(t, "take_profit");
+      }
+    }
+    if (reb.has(i) && i + 1 >= st.warmup && i + 1 >= startIdx) {
+      const ctx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names);
+      const w = opt.strategy(ctx);
+      if (w) {
+        const clean: Weights = {};
+        for (const [t, x] of Object.entries(w)) if (Number.isFinite(x) && x > 0 && P.index.has(t)) clean[t] = x;
+        const s = Object.values(clean).reduce((a, b) => a + b, 0);
+        if (s > 1 + 1e-9) for (const t in clean) clean[t] /= s;
+        pending = clean;
+        for (const t in clean) forced.delete(t); // 새 목표에 포함되면 리밸런싱 규칙을 따름
+      }
+    }
+  }
+
+  const finalPositions = Object.entries(pos).map(([t, q]) => ({
+    ticker: t, qty: q, avgPrice: avg[t], value: q * P.closeFilled[col(t)][N - 1],
+  }));
+  return {
+    equity: equity.slice(Math.max(0, Math.min(startIdx, Math.max(0, equity.length - 1)))),
+    trades: trades.filter((t) => !opt.startDate || t.date >= opt.startDate),
+    finalPositions,
+  };
+}
+
+export type { StrategyContext };
