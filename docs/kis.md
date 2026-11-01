@@ -6,9 +6,9 @@
 |---|---|---|
 | 백테스트용 일봉 시세(수정주가) + KOSPI 지수 | 백테스트 화면 → 데이터 → **한국투자증권 API** | 실전 또는 모의 앱키 |
 | 현재가 조회 | `/trade` 주문 화면 | 실전 또는 모의 앱키 |
-| 잔고 조회, 매수·매도 주문 | `/trade` | 모의(또는 실전) 앱키 + 계좌번호 + `TRADE_API_TOKEN` |
+| 잔고 조회, 매수·매도 주문 | `/trade` | 모의(또는 실전) 앱키 + 계좌번호 + 관리자 로그인 |
 
-주문은 **기본이 모의투자**입니다. 실전 주문은 환경변수 두 개(`KIS_TRADE_ENV=real`, `KIS_ALLOW_REAL_ORDERS=yes`)를 모두 넣어야만 나갑니다.
+주문은 **기본이 모의투자**입니다. 실전 주문은 설정 화면에서 주문 대상을 **실전**으로 고르고, NAS의 `.env`에 `KIS_ALLOW_REAL_ORDERS=yes`까지 넣어야만 나갑니다.
 
 ## 1. 계좌와 앱키 받기
 
@@ -24,34 +24,38 @@
 > 시세만 쓸 거라면 모의투자 키만으로도 됩니다. 다만 모의투자는 **초당 2건** 정도로 호출이 제한돼서 100종목 × 5년을 처음 받으면 10분 넘게 걸립니다.
 > 실전 앱키를 넣어 두면 시세는 실전 서버(초당 20건)로 받고, 주문은 여전히 모의투자로만 나갑니다.
 
-## 2. NAS에 키 넣기
+## 2. 설정 화면에 키 넣기
 
-`docker-compose.yml`과 같은 폴더(`/docker/kospi-backtest/`)에 `.env` 파일을 만듭니다. `.env.example`을 복사해서 채우면 됩니다.
+1. `http://NAS-IP:3000/settings` 접속
+2. **처음 한 번: 관리자 비밀번호 만들기** — 본인 확인용 *설정 코드*(8자리)가 필요합니다.
+   Container Manager → 컨테이너 → `kospi-backtest` → **로그**의 `처음 설정 코드: XXXXXXXX` 줄, 또는 File Station의 `nas/cache/config/setup-code.txt`에 있습니다.
+   (남이 먼저 접속해서 비밀번호를 정하는 걸 막기 위한 장치입니다)
+3. **한국투자증권 · 모의투자** 칸에 앱키, 앱시크릿, 계좌번호(`50012345-01`)를 넣고 저장
+4. (선택) **실전투자** 칸에 실전 앱키·앱시크릿 — 시세가 빨라집니다. 실전 계좌번호는 실전 주문할 때만
+5. `/trade`의 **연결 상태**에서 잘 들어갔는지 확인 (키 값은 화면에 다시 나오지 않음)
 
-```ini
-KIS_MOCK_APP_KEY=PSxxxxxxxxxxxxxxxx
-KIS_MOCK_APP_SECRET=xxxxxxxx...
-KIS_MOCK_ACCOUNT=50012345-01
+- 값은 `nas/cache/config/settings.json`(권한 600)에 저장되어 업데이트해도 남습니다. 캐시를 지울 때 `config` 폴더는 남기세요
+- 컨테이너를 다시 시작할 필요 없이 저장 즉시 반영됩니다
+- 비밀번호를 잊었으면 `settings.json`에서 `"passwordHash"` 줄을 지우고 컨테이너를 다시 시작 → 로그에 새 설정 코드
 
-# 선택: 시세를 빠르게
-KIS_REAL_APP_KEY=
-KIS_REAL_APP_SECRET=
+### 화면 vs 환경변수
+| 항목 | 어디서 | 이유 |
+|---|---|---|
+| 앱키·앱시크릿·계좌번호 | 화면 | NAS 안 파일에 저장되어 `.env`와 보안 수준이 같음. 화면엔 다시 보여주지 않고(끝 4자리만) 바꾸기·지우기만 됨 |
+| 주문 대상(모의/실전), 백테스트 기본값(수수료·슬리피지 등) | 화면 | 자주 바꾸고 비밀값이 아님 |
+| 관리자 비밀번호 | 화면 (또는 `.env`의 `ADMIN_PASSWORD`) | scrypt 해시로만 저장. 처음 만들 때 로그의 설정 코드 필요 |
+| **실전 주문 잠금 해제** `KIS_ALLOW_REAL_ORDERS` | `.env`만 | 화면 비밀번호가 새도 실제 돈이 나가지 않게, NAS 파일을 만질 수 있는 사람만 풀 수 있게 함 |
+| 포트, 실행 사용자(PUID/PGID) | `docker-compose.yml` | 컨테이너가 뜨기 전에 정해지는 값 |
 
-KIS_TRADE_ENV=mock
-TRADE_API_TOKEN=아무도-못-맞출-긴-문자열
-```
-
-- File Station에서 만들 경우: 텍스트 편집기로 `env.txt`를 만들어 올린 뒤 이름을 `.env`로 바꿉니다
-- `.env`는 `.gitignore`에 들어 있어 저장소에 올라가지 않습니다
-- 바꾼 뒤에는 Container Manager → 프로젝트 → `kospi-backtest` → **작업 → 중지 → 시작** (또는 빌드)
-- 잘 들어갔는지는 `http://NAS-IP:3000/trade`의 **연결 상태**에서 확인합니다 (키 값은 화면에 나오지 않음)
+예전처럼 `.env`에 넣은 `KIS_*` 값도 동작하며 화면 값보다 우선합니다(화면에 🔒 표시). 예전 `TRADE_API_TOKEN`은 관리자 비밀번호로 인식됩니다.
+화면에서 관리하려면 `.env`와 `docker-compose.yml`에서 그 줄을 지우고 프로젝트를 다시 시작하세요.
 
 ## 3. 사용
 
 **백테스트**: 데이터를 "한국투자증권 API"로 고르고 실행합니다. 받은 시세는 `nas/cache/kis/`에 하루 동안 저장됩니다.
 시총 상위 N 종목 목록은 KIS에 적당한 API가 없어 여전히 네이버에서 가져옵니다. 네이버가 막혀 있으면 "종목 직접 입력"을 쓰세요.
 
-**주문·잔고**: `/trade`에서 주문 비밀번호(`TRADE_API_TOKEN`)를 넣고 잔고 조회·주문을 합니다.
+**주문·잔고**: `/trade`에서 관리자 비밀번호로 로그인하고 잔고 조회·주문을 합니다.
 - 시장가/지정가, 매수/매도. "주문 확인" → 한 번 더 "실행"을 눌러야 나갑니다
 - 장 시간(평일 09:00~15:30) 밖의 주문은 증권사에서 거부됩니다
 - 주문 내역은 컨테이너 로그에 `[kis-order]`로 남습니다
@@ -63,16 +67,21 @@ TRADE_API_TOKEN=아무도-못-맞출-긴-문자열
 - 모의투자 서버는 일부 API(예: 지수 일봉)를 지원하지 않을 수 있습니다. KOSPI 지수를 못 받으면 네이버 지수로 대체하고 경고를 띄웁니다
 
 ## 보안
-- 주문·잔고 API는 `TRADE_API_TOKEN`이 없으면 꺼져 있고, 있으면 요청 헤더로 같은 값을 보내야 합니다
-- 이 앱엔 로그인 기능이 없습니다. **실전 주문을 켤 거면 NAS를 인터넷에 직접 열지 말고** VPN/Tailscale로만 접속하세요 ([synology.md](synology.md) 6번)
+- 설정 화면과 주문·잔고 API는 관리자 로그인(httpOnly·SameSite=Strict 쿠키, 30일)이 있어야 열립니다. 5번 틀리면 10분 잠김
+- 비밀번호를 바꾸면 다른 기기의 로그인은 모두 풀립니다
+- 백테스트 화면은 로그인 없이 쓸 수 있습니다. **실전 주문을 켤 거면 NAS를 인터넷에 직접 열지 말고** VPN/Tailscale로만 접속하세요 ([synology.md](synology.md) 6번)
 
 ## 코드 위치
 ```
-lib/kis/config.ts    환경변수 → 자격 증명, 실전 주문 잠금
+lib/settings/store.ts  화면 설정 파일 읽기·저장, 환경변수와 합치기
+lib/settings/auth.ts   관리자 비밀번호·로그인 쿠키
+lib/settings/view.ts   설정 화면용 보기(비밀값 가림)·변경 검증
+app/settings/page.tsx  설정 화면
+lib/kis/config.ts    설정 → 자격 증명, 실전 주문 잠금
 lib/kis/client.ts    토큰 발급·캐시, 호출 간격, 재시도
 lib/kis/market.ts    일봉·지수·현재가
 lib/kis/trading.ts   주문(order-cash), 잔고(inquire-balance)
-lib/kis/auth.ts      주문 API 비밀번호 확인
 app/api/kis/*        status · quote · balance · order
+app/api/auth, app/api/settings  로그인 · 설정
 app/trade/page.tsx   주문·잔고 화면
 ```

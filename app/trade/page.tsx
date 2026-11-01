@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Balance, OrderResult, OrderType, Side } from "@/lib/kis/trading";
+import Login, { fetchAuth, type AuthState } from "@/components/Login";
 
 interface Status {
   quotes: "real" | "mock" | null;
@@ -9,15 +10,13 @@ interface Status {
   mock: { keys: boolean; account: boolean };
   tradeEnv: "real" | "mock";
   realOrdersAllowed: boolean;
-  tradeApiEnabled: boolean;
 }
 
-const LS_TOKEN = "kbt.trade-token";
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
 
 export default function TradePage() {
   const [status, setStatus] = useState<Status | null>(null);
-  const [token, setToken] = useState("");
+  const [auth, setAuth] = useState<AuthState | null>(null);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,24 +26,20 @@ export default function TradePage() {
   const [log, setLog] = useState<string[]>([]);
 
   useEffect(() => {
-    try { setToken(localStorage.getItem(LS_TOKEN) ?? ""); } catch { /* 저장소 없음 */ }
+    try { localStorage.removeItem("kbt.trade-token"); } catch { /* 예전 버전이 저장한 비밀번호 정리 */ }
+    fetchAuth().then(setAuth).catch(() => setError("로그인 상태를 읽지 못했습니다"));
     fetch("/api/kis/status").then((r) => r.json()).then(setStatus).catch(() => setError("서버 상태를 읽지 못했습니다"));
   }, []);
-
-  const saveToken = (t: string) => {
-    setToken(t);
-    try { localStorage.setItem(LS_TOKEN, t); } catch { /* 무시 */ }
-  };
 
   const loadBalance = useCallback(async () => {
     setBusy(true); setError("");
     try {
-      const r = await fetch("/api/kis/balance", { headers: { "x-trade-token": token } });
+      const r = await fetch("/api/kis/balance", { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       setBalance(j);
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
-  }, [token]);
+  }, []);
 
   const loadQuote = async () => {
     setQuote(null);
@@ -57,7 +52,7 @@ export default function TradePage() {
     setBusy(true); setError(""); setConfirming(false);
     try {
       const body = { code: order.code, side: order.side, qty: order.qty, type: order.type, price: order.type === "limit" ? Number(order.price) : undefined };
-      const r = await fetch("/api/kis/order", { method: "POST", headers: { "Content-Type": "application/json", "x-trade-token": token }, body: JSON.stringify(body) });
+      const r = await fetch("/api/kis/order", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       const res = j as OrderResult;
@@ -75,7 +70,7 @@ export default function TradePage() {
       <header className="top">
         <h1>한국투자증권 주문·잔고</h1>
         <p>{envLabel}로 주문합니다.</p>
-        <a href="/" style={{ marginLeft: "auto", fontSize: 13 }}>← 백테스트</a>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/">← 백테스트</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">
@@ -86,16 +81,13 @@ export default function TradePage() {
                 <li>시세 조회: {status.quotes ? <span className="badge ok">{status.quotes === "real" ? "실전 키" : "모의 키"}</span> : <span className="badge no">앱키 없음</span>}</li>
                 <li>모의투자: {status.mock.keys ? <span className="badge ok">앱키</span> : <span className="badge no">앱키 없음</span>} {status.mock.account ? <span className="badge ok">계좌</span> : <span className="badge no">계좌 없음</span>}</li>
                 <li>실전: {status.real.keys ? <span className="badge ok">앱키</span> : <span className="badge no">앱키 없음</span>} {status.real.account ? <span className="badge ok">계좌</span> : <span className="badge no">계좌 없음</span>}</li>
-                <li>주문 대상: <b>{envLabel}</b>{env === "real" && !status.realOrdersAllowed && " (잠김: KIS_ALLOW_REAL_ORDERS=yes 필요)"}</li>
-                <li>주문 기능: {status.tradeApiEnabled ? <span className="badge ok">켜짐</span> : <span className="badge no">꺼짐 (TRADE_API_TOKEN 없음)</span>}</li>
+                <li>주문 대상: <b>{envLabel}</b>{env === "real" && !status.realOrdersAllowed && " (잠김: NAS .env 에 KIS_ALLOW_REAL_ORDERS=yes 필요)"}</li>
+                <li>로그인: {auth?.loggedIn ? <span className="badge ok">됨</span> : <span className="badge no">필요</span>}</li>
               </ul>
             )}
-            {status && !acctOk && <p className="help">설정 방법은 저장소의 docs/kis.md 를 보세요.</p>}
-            <label className="f" style={{ marginTop: 10 }}>주문 비밀번호 (서버의 TRADE_API_TOKEN)
-              <input type="password" value={token} onChange={(e) => saveToken(e.target.value)} autoComplete="off" />
-            </label>
-            <p className="help">이 브라우저에만 저장됩니다.</p>
+            {status && !acctOk && <p className="help">앱키·계좌번호는 <a href="/settings">설정</a> 화면에서 넣습니다.</p>}
           </div>
+          {auth && !auth.loggedIn && <Login auth={auth} title="로그인 (관리자 비밀번호)" onDone={() => fetchAuth().then(setAuth)} />}
 
           <div className="card">
             <h2>주문</h2>
@@ -125,7 +117,7 @@ export default function TradePage() {
             </div>
             <div style={{ marginTop: 12 }}>
               {!confirming ? (
-                <button className="primary" disabled={busy || !status?.tradeApiEnabled} onClick={() => setConfirming(true)}>주문 확인</button>
+                <button className="primary" disabled={busy || !auth?.loggedIn} onClick={() => setConfirming(true)}>주문 확인</button>
               ) : (
                 <div className="btns">
                   <button className="primary" disabled={busy} onClick={submit}>
@@ -143,7 +135,7 @@ export default function TradePage() {
         <section className="stack">
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>잔고
-              <button style={{ marginLeft: "auto" }} disabled={busy || !status?.tradeApiEnabled} onClick={loadBalance}>{busy ? "조회 중…" : "조회"}</button>
+              <button style={{ marginLeft: "auto" }} disabled={busy || !auth?.loggedIn} onClick={loadBalance}>{busy ? "조회 중…" : "조회"}</button>
             </h2>
             {!balance ? <p className="help">조회 버튼을 누르세요.</p> : (
               <>

@@ -10,10 +10,10 @@ npm install
 npm run dev          # 개발 모드 → http://localhost:3000
 # 또는
 npm run build && npm start
-npm test             # 엔진·KIS 테스트 (26개)
+npm test             # 엔진·KIS·설정 테스트 (35개)
 ```
 
-**한국투자증권 API:** 시세 수집과 모의투자 주문·잔고(`/trade`). 앱키는 `.env`에 넣습니다 → [docs/kis.md](docs/kis.md)
+**한국투자증권 API:** 시세 수집과 모의투자 주문·잔고(`/trade`). 앱키·주문 대상·백테스트 기본값은 웹 설정 화면(`/settings`)에서 넣습니다 → [docs/kis.md](docs/kis.md)
 
 **Synology NAS:** main 머지 시 GitHub Actions → GHCR → Watchtower로 자동 배포됩니다. 설정은 [docs/synology.md](docs/synology.md).
 

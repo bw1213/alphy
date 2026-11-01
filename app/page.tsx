@@ -78,6 +78,15 @@ export default function Page() {
   };
   useEffect(() => selectStrategy(STRATEGIES[0].id), []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 설정 화면(/settings)에서 정한 기본값 불러오기
+  useEffect(() => {
+    fetch("/api/settings/defaults", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => {
+      if (!d) return;
+      setSource(d.source); setCash(d.cash); setUniverseSize(d.universeSize);
+      setCommission(String(d.commission)); setSlippage(String(d.slippage)); setSellTax(d.sellTax == null ? "" : String(d.sellTax));
+    }).catch(() => { /* 기본값 그대로 */ });
+  }, []);
+
   const editAsCustom = () => {
     if (!builtin) return;
     setCode(builtin.code);
@@ -151,7 +160,7 @@ export default function Page() {
   const paramSpecs = builtin?.params ?? [];
   const sourceHelp = useMemo(() => ({
     naver: "네이버 증권 일봉(수정주가). 서버가 받아 .cache/ 에 하루 동안 저장합니다.",
-    kis: "한국투자증권 Open API 일봉(수정주가). 서버에 앱키 환경변수가 필요합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요.",
+    kis: "한국투자증권 Open API 일봉(수정주가). 설정 화면에서 앱키를 넣어야 합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요.",
     csv: "data/csv/{종목코드}.csv (Date,Open,High,Low,Close,Volume). 지수는 KOSPI.csv",
     synthetic: "랜덤 가짜 데이터. 전략 코드가 돌아가는지 확인할 때만 쓰세요.",
   }[source]), [source]);
@@ -161,7 +170,7 @@ export default function Page() {
       <header className="top">
         <h1>KOSPI 백테스트</h1>
         <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 30%</p>
-        <a href="/trade" style={{ marginLeft: "auto", fontSize: 13 }}>한국투자증권 주문·잔고 →</a>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">
