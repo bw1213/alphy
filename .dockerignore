@@ -10,3 +10,5 @@ nas
 !data/csv/README.md
 Dockerfile
 docker-compose.yml
+.env
+.env.*

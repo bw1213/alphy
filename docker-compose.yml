@@ -11,6 +11,16 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       - TZ=Asia/Seoul
+      # 한국투자증권 Open API — 값은 같은 폴더의 .env 파일에 넣습니다 (.env.example 참고, 저장소에 올리지 마세요)
+      - KIS_REAL_APP_KEY=${KIS_REAL_APP_KEY:-}
+      - KIS_REAL_APP_SECRET=${KIS_REAL_APP_SECRET:-}
+      - KIS_REAL_ACCOUNT=${KIS_REAL_ACCOUNT:-}
+      - KIS_MOCK_APP_KEY=${KIS_MOCK_APP_KEY:-}
+      - KIS_MOCK_APP_SECRET=${KIS_MOCK_APP_SECRET:-}
+      - KIS_MOCK_ACCOUNT=${KIS_MOCK_ACCOUNT:-}
+      - KIS_TRADE_ENV=${KIS_TRADE_ENV:-mock}
+      - KIS_ALLOW_REAL_ORDERS=${KIS_ALLOW_REAL_ORDERS:-}
+      - TRADE_API_TOKEN=${TRADE_API_TOKEN:-}
     volumes:
-      - ./nas/cache:/app/.cache       # 네이버 시세 캐시 (하루 단위)
+      - ./nas/cache:/app/.cache       # 시세 캐시(하루 단위)·KIS 접근토큰
       - ./nas/csv:/app/data/csv       # 내 CSV 데이터 ({종목코드}.csv, KOSPI.csv)
