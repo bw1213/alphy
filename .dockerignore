@@ -1,0 +1,12 @@
+node_modules
+.next
+.cache
+.git
+python
+docs
+tests
+nas
+*.md
+!data/csv/README.md
+Dockerfile
+docker-compose.yml

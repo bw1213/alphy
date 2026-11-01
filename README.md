@@ -13,6 +13,8 @@ npm run build && npm start
 npm test             # 엔진 테스트 (11개)
 ```
 
+**Synology NAS / Docker:** `docker compose up -d --build` → http://NAS-IP:3000. 자세한 순서는 [docs/synology.md](docs/synology.md).
+
 ## 화면 구성
 - **전략**: 기본 제공 3개(모멘텀+시장필터, 이동평균 정배열, RSI 과매도 반등) 중 선택하고 파라미터 조절
 - **내 전략**: JavaScript 코드로 직접 작성. "이 전략의 코드를 열어 직접 수정하기"로 기본 전략을 복사해서 시작할 수 있고, 브라우저에 저장됩니다
