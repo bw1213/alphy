@@ -3,7 +3,6 @@ import { credentialsFor, parseAccount, quoteCredentials, tradeCredentials, kisSt
 import { KisClient } from "@/lib/kis/client";
 import { kisDaily, parseIndexDaily, parseStockDaily, prevDay } from "@/lib/kis/market";
 import { getBalance, orderBody, orderTrId, placeOrder, validateOrder } from "@/lib/kis/trading";
-import { checkTradeToken } from "@/lib/kis/auth";
 
 const mockEnv = { KIS_MOCK_APP_KEY: "mk", KIS_MOCK_APP_SECRET: "ms", KIS_MOCK_ACCOUNT: "50012345-01" };
 const noSleep = async () => {};
@@ -148,12 +147,5 @@ describe("kis trading", () => {
     expect(b.holdings.map((h) => h.code)).toEqual(["005930", "000660"]);
     expect(b.cash).toBe(1_000_000);
     expect(b.totalValue).toBe(1_002_200);
-  });
-  it("주문 API 비밀번호", () => {
-    const req = (t?: string) => new Request("http://x/api/kis/order", { headers: t ? { "x-trade-token": t } : {} });
-    expect(checkTradeToken(req("a"), {})?.[0]).toBe(403);
-    expect(checkTradeToken(req("wrong"), { TRADE_API_TOKEN: "secret" })?.[0]).toBe(401);
-    expect(checkTradeToken(req(), { TRADE_API_TOKEN: "secret" })?.[0]).toBe(401);
-    expect(checkTradeToken(req("secret"), { TRADE_API_TOKEN: "secret" })).toBeNull();
   });
 });

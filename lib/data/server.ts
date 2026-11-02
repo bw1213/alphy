@@ -53,7 +53,7 @@ async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" =
 /** 한국투자증권 일봉 (오늘까지 받아 캐시, 요청 구간은 호출부에서 자름) */
 function kisFetcher(): DailyFetcher {
   const cred = quoteCredentials();
-  if (!cred) throw new Error("한국투자증권 앱키가 설정되지 않았습니다. KIS_REAL_APP_KEY/KIS_REAL_APP_SECRET 또는 KIS_MOCK_APP_KEY/KIS_MOCK_APP_SECRET 환경변수를 넣고 컨테이너를 다시 시작하세요.");
+  if (!cred) throw new Error("한국투자증권 앱키가 설정되지 않았습니다. 설정 화면(/settings)에서 실전 또는 모의투자 앱키·앱시크릿을 넣으세요.");
   const client = getClient(cred);
   const end = today();
   return (symbol, start) => symbol === "KOSPI" ? kisIndexDaily(client, start, end) : kisDaily(client, symbol, start, end);

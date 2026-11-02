@@ -1,6 +1,6 @@
 /**
  * KIS 주문·잔고 (서버 전용). 기본은 모의투자 계좌.
- * 실전 주문은 KIS_TRADE_ENV=real + KIS_ALLOW_REAL_ORDERS=yes 둘 다 있어야만 나갑니다 (config.tradeCredentials).
+ * 실전 주문은 주문 대상=실전(설정 화면) + KIS_ALLOW_REAL_ORDERS=yes(환경변수) 둘 다 있어야만 나갑니다 (config.tradeCredentials).
  */
 import type { KisClient } from "./client";
 

@@ -16,12 +16,12 @@ NAS에서 빌드하지 않고, 공유기 포트를 열 필요도 없습니다. �
 ## 2. NAS 쪽 (처음 한 번)
 1. File Station → `docker` 공유 폴더 안에 `kospi-backtest` 폴더 생성
 2. 저장소의 `docker-compose.yml` 하나만 그 폴더에 업로드 (소스 코드 전체는 필요 없음)
-3. 한국투자증권을 쓸 거면 `.env.example`을 `.env`로 이름을 바꿔 값을 채워서 같은 폴더에 업로드 ([kis.md](kis.md))
-4. 같은 폴더 안에 `nas/cache`, `nas/csv` 폴더 생성
-5. Container Manager → **프로젝트** → **생성**
+3. 같은 폴더 안에 `nas/cache`, `nas/csv` 폴더 생성
+4. Container Manager → **프로젝트** → **생성**
    - 프로젝트 이름: `kospi-backtest`, 경로: `/docker/kospi-backtest`
    - 소스: **기존 docker-compose.yml 사용** → **완료**
-6. 컨테이너 두 개(`kospi-backtest`, `kospi-watchtower`)가 실행되면 `http://NAS-IP:3000` 접속
+5. 컨테이너 두 개(`kospi-backtest`, `kospi-watchtower`)가 실행되면 `http://NAS-IP:3000` 접속
+6. 한국투자증권 앱키 등은 `http://NAS-IP:3000/settings`에서 넣습니다 ([kis.md](kis.md) 2번)
 
 이후 main에 머지할 때마다 5~10분 안에 NAS에 자동 반영됩니다. 확인: Container Manager → 컨테이너 → `kospi-watchtower` → 로그에 `Found new ghcr.io/bw1213/alphy:latest image`.
 
@@ -37,7 +37,7 @@ sudo docker login ghcr.io -u bw1213        # 비밀번호 자리에 토큰
 
 | NAS 폴더 | 용도 |
 |---|---|
-| `/docker/kospi-backtest/nas/cache` | 네이버 시세 캐시(하루 단위). 지워도 다시 받아옵니다 |
+| `/docker/kospi-backtest/nas/cache` | `config/`: 설정 화면에서 저장한 값(앱키 등). **지우지 마세요.** 나머지는 시세 캐시(하루 단위)라 지워도 다시 받아옵니다 |
 | `/docker/kospi-backtest/nas/csv` | '내 CSV 파일' 데이터. `005930.csv`, `KOSPI.csv`처럼 넣으면 바로 반영 |
 
 ### 권한 오류가 나면
@@ -46,9 +46,14 @@ sudo docker login ghcr.io -u bw1213        # 비밀번호 자리에 토큰
 - SSH에서 `id` 를 실행해 내 uid/gid를 확인하고 `docker-compose.yml`의 `user:` 값을 바꾸거나,
 - File Station → `nas` 폴더 → 속성 → 권한에서 Everyone에 읽기/쓰기를 줍니다.
 
-### 한국투자증권 앱키
-`/docker/kospi-backtest/.env` 파일에 넣습니다 (`.env.example` 참고). 자세한 내용은 [kis.md](kis.md).
-`.env`는 업데이트할 때 덮어쓰지 않도록 주의하세요.
+### 한국투자증권 앱키·설정
+웹 화면 `/settings`에서 넣습니다. 자세한 내용은 [kis.md](kis.md).
+`.env`는 실전 주문 잠금 해제(`KIS_ALLOW_REAL_ORDERS`)를 쓸 때만 필요합니다 (`.env.example` 참고).
+
+### 예전 버전에서 넘어올 때
+예전 `docker-compose.yml`에는 `KIS_TRADE_ENV=${KIS_TRADE_ENV:-mock}`가 있어서 화면의 주문 대상이 모의투자로 고정(🔒)됩니다.
+NAS의 `docker-compose.yml`을 새 파일로 바꾸고 프로젝트를 다시 시작한 뒤, `.env`에 있던 앱키를 설정 화면에 옮겨 넣으세요.
+(그대로 둬도 `.env` 값으로 계속 동작합니다. `TRADE_API_TOKEN`은 관리자 비밀번호로 쓰입니다)
 
 ## 4. 업데이트
 자동입니다. main에 머지 → Actions 빌드(3~5분) → Watchtower 반영(최대 5분).
@@ -67,7 +72,7 @@ sudo docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --bu
 3000번을 다른 서비스가 쓰고 있으면 `docker-compose.yml`의 `"${PORT:-3000}:3000"` 앞쪽 숫자를 바꿉니다. 예: `"3100:3000"` → `http://NAS-IP:3100`
 
 ## 6. 밖에서 접속하기 (선택)
-**이 앱에는 로그인 기능이 없습니다.** 인터넷에 그대로 열면 누구나 쓸 수 있고, 네이버 시세 요청도 내 NAS에서 나갑니다.
+설정 화면과 주문·잔고는 관리자 비밀번호로 잠겨 있지만, **백테스트 화면은 로그인 없이 열립니다.** 인터넷에 그대로 열면 누구나 쓸 수 있고, 네이버 시세 요청도 내 NAS에서 나갑니다.
 안전한 순서대로:
 
 1. **VPN / Tailscale (권장)** — 패키지 센터의 Tailscale 또는 VPN Server를 쓰면 포트를 열지 않고 밖에서 `http://NAS-IP:3000`에 접속할 수 있습니다.

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { checkTradeToken } from "@/lib/kis/auth";
+import { requireAdmin } from "@/lib/settings/auth";
 import { tradeCredentials } from "@/lib/kis/config";
 import { getClient } from "@/lib/kis/client";
 import { placeOrder, validateOrder } from "@/lib/kis/trading";
@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const denied = checkTradeToken(req);
+  const denied = requireAdmin(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   let order;
   try { order = validateOrder(await req.json()); }
