@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
   const [keys, setKeys] = useState<Record<Env, KeyForm>>({ real: emptyKeys(), mock: emptyKeys() });
   const [bt, setBt] = useState({ source: "naver" as DataSource, cash: "", commission: "", slippage: "", sellTax: "", universeSize: "" });
+  const [limit, setLimit] = useState({ perOrder: "", perDay: "" });
   const [realConfirm, setRealConfirm] = useState(false);
   const [pw, setPw] = useState({ current: "", next: "", next2: "" });
   const [error, setError] = useState("");
@@ -28,6 +29,7 @@ export default function SettingsPage() {
   const applyView = (v: SettingsView) => {
     setView(v);
     const b = v.backtest;
+    setLimit({ perOrder: String(v.orderLimit.perOrder), perDay: String(v.orderLimit.perDay) });
     setBt({ source: b.source, cash: String(b.cash), commission: String(b.commission), slippage: String(b.slippage), sellTax: b.sellTax == null ? "" : String(b.sellTax), universeSize: String(b.universeSize) });
   };
 
@@ -157,6 +159,16 @@ export default function SettingsPage() {
             실전 주문은 여기서 &apos;실전&apos;을 고르고, <b>NAS의 .env 에 KIS_ALLOW_REAL_ORDERS=yes</b> 까지 넣어야 나갑니다.
             비밀번호가 새더라도 실제 돈이 나가지 않도록 이 잠금만은 화면에서 풀 수 없게 했습니다.
           </p>
+          <h2 style={{ marginTop: 16 }}>실전 주문 금액 상한</h2>
+          <div className="row">
+            <label className="f">1회 주문 상한(원)<input type="number" min={0} value={limit.perOrder} onChange={(e) => setLimit({ ...limit, perOrder: e.target.value })} /></label>
+            <label className="f">하루 합계 상한(원)<input type="number" min={0} value={limit.perDay} onChange={(e) => setLimit({ ...limit, perDay: e.target.value })} /></label>
+          </div>
+          <p className="help">실전 주문에만 적용됩니다(모의투자는 제한 없음). 실수로 큰 주문이 나가는 걸 막는 장치이고, 0 을 넣으면 제한이 없습니다. 하루 합계는 매수·매도 주문 금액을 모두 더합니다.</p>
+          <button style={{ marginTop: 10 }} onClick={() => {
+            if (limit.perOrder.trim() === "" || limit.perDay.trim() === "") return setError("상한 금액을 넣으세요. 제한을 없애려면 0 을 넣습니다.");
+            save({ kis: { orderLimit: { perOrder: Number(limit.perOrder), perDay: Number(limit.perDay) } } }, "주문 금액 상한을 저장했습니다");
+          }}>저장</button>
         </div>
 
         <div className="card">
@@ -202,7 +214,7 @@ export default function SettingsPage() {
             <thead><tr><th>항목</th><th>어디서</th><th>이유</th></tr></thead>
             <tbody>
               <tr><td>앱키·앱시크릿·계좌번호</td><td>화면</td><td>NAS 안의 파일(<code>nas/cache/config/settings.json</code>, 권한 600)에 저장되어 .env 파일과 보안 수준이 같습니다. 화면에는 다시 보여주지 않고(끝 4자리만) 바꾸거나 지우기만 됩니다.</td></tr>
-              <tr><td>주문 대상(모의/실전), 백테스트 기본값</td><td>화면</td><td>자주 바꾸고 비밀값이 아닙니다.</td></tr>
+              <tr><td>주문 대상(모의/실전), 실전 주문 금액 상한, 백테스트 기본값</td><td>화면</td><td>자주 바꾸고 비밀값이 아닙니다.</td></tr>
               <tr><td>관리자 비밀번호</td><td>화면</td><td>scrypt 해시로만 저장합니다. 처음 만들 때는 컨테이너 로그에 나온 설정 코드가 있어야 해서, 남이 먼저 접속해 비밀번호를 정할 수 없습니다.</td></tr>
               <tr><td><b>실전 주문 잠금 해제</b> (KIS_ALLOW_REAL_ORDERS)</td><td>.env 만</td><td>화면 비밀번호가 새거나 브라우저가 털려도 실제 돈이 나가지 않게, NAS 파일에 손댈 수 있는 사람만 풀 수 있게 했습니다.</td></tr>
               <tr><td>포트, 실행 사용자(PUID/PGID)</td><td>docker-compose</td><td>컨테이너가 뜨기 전에 정해져야 하는 값이라 앱이 바꿀 수 없습니다.</td></tr>

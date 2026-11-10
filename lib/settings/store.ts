@@ -32,9 +32,14 @@ export interface BacktestDefaults {
   universeSize: number;
 }
 
+/** 실전 주문 금액 상한(원). 0 = 제한 없음 */
+export interface OrderLimit { perOrder: number; perDay: number }
+
+export const DEFAULT_ORDER_LIMIT: OrderLimit = { perOrder: 1_000_000, perDay: 5_000_000 };
+
 export interface Settings {
   version: 1;
-  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName };
+  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit };
   backtest: BacktestDefaults;
   auth: { passwordHash?: string; sessionSecret?: string; setupCode?: string };
 }
@@ -45,7 +50,7 @@ export const DEFAULT_BACKTEST: BacktestDefaults = {
 
 export const defaultSettings = (): Settings => ({
   version: 1,
-  kis: { real: {}, mock: {}, tradeEnv: "mock" },
+  kis: { real: {}, mock: {}, tradeEnv: "mock", orderLimit: { ...DEFAULT_ORDER_LIMIT } },
   backtest: { ...DEFAULT_BACKTEST },
   auth: {},
 });
@@ -68,6 +73,7 @@ function merge(raw: Partial<Settings> | null): Settings {
       real: { ...(raw.kis?.real ?? {}) },
       mock: { ...(raw.kis?.mock ?? {}) },
       tradeEnv: raw.kis?.tradeEnv === "real" ? "real" : "mock",
+      orderLimit: { ...d.kis.orderLimit, ...(raw.kis?.orderLimit ?? {}) },
     },
     backtest: { ...d.backtest, ...(raw.backtest ?? {}) },
     auth: { ...(raw.auth ?? {}) },

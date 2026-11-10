@@ -116,3 +116,58 @@ describe("admin auth", () => {
     expect(loadSettings(env).kis.tradeEnv).toBe("mock");
   });
 });
+
+import { clientIp, loginBlockedFor, recordFail, resetFails } from "@/lib/settings/auth";
+import { addUsage, checkOrderLimit, kstDate, usedToday } from "@/lib/kis/limits";
+
+describe("로그인 잠금", () => {
+  beforeEach(() => resetFails());
+  it("틀린 주소만 잠기고 다른 주소는 로그인 가능", () => {
+    const now = 1_000_000;
+    for (let k = 0; k < 5; k++) recordFail("1.1.1.1", now + k);
+    expect(loginBlockedFor("1.1.1.1", now + 10)).toBeGreaterThan(0);
+    expect(loginBlockedFor("2.2.2.2", now + 10)).toBe(0);
+    expect(loginBlockedFor("1.1.1.1", now + 11 * 60_000)).toBe(0); // 10분 뒤 풀림
+  });
+  it("주소를 바꿔 가며 틀려도 전체 30번이면 모두 잠김", () => {
+    for (let k = 0; k < 30; k++) recordFail(`10.0.0.${k}`, 1000 + k);
+    expect(loginBlockedFor("9.9.9.9", 2000)).toBeGreaterThan(0);
+  });
+  it("성공하면 그 주소 기록만 지움", () => {
+    for (let k = 0; k < 5; k++) { recordFail("1.1.1.1", 1000); recordFail("2.2.2.2", 1000); }
+    resetFails("1.1.1.1");
+    expect(loginBlockedFor("1.1.1.1", 2000)).toBe(0);
+    expect(loginBlockedFor("2.2.2.2", 2000)).toBeGreaterThan(0);
+  });
+  it("접속 주소는 x-forwarded-for 첫 값", () => {
+    expect(clientIp(new Request("http://nas/", { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } }))).toBe("203.0.113.7");
+    expect(clientIp(new Request("http://nas/"))).toBe("unknown");
+  });
+});
+
+describe("실전 주문 금액 상한", () => {
+  it("기본값이 있고 화면에서 바꿀 수 있음", () => {
+    const s0 = loadSettings(env);
+    expect(s0.kis.orderLimit).toEqual({ perOrder: 1_000_000, perDay: 5_000_000 });
+    expect(applyPatch(s0, { kis: { orderLimit: { perOrder: 300000 } } }).kis.orderLimit).toEqual({ perOrder: 300000, perDay: 5_000_000 });
+    expect(() => applyPatch(s0, { kis: { orderLimit: { perDay: -1 } } })).toThrow(/상한/);
+    expect(settingsView(s0, env).orderLimit.perOrder).toBe(1_000_000);
+  });
+  it("1회·하루 상한을 넘으면 거부, 0 은 제한 없음", () => {
+    const limit = { perOrder: 1_000_000, perDay: 2_000_000 };
+    expect(() => checkOrderLimit(900_000, limit, 0)).not.toThrow();
+    expect(() => checkOrderLimit(1_000_001, limit, 0)).toThrow(/1회 상한/);
+    expect(() => checkOrderLimit(900_000, limit, 1_500_000)).toThrow(/하루 상한/);
+    expect(() => checkOrderLimit(9e9, { perOrder: 0, perDay: 0 }, 9e9)).not.toThrow();
+    expect(() => checkOrderLimit(0, limit, 0)).toThrow(/계산하지 못해/);
+    expect(() => checkOrderLimit(NaN, limit, 0)).toThrow();
+  });
+  it("하루 합계는 한국 날짜가 바뀌면 0부터", () => {
+    const t = Date.parse("2026-11-10T05:00:00Z"); // 한국 14시
+    expect(kstDate(Date.parse("2026-11-10T15:30:00Z"))).toBe("2026-11-11");
+    expect(addUsage(400_000, env, t)).toBe(400_000);
+    expect(addUsage(100_000, env, t)).toBe(500_000);
+    expect(usedToday(env, t)).toBe(500_000);
+    expect(usedToday(env, t + 24 * 3600_000)).toBe(0);
+  });
+});

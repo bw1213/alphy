@@ -49,7 +49,7 @@ export async function fetchTopMarketCap(n: number): Promise<StockInfo[]> {
       for (const r of rows) {
         const s: StockInfo = { code: String(r.itemCode ?? r.code), name: String(r.stockName ?? r.name ?? ""),
           marketCap: Number(String(r.marketValueRaw ?? r.marketValue ?? "").replace(/,/g, "")) || undefined };
-        if (/^\d{6}$/.test(s.code) && isCommon(s)) out.push(s);
+        if (/^[0-9A-Z]{6}$/.test(s.code) && isCommon(s)) out.push(s);
       }
     }
     if (out.length) return out.slice(0, n);
@@ -59,7 +59,7 @@ export async function fetchTopMarketCap(n: number): Promise<StockInfo[]> {
 
 export function parseMarketSumHtml(html: string): StockInfo[] {
   const out: StockInfo[] = [];
-  const re = /\/item\/main\.naver\?code=(\d{6})"[^>]*class="tltle"[^>]*>([^<]+)<\/a>/g;
+  const re = /\/item\/main\.naver\?code=([0-9A-Z]{6})"[^>]*class="tltle"[^>]*>([^<]+)<\/a>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) out.push({ code: m[1], name: m[2].trim() });
   return out;

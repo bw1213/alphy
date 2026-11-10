@@ -10,7 +10,7 @@ npm install
 npm run dev          # 개발 모드 → http://localhost:3000
 # 또는
 npm run build && npm start
-npm test             # 엔진·KIS·설정 테스트 (35개)
+npm test             # 엔진·데이터·KIS·설정 테스트
 ```
 
 **한국투자증권 API:** 시세 수집과 모의투자 주문·잔고(`/trade`). 앱키·주문 대상·백테스트 기본값은 웹 설정 화면(`/settings`)에서 넣습니다 → [docs/kis.md](docs/kis.md)
@@ -38,7 +38,7 @@ return ctx.equal(ctx.topBy((t) => ctx.ret(t, 20), p.k));
 ## 데이터
 | 소스 | 설명 |
 |---|---|
-| 네이버 증권 | 일봉(수정주가)과 KOSPI 시총 순위. `.cache/`에 하루 동안 캐시 |
+| 네이버 증권 | 일봉(수정주가)과 KOSPI 시총 순위. `.cache/`에 저장하고 새 날짜만 이어 받음 |
 | 한국투자증권 API | 일봉(수정주가)·KOSPI 지수. 앱키 필요, 시총 순위는 네이버 사용 ([docs/kis.md](docs/kis.md)) |
 | 내 CSV | `data/csv/{종목코드}.csv`, 지수는 `KOSPI.csv` |
 | 가짜 데이터 | 랜덤 데이터. 코드 동작 확인용 |
