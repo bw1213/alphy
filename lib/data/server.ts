@@ -40,13 +40,51 @@ async function writeJson(p: string, v: unknown) {
 
 type DailyFetcher = (symbol: string, start: string) => Promise<Bar[]>;
 
-async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" = "naver", fetcher: DailyFetcher = fetchDaily): Promise<Bar[]> {
-  const p = path.join(CACHE, src, `${symbol}.json`);
-  const c = await readJson<{ fetched: string; bars: Bar[] }>(p);
-  // 오늘 받은 캐시이고 시작일을 덮으면 재사용 (첫 데이터가 시작일보다 늦으면 신규상장 종목일 수 있으므로 그대로 사용)
-  if (c && c.fetched === today() && c.bars.length && (c.bars[0].date <= start || c.bars.length > 200)) return c.bars;
-  const bars = await fetcher(symbol, start);
-  await writeJson(p, { fetched: today(), bars });
+interface DailyCache { fetched: string; from?: string; bars: Bar[] }
+
+const minusDays = (iso: string, n: number) => new Date(Date.parse(iso) - n * 864e5).toISOString().slice(0, 10);
+
+/** 겹치는 날짜의 종가가 같으면(수정주가가 안 바뀌었으면) 이어 붙여도 안전 */
+export function sameHistory(oldBars: Bar[], fresh: Bar[]): boolean {
+  const m = new Map(oldBars.map((b) => [b.date, b.close]));
+  let seen = 0;
+  for (const b of fresh) {
+    const c = m.get(b.date);
+    if (c === undefined) continue;
+    seen++;
+    if (Math.abs(c - b.close) > Math.max(1e-6, Math.abs(c) * 1e-4)) return false;
+  }
+  return seen > 0;
+}
+
+/**
+ * 일봉 캐시.
+ * - 캐시에 '요청했던 시작일(from)'을 같이 저장해서, 더 앞선 기간을 요청하면 처음부터 다시 받는다
+ *   (캐시의 첫 날짜가 늦은 게 신규상장 때문인지, 짧게 받아서인지 구분하기 위함)
+ * - 오늘 받은 캐시면 그대로, 예전 캐시면 마지막 날짜 근처부터만 받아 이어 붙인다.
+ *   액면분할·배당 등으로 수정주가가 바뀌었으면(겹치는 날 종가가 다르면) 전체를 다시 받는다
+ */
+export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
+  const p = path.join(cacheDir, src, `${symbol}.json`);
+  const c = await readJson<DailyCache>(p);
+  const covers = !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) <= start;
+  if (c && covers) {
+    if (c.fetched === today()) return c.bars;
+    try {
+      const overlapFrom = minusDays(c.bars[c.bars.length - 1].date, 10);
+      const fresh = await fetcher(symbol, overlapFrom);
+      if (sameHistory(c.bars, fresh)) {
+        const byDate = new Map(c.bars.map((b) => [b.date, b]));
+        for (const b of fresh) byDate.set(b.date, b);
+        const bars = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+        await writeJson(p, { fetched: today(), from: c.from ?? c.bars[0].date, bars } satisfies DailyCache);
+        return bars;
+      }
+    } catch { /* 이어 받기 실패 → 아래에서 전체 다시 */ }
+  }
+  const from = c?.from && c.from < start ? c.from : start;
+  const bars = await fetcher(symbol, from);
+  await writeJson(p, { fetched: today(), from, bars } satisfies DailyCache);
   return bars;
 }
 

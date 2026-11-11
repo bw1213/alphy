@@ -91,14 +91,26 @@ export function cookieHeader(req: Request, value: string, maxAge: number): strin
 }
 
 // ── 로그인 시도 제한 (프로세스 메모리) ──
-const MAX_FAILS = 5, WINDOW_MS = 10 * 60_000;
-let fails: number[] = [];
-export function loginBlockedFor(now = Date.now()): number {
-  fails = fails.filter((t) => now - t < WINDOW_MS);
-  return fails.length >= MAX_FAILS ? WINDOW_MS - (now - fails[0]) : 0;
+// 접속 주소(IP)별로 5번 틀리면 10분 잠금. 남이 계속 틀려도 내 로그인은 막히지 않는다.
+// IP 는 헤더로 속일 수 있으므로, 전체 합계가 30번을 넘으면 모두 잠근다(무차별 대입 방지).
+const MAX_FAILS = 5, MAX_FAILS_TOTAL = 30, WINDOW_MS = 10 * 60_000;
+let fails: { t: number; ip: string }[] = [];
+
+/** 프록시가 넣어 준 접속 주소. 없으면 모두 같은 주소로 취급 */
+export function clientIp(req: Request): string {
+  const xff = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return (xff || req.headers.get("x-real-ip")?.trim() || "unknown").slice(0, 64);
 }
-export function recordFail(now = Date.now()) { fails.push(now); }
-export function resetFails() { fails = []; }
+
+export function loginBlockedFor(ip = "unknown", now = Date.now()): number {
+  fails = fails.filter((f) => now - f.t < WINDOW_MS);
+  if (fails.length >= MAX_FAILS_TOTAL) return WINDOW_MS - (now - fails[fails.length - MAX_FAILS_TOTAL].t);
+  const mine = fails.filter((f) => f.ip === ip);
+  return mine.length >= MAX_FAILS ? WINDOW_MS - (now - mine[mine.length - MAX_FAILS].t) : 0;
+}
+export function recordFail(ip = "unknown", now = Date.now()) { fails.push({ t: now, ip }); }
+/** 로그인 성공: 그 주소의 실패 기록만 지움 (ip 를 안 주면 전부) */
+export function resetFails(ip?: string) { fails = ip === undefined ? [] : fails.filter((f) => f.ip !== ip); }
 
 /** 비밀번호 저장 (처음 설정 또는 변경). 서명 키도 바꿔서 기존 로그인을 모두 끊음 */
 export function setPassword(pw: string, e: Env = process.env) {
