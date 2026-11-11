@@ -58,7 +58,7 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string } | null>(null);
+  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string } | null>(null);
   const dataCache = useRef<Map<string, DataResponse>>(new Map());
 
   const selectStrategy = (id: string) => {
@@ -149,7 +149,7 @@ export default function Page() {
         },
       });
       if (res.equity.length < 2) throw new Error("평가 구간 데이터가 부족합니다. 기간을 확인하세요.");
-      setOut({ res, s: summarize(res), names: data.names, label });
+      setOut({ res, s: summarize(res), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략") });
     } catch (e) {
       setError((e as Error).message);
     } finally {

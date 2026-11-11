@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Balance, OrderResult, OrderType, Side } from "@/lib/kis/trading";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
+import RebalancePlan from "@/components/RebalancePlan";
 
 interface Status {
   quotes: "real" | "mock" | null;
@@ -164,6 +165,7 @@ export default function TradePage() {
               </>
             )}
           </div>
+          <RebalancePlan env={env} loggedIn={!!auth?.loggedIn} onLog={(l) => setLog((x) => [l, ...x])} onDone={loadBalance} />
           {log.length > 0 && (
             <div className="card">
               <h2>이번 세션 주문 기록</h2>

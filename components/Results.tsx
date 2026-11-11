@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { drawdown, TARGET_CAGR, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult } from "@/lib/engine/types";
+import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
 
 const pct = (x: number | null | undefined, d = 1) =>
   x == null || !Number.isFinite(x) ? "–" : `${(x * 100).toFixed(d)}%`;
@@ -46,11 +47,11 @@ function Tip({ active, payload, label, fmt }: any) {
   );
 }
 
-export default function Results({ res, s, names, label }: {
-  res: BacktestResult; s: Summary; names: Record<string, string>; label: string;
+export default function Results({ res, s, names, label, title }: {
+  res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title?: string;
 }) {
   const c = useColors();
-  const [tab, setTab] = useState<"annual" | "trades" | "positions">("annual");
+  const [tab, setTab] = useState<"signal" | "annual" | "trades" | "positions">("annual");
   const [log, setLog] = useState(true);
 
   const series = useMemo(() => {
@@ -146,10 +147,52 @@ export default function Results({ res, s, names, label }: {
 
       <div className="card">
         <div className="tabs">
+          <button className={tab === "signal" ? "on" : ""} onClick={() => setTab("signal")}>추천 종목{res.signal ? ` (${res.signal.picks.length})` : ""}</button>
           <button className={tab === "annual" ? "on" : ""} onClick={() => setTab("annual")}>연도별 수익률</button>
           <button className={tab === "trades" ? "on" : ""} onClick={() => setTab("trades")}>매매 내역 ({res.trades.length})</button>
           <button className={tab === "positions" ? "on" : ""} onClick={() => setTab("positions")}>현재 보유 ({res.finalPositions.length})</button>
         </div>
+
+        {tab === "signal" && (
+          !res.signal ? <p className="help">데이터가 모자라 추천 종목을 계산하지 못했습니다(워밍업 기간 부족).</p> : (
+            <>
+              <p className="help">
+                <b>{res.signal.date}</b> 종가까지의 데이터로 이 전략이 고른 종목과 비중입니다. 다음 거래일에 이 비중으로 맞춘다는 뜻이고, 리밸런싱 주기와 상관없이 &quot;오늘 새로 시작한다면&quot; 기준으로 계산합니다.
+                {res.signal.kept && " 전략이 '이번엔 매매 안 함'을 돌려줘서 백테스트상 보유 종목을 그대로 보여 줍니다."}
+                {res.signal.date >= new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10) && " 오늘 장이 끝나기 전이면 마지막 봉이 장중 가격이라 장 마감 후 결과와 다를 수 있습니다."}
+              </p>
+              {res.signal.picks.length === 0 ? <p className="help"><b>전량 현금</b>: 지금은 조건에 맞는 종목이 없거나 시장 필터에 걸렸습니다.</p> : (
+                <div className="tablewrap">
+                  <table>
+                    <thead><tr><th className="l">종목</th><th>목표 비중</th><th>기준일 종가</th><th>백테스트 초기 자금 기준 금액</th></tr></thead>
+                    <tbody>
+                      {res.signal.picks.map((p) => (
+                        <tr key={p.ticker}>
+                          <td className="l">{names[p.ticker] ?? p.ticker} <span className="help">{p.ticker}</span></td>
+                          <td>{pct(p.weight)}</td>
+                          <td>{Math.round(p.close).toLocaleString()}</td>
+                          <td>{won(s.initial * p.weight)}</td>
+                        </tr>
+                      ))}
+                      <tr><td className="l">현금</td><td>{pct(Math.max(0, 1 - res.signal.picks.reduce((a, p) => a + p.weight, 0)))}</td><td></td><td></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="btns" style={{ marginTop: 10 }}>
+                <button className="primary" onClick={() => {
+                  const sig: SavedSignal = {
+                    date: res.signal!.date, label: title || label, savedAt: new Date().toISOString(),
+                    picks: res.signal!.picks.map((p) => ({ ...p, name: names[p.ticker] ?? p.ticker })),
+                  };
+                  try { localStorage.setItem(SIGNAL_KEY, JSON.stringify(sig)); } catch { /* 저장 불가 환경 */ }
+                  window.location.href = "/trade#plan";
+                }}>이 비중으로 주문 목록 만들기 →</button>
+              </div>
+              <p className="help">주문 화면에서 내 잔고와 비교해 살 종목·팔 종목 목록을 만듭니다. 목록을 확인하고 실행을 눌러야 주문이 나갑니다. 과거 성과가 미래 수익을 보장하지 않습니다.</p>
+            </>
+          )
+        )}
 
         {tab === "annual" && (
           <>

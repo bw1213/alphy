@@ -8,7 +8,7 @@
  */
 import { buildPanel, StrategyContext, type Panel } from "./context";
 import { DEFAULT_COSTS, sellTax } from "./costs";
-import type { BacktestResult, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Trade, Weights } from "./types";
+import type { BacktestResult, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Signal, Trade, Weights } from "./types";
 
 export type TargetFn = (ctx: StrategyContext) => Weights | null | undefined;
 
@@ -63,6 +63,16 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   const equity: EquityPoint[] = [];
   let pending: Weights | null = null;
   let forced = new Map<string, Trade["reason"]>();
+  let signal: Signal | null = null;
+
+  /** 전략이 돌려준 비중 정리: 유니버스 밖·0 이하 제거, 합이 1 을 넘으면 비례 축소 */
+  const cleanWeights = (w: Weights): Weights => {
+    const clean: Weights = {};
+    for (const [t, x] of Object.entries(w)) if (Number.isFinite(x) && x > 0 && P.index.has(t)) clean[t] = x;
+    const s = Object.values(clean).reduce((a, b) => a + b, 0);
+    if (s > 1 + 1e-9) for (const t in clean) clean[t] /= s;
+    return clean;
+  };
 
   const col = (t: string) => P.index.get(t)!;
 
@@ -136,7 +146,20 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     const eq = cash + invested;
     equity.push({ date: d, equity: eq, cash, invested, benchmark: P.bench ? P.bench[i] : null });
 
-    if (i === N - 1) break;
+    if (i === N - 1) {
+      // 마지막 날: 리밸런싱 주기와 상관없이 "지금 전략이 고르는 종목"을 계산 (추천 종목용, 체결은 없음)
+      if (i + 1 >= st.warmup) {
+        const w = opt.strategy(new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names));
+        const weights = w ? cleanWeights(w)
+          : Object.fromEntries(Object.entries(pos).map(([t, q]) => [t, eq > 0 ? (q * P.closeFilled[col(t)][i]) / eq : 0]));
+        signal = {
+          date: d, kept: !w,
+          picks: Object.entries(weights).map(([t, weight]) => ({ ticker: t, weight, close: P.closeFilled[col(t)][i] }))
+            .sort((a, b) => b.weight - a.weight),
+        };
+      }
+      break;
+    }
 
     // ---------- 3) 장 마감 후 신호 ----------
     if (st.stopLoss || st.takeProfit) {
@@ -150,10 +173,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       const ctx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names);
       const w = opt.strategy(ctx);
       if (w) {
-        const clean: Weights = {};
-        for (const [t, x] of Object.entries(w)) if (Number.isFinite(x) && x > 0 && P.index.has(t)) clean[t] = x;
-        const s = Object.values(clean).reduce((a, b) => a + b, 0);
-        if (s > 1 + 1e-9) for (const t in clean) clean[t] /= s;
+        const clean = cleanWeights(w);
         pending = clean;
         for (const t in clean) forced.delete(t); // 새 목표에 포함되면 리밸런싱 규칙을 따름
       }
@@ -167,6 +187,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     equity: equity.slice(Math.max(0, Math.min(startIdx, Math.max(0, equity.length - 1)))),
     trades: trades.filter((t) => !opt.startDate || t.date >= opt.startDate),
     finalPositions,
+    signal,
   };
 }
 
