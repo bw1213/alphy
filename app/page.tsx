@@ -9,7 +9,7 @@ import type { DataResponse, Source } from "@/lib/data/server";
 import { paramVariants, summarizeSensitivity, type SensitivityResult, type SensitivityRow } from "@/lib/engine/validate";
 import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Params } from "@/lib/strategies";
 
-interface SavedStrategy { name: string; code: string; params: string; rebalance: Rebalance; stopLoss: string; takeProfit: string; warmup: number }
+import type { SavedStrategy } from "@/lib/strategies/library";
 const LS_KEY = "kbt.custom-strategies";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -32,8 +32,17 @@ export default function Page() {
   const [code, setCode] = useState(CUSTOM_TEMPLATE);
   const [customParams, setCustomParams] = useState(CUSTOM_PARAMS);
   const [customName, setCustomName] = useState("내 전략");
-  const [saved, setSaved] = useState<SavedStrategy[]>([]);
-  useEffect(() => setSaved(loadSaved()), []);
+  // 내 전략: NAS 에 저장된 것(어느 기기에서나 보임) + 이 브라우저에만 있는 것
+  const [onNas, setOnNas] = useState<SavedStrategy[]>([]);
+  const [local, setLocal] = useState<SavedStrategy[]>([]);
+  const [stratMsg, setStratMsg] = useState("");
+  const saved = useMemo(() => [...onNas, ...local.filter((l) => !onNas.some((s) => s.name === l.name))], [onNas, local]);
+  const isLocalOnly = (name: string) => !onNas.some((s) => s.name === name);
+  useEffect(() => {
+    setLocal(loadSaved());
+    fetch("/api/strategies", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])).then((l) => Array.isArray(l) && setOnNas(l)).catch(() => { /* 서버 목록 없이 계속 */ });
+  }, []);
+  const [target, setTarget] = useState({ cagr: 15, mdd: 25 });
 
   // 운용 규칙
   const [rebalance, setRebalance] = useState<Rebalance>(STRATEGIES[0].rebalance);
@@ -88,6 +97,7 @@ export default function Page() {
       if (!d) return;
       setSource(d.source); setCash(d.cash); setUniverseSize(d.universeSize);
       setCommission(String(d.commission)); setSlippage(String(d.slippage)); setSellTax(d.sellTax == null ? "" : String(d.sellTax));
+      if (d.targetCagr > 0 && d.maxDrawdown > 0) setTarget({ cagr: d.targetCagr, mdd: d.maxDrawdown });
     }).catch(() => { /* 기본값 그대로 */ });
   }, []);
 
@@ -100,14 +110,50 @@ export default function Page() {
     setSid("custom");
   };
 
-  const saveCustom = () => {
+  const saveCustom = async () => {
     const item: SavedStrategy = { name: customName.trim() || "내 전략", code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
-    const list = [...saved.filter((s) => s.name !== item.name), item];
-    setSaved(list); storeSaved(list); setSid(`saved:${item.name}`);
+    setStratMsg("");
+    const keepLocal = (why: string) => {
+      const list = [...local.filter((s) => s.name !== item.name), item];
+      setLocal(list); storeSaved(list); setStratMsg(why);
+    };
+    try {
+      const r = await fetch("/api/strategies", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item) });
+      const j = await r.json();
+      if (r.ok) {
+        setOnNas(j);
+        const list = local.filter((s) => s.name !== item.name);
+        setLocal(list); storeSaved(list);
+        setStratMsg("NAS에 저장했습니다. 다른 기기에서도 보입니다.");
+      } else if (r.status === 401 || r.status === 403) keepLocal("로그인하지 않아 이 브라우저에만 저장했습니다. 설정 화면에서 로그인한 뒤 다시 저장하면 NAS에 저장됩니다.");
+      else { setStratMsg(j.error ?? `저장 실패 (HTTP ${r.status})`); return; }
+    } catch { keepLocal("서버에 연결하지 못해 이 브라우저에만 저장했습니다."); }
+    setSid(`saved:${item.name}`);
   };
-  const deleteCustom = () => {
-    const list = saved.filter((s) => `saved:${s.name}` !== sid);
-    setSaved(list); storeSaved(list); setSid("custom");
+  const deleteCustom = async () => {
+    const name = sid.replace(/^saved:/, "");
+    setStratMsg("");
+    if (!isLocalOnly(name)) {
+      const r = await fetch(`/api/strategies?name=${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => null);
+      if (!r || !r.ok) { setStratMsg(r && (r.status === 401 || r.status === 403) ? "NAS에 저장된 전략은 설정 화면에서 로그인해야 지울 수 있습니다." : "삭제하지 못했습니다."); return; }
+      setOnNas(await r.json());
+    }
+    const list = local.filter((s) => s.name !== name);
+    setLocal(list); storeSaved(list); setSid("custom");
+  };
+  /** 이 브라우저에만 있는 전략을 모두 NAS 로 */
+  const moveLocalToNas = async () => {
+    setStratMsg("");
+    let last: SavedStrategy[] | null = null;
+    const left: SavedStrategy[] = [];
+    for (const s of local) {
+      const r = await fetch("/api/strategies", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) }).catch(() => null);
+      if (r?.ok) last = await r.json();
+      else { left.push(s); if (r && (r.status === 401 || r.status === 403)) { setStratMsg("설정 화면에서 로그인한 뒤 다시 하세요."); left.push(...local.slice(local.indexOf(s) + 1)); break; } }
+    }
+    if (last) setOnNas(last);
+    setLocal(left); storeSaved(left);
+    if (!left.length) setStratMsg("모두 NAS로 옮겼습니다.");
   };
 
   const isCustom = !builtin;
@@ -156,11 +202,11 @@ export default function Page() {
       const res = exec(p, warmup);
       const warmupOf = builtin ? builtin.warmup : () => warmup;
       rerun.current = { p, run: (pp) => {
-        try { const x = summarize(exec(pp, warmupOf(pp))); return { label: "", cagr: x.cagr, mdd: x.mdd }; }
+        try { const x = summarize(exec(pp, warmupOf(pp)), target.cagr / 100, target.mdd / 100); return { label: "", cagr: x.cagr, mdd: x.mdd }; }
         catch { return { label: "", cagr: NaN, mdd: NaN }; }
       } };
       if (res.equity.length < 2) throw new Error("평가 구간 데이터가 부족합니다. 기간을 확인하세요.");
-      setOut({ res, s: summarize(res), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략") });
+      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략") });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -180,7 +226,7 @@ export default function Page() {
       await new Promise((res) => setTimeout(res, 10));
       rows.push({ ...r.run({ ...r.p, [v.key]: v.value }), label: v.label });
     }
-    return summarizeSensitivity({ label: "지금 설정", cagr: out.s.cagr, mdd: out.s.mdd }, rows);
+    return summarizeSensitivity({ label: "지금 설정", cagr: out.s.cagr, mdd: out.s.mdd }, rows, out.s.target);
   };
 
   const paramSpecs = builtin?.params ?? [];
@@ -195,7 +241,7 @@ export default function Page() {
     <>
       <header className="top">
         <h1>KOSPI 백테스트</h1>
-        <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 30%</p>
+        <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 {target.cagr}%, 최대 낙폭 -{target.mdd}% 이내 (<a href="/settings">설정</a>에서 변경)</p>
         <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
@@ -209,7 +255,7 @@ export default function Page() {
                 </optgroup>
                 <optgroup label="내 전략">
                   <option value="custom">+ 새 전략 직접 작성</option>
-                  {saved.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}</option>)}
+                  {saved.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{isLocalOnly(s.name) ? " (이 브라우저만)" : ""}</option>)}
                 </optgroup>
               </select>
             </label>
@@ -245,9 +291,12 @@ export default function Page() {
                   </label>
                 </div>
                 <div className="btns" style={{ marginTop: 10 }}>
-                  <button onClick={saveCustom}>이 브라우저에 저장</button>
+                  <button onClick={saveCustom}>저장</button>
                   {sid.startsWith("saved:") && <button onClick={deleteCustom}>삭제</button>}
+                  {local.some((l) => isLocalOnly(l.name)) && <button onClick={moveLocalToNas}>이 브라우저의 전략을 NAS로 옮기기</button>}
                 </div>
+                {stratMsg && <p className="help">{stratMsg}</p>}
+                <p className="help">저장한 전략은 NAS에 보관되어 어느 기기에서나 고를 수 있습니다(저장·삭제는 로그인 필요). 같은 이름으로 저장하면 덮어쓰고, 이름을 바꿔 저장하면 사본이 생깁니다.</p>
               </>
             )}
             <h3>운용 규칙</h3>
@@ -329,7 +378,7 @@ export default function Page() {
           {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && (
             <div className="card empty">
               <p><b>왼쪽에서 전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
-              <p>결과로 연평균 수익률, 최대 낙폭, KOSPI 대비 성과, 연도별 30% 달성 여부, 매매 내역을 보여드립니다.</p>
+              <p>결과로 연평균 수익률, 최대 낙폭, KOSPI 대비 성과, 연도별 목표 달성 여부, 매매 내역을 보여드립니다.</p>
             </div>
           )}
         </section>

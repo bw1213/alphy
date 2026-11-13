@@ -30,6 +30,10 @@ export interface BacktestDefaults {
   /** % 단위, null 이면 연도별 법정세율 */
   sellTax: number | null;
   universeSize: number;
+  /** 목표 연평균 수익률 % (15 = 연 15%) */
+  targetCagr: number;
+  /** 감당할 최대 낙폭 % (25 = -25% 까지) */
+  maxDrawdown: number;
 }
 
 /** 실전 주문 금액 상한(원). 0 = 제한 없음 */
@@ -45,7 +49,7 @@ export interface Settings {
 }
 
 export const DEFAULT_BACKTEST: BacktestDefaults = {
-  source: "naver", cash: 10_000_000, commission: 0.015, slippage: 0.1, sellTax: null, universeSize: 100,
+  source: "naver", cash: 10_000_000, commission: 0.015, slippage: 0.1, sellTax: null, universeSize: 100, targetCagr: 15, maxDrawdown: 25,
 };
 
 export const defaultSettings = (): Settings => ({

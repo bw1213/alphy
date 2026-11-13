@@ -1,6 +1,8 @@
 import type { BacktestResult } from "./types";
 
-export const TARGET_CAGR = 0.3; // 프로젝트 목표: 연 30%
+/** 기본 목표: 연 15%, 최대 낙폭 -25% (설정 화면에서 바꿈) */
+export const TARGET_CAGR = 0.15;
+export const MAX_DRAWDOWN = 0.25;
 
 export interface Stats {
   totalReturn: number;
@@ -26,6 +28,11 @@ export interface Summary extends Stats {
   annual: { year: number; ret: number; bench: number | null }[];
   yearsHitTarget: number;
   meetsTarget: boolean;
+  /** 최대 낙폭이 기준 안쪽인지 */
+  withinDrawdown: boolean;
+  /** 판정에 쓴 기준 (0.15 = 연 15%, 0.25 = -25%) */
+  target: number;
+  maxDrawdown: number;
   bench: Stats | null;
 }
 
@@ -71,7 +78,7 @@ export function drawdown(values: number[]): number[] {
   return values.map((v) => { peak = Math.max(peak, v); return v / peak - 1; });
 }
 
-export function summarize(res: BacktestResult): Summary {
+export function summarize(res: BacktestResult, target = TARGET_CAGR, maxDrawdown = MAX_DRAWDOWN): Summary {
   const dates = res.equity.map((e) => e.date);
   const vals = res.equity.map((e) => e.equity);
   const s = stats(dates, vals);
@@ -91,8 +98,10 @@ export function summarize(res: BacktestResult): Summary {
     totalFees: res.trades.reduce((a, t) => a + t.fee, 0),
     exposure: res.equity.reduce((a, e) => a + (e.equity ? e.invested / e.equity : 0), 0) / res.equity.length,
     annual: annualRows,
-    yearsHitTarget: annualRows.filter((r) => r.ret >= TARGET_CAGR).length,
-    meetsTarget: s.cagr >= TARGET_CAGR,
+    yearsHitTarget: annualRows.filter((r) => r.ret >= target).length,
+    meetsTarget: s.cagr >= target,
+    withinDrawdown: s.mdd >= -maxDrawdown,
+    target, maxDrawdown,
     bench: hasBench ? stats(dates, bVals as number[]) : null,
   };
 }

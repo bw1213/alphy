@@ -57,6 +57,24 @@ for (const t of keep) w[t] = ctx.weight(t);
 for (const t of fresh) w[t] = 1 / p.maxPos;
 return w;`;
 
+const breakoutCode = `// 신고가 돌파: 최근 highDays 일 최고 종가의 nearHigh 배 이상인 종목 중 거래대금이 큰 순서로 보유
+// KOSPI 가 marketMa 일선 아래면 새로 사지 않고 전량 현금
+if (p.marketMa && ctx.bench() < ctx.benchSma(p.marketMa)) return {};
+const picks = ctx.topBy(
+  (t) => ctx.tradingValue(t, 20),
+  p.topK,
+  (t) => ctx.close(t) >= ctx.highest(t, p.highDays, "close") * p.nearHigh,
+);
+return ctx.equal(picks);`;
+
+const lowVolCode = `// 저변동성 + 추세: 종가가 trendMa 일선 위인 종목 중 최근 volDays 일 변동성이 가장 낮은 종목
+const picks = ctx.topBy(
+  (t) => -ctx.volatility(t, p.volDays),
+  p.topK,
+  (t) => ctx.close(t) > ctx.sma(t, p.trendMa) && ctx.tradingValue(t, 20) >= p.minValueEok * 1e8,
+);
+return ctx.equal(picks);`;
+
 /** 코드 문자열 → 함수. 브라우저(사용자 본인 PC)에서만 실행된다. */
 export function compileStrategy(code: string): (ctx: StrategyContext, p: Params) => Weights | null | undefined {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -110,6 +128,36 @@ export const STRATEGIES: StrategyDef[] = [
     warmup: (p) => p.trendMa + 1,
     targetWeights: compileStrategy(rsiCode),
     code: rsiCode,
+  },
+  {
+    id: "breakout",
+    name: "신고가 돌파",
+    description: "최근 1년 최고가 근처(95% 이상)에 있는 종목 중 거래대금이 큰 종목을 매주 보유. KOSPI가 120일선 아래면 현금. 손절 -10%.",
+    params: [
+      { key: "highDays", label: "신고가 기간(일)", default: 250, min: 20, max: 500, step: 10 },
+      { key: "nearHigh", label: "신고가 대비 비율", default: 0.95, min: 0.5, max: 1, step: 0.01 },
+      { key: "topK", label: "보유 종목 수", default: 10, min: 1, max: 50 },
+      { key: "marketMa", label: "시장 필터 이평(일, 0=끔)", default: 120, min: 0, max: 300, step: 10 },
+    ],
+    rebalance: "W", stopLoss: 0.1, takeProfit: null,
+    warmup: (p) => Math.max(p.highDays, p.marketMa) + 1,
+    targetWeights: compileStrategy(breakoutCode),
+    code: breakoutCode,
+  },
+  {
+    id: "low_vol",
+    name: "저변동성 + 추세",
+    description: "120일선 위에 있는 종목 중 최근 변동성이 가장 낮은 종목을 매월 보유. 수익은 낮아도 낙폭을 줄이는 쪽.",
+    params: [
+      { key: "volDays", label: "변동성 기간(일)", default: 60, min: 10, max: 250, step: 5 },
+      { key: "trendMa", label: "추세 이평(일)", default: 120, min: 20, max: 300, step: 10 },
+      { key: "topK", label: "보유 종목 수", default: 15, min: 1, max: 50 },
+      { key: "minValueEok", label: "최소 거래대금(억원/일)", default: 5, min: 0, max: 1000 },
+    ],
+    rebalance: "M", stopLoss: null, takeProfit: null,
+    warmup: (p) => Math.max(p.volDays, p.trendMa) + 1,
+    targetWeights: compileStrategy(lowVolCode),
+    code: lowVolCode,
   },
 ];
 

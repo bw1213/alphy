@@ -171,3 +171,68 @@ describe("실전 주문 금액 상한", () => {
     expect(usedToday(env, t + 24 * 3600_000)).toBe(0);
   });
 });
+
+import { cleanStrategy, deleteStrategy, loadStrategies, upsertStrategy } from "@/lib/strategies/library";
+import { summarize } from "@/lib/engine/metrics";
+import { STRATEGIES } from "@/lib/strategies";
+import { runBacktest } from "@/lib/engine/engine";
+import { syntheticData } from "@/lib/data/synthetic";
+
+describe("목표 설정", () => {
+  it("기본 연 15%·낙폭 25%, 화면에서 변경, 예전 설정 파일에도 기본값이 채워짐", () => {
+    updateSettings((s) => { delete (s.backtest as any).targetCagr; delete (s.backtest as any).maxDrawdown; }, env);
+    const s0 = loadSettings(env);
+    expect(s0.backtest).toMatchObject({ targetCagr: 15, maxDrawdown: 25 });
+    expect(applyPatch(s0, { backtest: { targetCagr: 20, maxDrawdown: 30 } }).backtest).toMatchObject({ targetCagr: 20, maxDrawdown: 30 });
+    expect(() => applyPatch(s0, { backtest: { targetCagr: 0 } })).toThrow(/목표 수익률/);
+    expect(() => applyPatch(s0, { backtest: { maxDrawdown: 150 } })).toThrow(/낙폭/);
+  });
+  it("달성 판정이 넘겨준 기준을 따른다", () => {
+    const eq = [100, 80, 120].map((v, k) => ({ date: `202${k}-01-02`, equity: v, cash: v, invested: 0, benchmark: null }));
+    const res = { equity: eq, trades: [], finalPositions: [], signal: null };
+    const a = summarize(res, 0.05, 0.25);
+    expect(a.meetsTarget).toBe(true);       // CAGR 약 9.5%
+    expect(a.withinDrawdown).toBe(true);    // MDD -20%
+    const b = summarize(res, 0.15, 0.1);
+    expect([b.meetsTarget, b.withinDrawdown, b.target, b.maxDrawdown]).toEqual([false, false, 0.15, 0.1]);
+    expect(summarize(res).target).toBe(0.15);
+  });
+});
+
+describe("내 전략 보관함", () => {
+  const item = { name: "내 모멘텀", code: "return {};", params: '{ "k": 5 }', rebalance: "W", stopLoss: "10", takeProfit: "", warmup: 120 };
+  it("저장·덮어쓰기·삭제, 파일 권한 600", () => {
+    expect(loadStrategies(env)).toEqual([]);
+    upsertStrategy(item, env);
+    upsertStrategy({ ...item, name: "둘째" }, env);
+    const list = upsertStrategy({ ...item, code: "return null;" }, env);
+    expect(list.map((s) => s.name).sort()).toEqual(["내 모멘텀", "둘째"]);
+    expect(loadStrategies(env).find((s) => s.name === "내 모멘텀")!.code).toBe("return null;");
+    expect(statSync(path.join(dir, "strategies.json")).mode & 0o777).toBe(0o600);
+    expect(deleteStrategy("둘째", env).map((s) => s.name)).toEqual(["내 모멘텀"]);
+  });
+  it("잘못된 값은 거부하거나 안전한 값으로", () => {
+    expect(() => cleanStrategy({ ...item, name: " " })).toThrow(/이름/);
+    expect(() => cleanStrategy({ ...item, code: "" })).toThrow(/코드/);
+    expect(() => cleanStrategy({ ...item, params: "[1]" })).toThrow(/JSON/);
+    expect(() => cleanStrategy({ ...item, params: "{oops" })).toThrow(/JSON/);
+    expect(cleanStrategy({ ...item, rebalance: "X", stopLoss: "abc", warmup: -5 })).toMatchObject({ rebalance: "M", stopLoss: "", warmup: 0 });
+    expect(cleanStrategy({ ...item, rebalance: 5 }).rebalance).toBe(5);
+  });
+});
+
+describe("기본 전략", () => {
+  it("5개 모두 가짜 데이터에서 오류 없이 돌고 추천을 낸다", () => {
+    const d = syntheticData(30, "2021-01-01", "2023-12-29");
+    for (const st of STRATEGIES) {
+      const p = Object.fromEntries(st.params.map((x) => [x.key, x.default]));
+      const res = runBacktest({ data: d.data, benchmark: d.benchmark, startDate: "2022-06-01",
+        settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup(p) },
+        strategy: (c) => st.targetWeights(c, p) });
+      expect(res.signal, st.id).not.toBeNull();
+      expect(res.equity.length, st.id).toBeGreaterThan(100);
+      expect(Number.isFinite(res.equity.at(-1)!.equity), st.id).toBe(true);
+    }
+    expect(STRATEGIES.map((s) => s.id)).toEqual(["momentum", "ma_cross", "rsi_reversal", "breakout", "low_vol"]);
+  });
+});
