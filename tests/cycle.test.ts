@@ -1,0 +1,126 @@
+import { describe, expect, it } from "vitest";
+import { CYCLE_CODE, cycleParams, cycleWarmup, defaultCycleSpec, describeCycle, normalizeCycleSpec, type CycleSpec } from "@/lib/strategies/cycle";
+import { compileStrategy } from "@/lib/strategies";
+import { cleanStrategy } from "@/lib/strategies/library";
+import { runBacktest } from "@/lib/engine/engine";
+import { businessDays, syntheticData } from "@/lib/data/synthetic";
+import { paramVariants } from "@/lib/engine/validate";
+import { HOLD, type Bar, type PriceData } from "@/lib/engine/types";
+
+/** 가격 경로를 일봉으로 (시가 = 전일 종가, 거래량 있음) */
+function series(prices: number[], start = "2024-01-01"): Bar[] {
+  const dates = businessDays(start, "2030-12-31").slice(0, prices.length);
+  return prices.map((c, k) => {
+    const o = k ? prices[k - 1] : c;
+    return { date: dates[k], open: o, high: Math.max(o, c), low: Math.min(o, c), close: c, volume: 1000 };
+  });
+}
+// 60일 상승(10000→13000), 40일 하락(→7800, -40%), 바닥 20일, 40일 회복
+const path = [
+  ...Array.from({ length: 60 }, (_, k) => 10000 + k * 50),
+  ...Array.from({ length: 40 }, (_, k) => 12950 - k * 130),
+  ...Array.from({ length: 20 }, () => 7800),
+  ...Array.from({ length: 40 }, (_, k) => 7800 + k * 60),
+];
+const run = (spec: CycleSpec, data: PriceData = { A: series(path) }, cash = 10_000_000) => {
+  const fn = compileStrategy(CYCLE_CODE);
+  const p = cycleParams(spec);
+  return runBacktest({ data, initialCash: cash,
+    settings: { rebalance: "D", stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: cycleWarmup(spec) },
+    costs: { commission: 0, slippage: 0, sellTax: 0 },
+    strategy: (c) => fn(c, p) });
+};
+
+describe("적립 매수 + 하락 시 분할 매도", () => {
+  it("상승 구간엔 매달 적립하고, 하락하면 단계별로 팔고, 안정되면 다시 산다", () => {
+    // 매월 30%, -10% 에 20% 매도, 5%p 마다 추가(최대 3번), 반등 5% + 10일 신저가 없음
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "M", days: 20, unit: "pct", value: 30 }, sell: { unit: "pct", value: 15 } });
+    const res = run(spec);
+    const buys = res.trades.filter((t) => t.side === "BUY");
+    const sells = res.trades.filter((t) => t.side === "SELL");
+    // 상승 60일(1월~3월 말) 동안 1·2·3월 적립 (작은 금액도 밴드에 걸리지 않고 체결)
+    const early = buys.filter((t) => t.date < "2024-03-26");
+    expect(early.length).toBe(3);
+    for (const t of early) expect(t.qty * t.price).toBeGreaterThan(2_500_000);
+    // 고점 12950 → -10% 에서 첫 매도, -15%, -20%, -25% 에서 추가 매도 = 4번 (최대 3번 추가)
+    expect(sells.length).toBe(4);
+    // 하락 대응 중(첫 매도~재개 전)에는 사지 않음
+    const firstSell = sells[0].date, lastSell = sells.at(-1)!.date;
+    const resume = buys.find((t) => t.date > lastSell)!;
+    expect(resume).toBeDefined();
+    expect(buys.filter((t) => t.date > firstSell && t.date < resume.date)).toHaveLength(0);
+    // 재개는 바닥(7800)에서 5% 이상 반등(8190 이상) 후
+    expect(resume.price).toBeGreaterThanOrEqual(8190 * 0.99);
+    // 매도 규모: 총자산의 약 15%씩
+    const eqAt = (d: string) => res.equity.find((e) => e.date >= d)!.equity;
+    const v = sells[0].qty * sells[0].price;
+    expect(v / eqAt(sells[0].date)).toBeGreaterThan(0.12);
+    expect(v / eqAt(sells[0].date)).toBeLessThan(0.18);
+  });
+
+  it("정액 매수·정액 매도, 원 단위 하락 기준", () => {
+    const spec = normalizeCycleSpec({
+      buy: { period: "days", days: 10, unit: "won", value: 150_000 },
+      drop: { unit: "won", value: 1500, step: 1000, maxSteps: 0, peakDays: 0 },
+      sell: { unit: "won", value: 200_000 },
+      stable: { rebound: 0, calmDays: 5, ma: 0 },
+    });
+    const res = run(spec);
+    const buys = res.trades.filter((t) => t.side === "BUY");
+    expect(buys[0].qty * buys[0].price).toBeLessThanOrEqual(150_000);
+    expect(buys[0].qty * buys[0].price).toBeGreaterThan(130_000);
+    // 10영업일 간격 (총자산의 1.5%라 리밸런싱 밴드 2%보다 작아도 체결)
+    expect(buys.filter((t) => t.date < "2024-03-26").length).toBe(6);
+    const sells = res.trades.filter((t) => t.side === "SELL");
+    expect(sells.length).toBeGreaterThan(1);
+    for (const t of sells.slice(0, -1)) expect(t.qty * t.price).toBeLessThan(260_000);
+  });
+
+  it("최대 매도 횟수 0 이면 계속 떨어질 때 다 팔 때까지 판다", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), drop: { unit: "pct", value: 10, step: 3, maxSteps: 0, peakDays: 0 }, sell: { unit: "pct", value: 30 } });
+    const res = run(spec);
+    const firstSell = res.trades.find((t) => t.side === "SELL")!.date;
+    const bottom = res.equity.find((e) => e.date > firstSell && e.invested === 0);
+    expect(bottom).toBeDefined();
+  });
+
+  it("여러 종목: 종목마다 따로 돌고, 손대지 않는 종목은 그대로 둔다", () => {
+    const flat = Array.from({ length: path.length }, (_, k) => 5000 + (k % 2) * 10); // 계속 같은 가격 근처 → 매도 없음
+    const res = run(defaultCycleSpec(), { A: series(path), B: series(flat) });
+    const bSells = res.trades.filter((t) => t.ticker === "B" && t.side === "SELL");
+    expect(bSells).toHaveLength(0); // A 를 팔 때 B 는 HOLD 라 안 팔림
+    expect(res.trades.filter((t) => t.ticker === "A" && t.side === "SELL").length).toBeGreaterThan(0);
+  });
+
+  it("현금이 모자라면 있는 만큼만 사고 비중 합이 100%를 넘지 않는다", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "W", days: 5, unit: "pct", value: 40 } });
+    const res = run(spec);
+    for (const e of res.equity) expect(e.cash).toBeGreaterThanOrEqual(-1);
+  });
+
+  it("마지막 날 신호는 HOLD 를 지금 비중으로 보여준다", () => {
+    const res = run(defaultCycleSpec());
+    expect(res.signal).not.toBeNull();
+    for (const p of res.signal!.picks) expect(p.weight).toBeGreaterThanOrEqual(0);
+    expect(res.signal!.picks.some((p) => p.weight === HOLD)).toBe(false);
+  });
+
+  it("실제 같은 랜덤 데이터에서도 오류 없이 돈다", () => {
+    const d = syntheticData(3, "2020-01-01", "2023-12-29");
+    const res = run(defaultCycleSpec(), d.data);
+    expect(Number.isFinite(res.equity.at(-1)!.equity)).toBe(true);
+    expect(res.trades.length).toBeGreaterThan(0);
+  });
+
+  it("입력값 정리·저장·민감도 검사", () => {
+    const s = normalizeCycleSpec({ buy: { unit: "pct", value: 500 }, stable: { rebound: 0, calmDays: 0, ma: 0 } });
+    expect(s.buy.value).toBe(100);
+    expect(s.stable.calmDays).toBe(10); // 안정화 조건이 하나도 없으면 기본 하나를 켬
+    expect(describeCycle(s)).toHaveLength(4);
+    const saved = cleanStrategy({ name: "적립", code: CYCLE_CODE, params: JSON.stringify(cycleParams(s)), rebalance: "D", warmup: 2, cycle: s });
+    expect(saved.cycle).toEqual(s);
+    const keys = new Set(paramVariants(cycleParams(defaultCycleSpec())).map((v) => v.key));
+    expect([...keys].some((k) => k.endsWith("Mode"))).toBe(false);
+    expect(keys.has("dropValue")).toBe(true);
+  });
+});

@@ -47,11 +47,11 @@ export function rollingReturns(values: number[], window = 252, target = TARGET_C
 
 export interface ParamVariant { key: string; value: number; label: string }
 
-/** 숫자 파라미터를 하나씩 ±20% 바꾼 조합 (정수 파라미터는 정수로, 값이 안 바뀌면 제외) */
+/** 숫자 파라미터를 하나씩 ±20% 바꾼 조합 (정수 파라미터는 정수로, 값이 안 바뀌면 제외). 이름이 Mode 로 끝나면 선택지 번호라 제외 */
 export function paramVariants(p: Record<string, unknown>, pct = 0.2): ParamVariant[] {
   const out: ParamVariant[] = [];
   for (const [key, v] of Object.entries(p)) {
-    if (typeof v !== "number" || !Number.isFinite(v) || v === 0) continue;
+    if (typeof v !== "number" || !Number.isFinite(v) || v === 0 || /Mode$/.test(key)) continue;
     for (const m of [1 - pct, 1 + pct]) {
       let value: number = v * m;
       if (Number.isInteger(v)) value = Math.max(1, Math.round(value));

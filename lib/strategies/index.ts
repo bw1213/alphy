@@ -1,5 +1,6 @@
 import type { StrategyContext } from "../engine/context";
 import type { Rebalance, Weights } from "../engine/types";
+import { STRATEGY_LIB } from "./cycle";
 
 export interface ParamSpec {
   key: string;
@@ -75,11 +76,11 @@ const picks = ctx.topBy(
 );
 return ctx.equal(picks);`;
 
-/** 코드 문자열 → 함수. 브라우저(사용자 본인 PC)에서만 실행된다. */
+/** 코드 문자열 → 함수. 브라우저(사용자 본인 PC)에서만 실행된다. 코드에서는 lib.cycle 같은 도우미도 쓸 수 있다. */
 export function compileStrategy(code: string): (ctx: StrategyContext, p: Params) => Weights | null | undefined {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
-  const fn = new Function("ctx", "p", `"use strict";\n${code}`) as (ctx: StrategyContext, p: Params) => Weights | null;
-  return fn;
+  const fn = new Function("ctx", "p", "lib", `"use strict";\n${code}`) as (ctx: StrategyContext, p: Params, lib: typeof STRATEGY_LIB) => Weights | null;
+  return (ctx, p) => fn(ctx, p, STRATEGY_LIB);
 }
 
 export const STRATEGIES: StrategyDef[] = [
@@ -175,6 +176,9 @@ export const CUSTOM_TEMPLATE = `// 장 마감 후 호출됩니다. 오늘까지�
 // ctx.held() / ctx.weight(t) / ctx.pnl(t)   보유 종목 / 비중 / 평단 대비 수익률
 // ctx.topBy(scoreFn, k, filterFn) 점수 상위 k 종목
 // ctx.equal(tickers)              동일비중 {티커: 1/n}
+// ctx.state                       백테스트 동안 유지되는 메모 객체 (날짜를 넘어 기억할 값)
+// lib.HOLD                        비중 대신 주면 그 종목은 지금 수량 그대로
+// lib.cycle(ctx, p)               적립 매수 + 하락 시 분할 매도 (조건 화면의 "적립·분할 매도"와 같음)
 // p.xxx                           아래 '파라미터(JSON)' 값
 
 // 예: 52주 신고가 근처(95% 이상) + 거래대금 상위 종목

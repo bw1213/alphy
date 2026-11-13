@@ -8,6 +8,7 @@
  */
 import { buildPanel, StrategyContext, type Panel } from "./context";
 import { DEFAULT_COSTS, sellTax } from "./costs";
+import { HOLD } from "./types";
 import type { BacktestResult, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Signal, Trade, UniverseSnapshot, Weights } from "./types";
 
 export type TargetFn = (ctx: StrategyContext) => Weights | null | undefined;
@@ -67,15 +68,21 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   const trades: Trade[] = [];
   const equity: EquityPoint[] = [];
   let pending: Weights | null = null;
+  let pendingExact = false;
+  const memo: Record<string, any> = {};
   let forced = new Map<string, Trade["reason"]>();
   let signal: Signal | null = null;
 
-  /** 전략이 돌려준 비중 정리: 유니버스 밖·0 이하 제거, 합이 1 을 넘으면 비례 축소 */
+  /** 전략이 돌려준 비중 정리: 유니버스 밖·0 이하 제거, 합이 1 을 넘으면 비례 축소. HOLD(지금 수량 유지)는 보유 중일 때만 남김 */
   const cleanWeights = (w: Weights): Weights => {
     const clean: Weights = {};
-    for (const [t, x] of Object.entries(w)) if (Number.isFinite(x) && x > 0 && P.index.has(t)) clean[t] = x;
-    const s = Object.values(clean).reduce((a, b) => a + b, 0);
-    if (s > 1 + 1e-9) for (const t in clean) clean[t] /= s;
+    for (const [t, x] of Object.entries(w)) {
+      if (!P.index.has(t)) continue;
+      if (x === HOLD) { if (pos[t]) clean[t] = HOLD; }
+      else if (Number.isFinite(x) && x > 0) clean[t] = x;
+    }
+    const s = Object.values(clean).reduce((a, b) => a + (b > 0 ? b : 0), 0);
+    if (s > 1 + 1e-9) for (const t in clean) if (clean[t] > 0) clean[t] /= s;
     return clean;
   };
 
@@ -118,9 +125,10 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       if (pending) {
         target = {};
         for (const [t, w] of Object.entries(pending)) {
+          if (w === HOLD) { if (pos[t]) target[t] = pos[t]; continue; }
           if (!(w > 0) || !tradable(t)) continue;
           const o = P.open[col(t)][i];
-          if (pos[t] && Math.abs((pos[t] * o) / eqOpen - w) < st.rebalanceBand) {
+          if (!pendingExact && pos[t] && Math.abs((pos[t] * o) / eqOpen - w) < st.rebalanceBand) {
             target[t] = pos[t];
             continue;
           }
@@ -161,6 +169,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         }
       }
       pending = null;
+      pendingExact = false;
       forced = new Map();
     }
 
@@ -188,9 +197,10 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     if (i === N - 1) {
       // 마지막 날: 리밸런싱 주기와 상관없이 "지금 전략이 고르는 종목"을 계산 (추천 종목용, 체결은 없음)
       if (i + 1 >= st.warmup) {
-        const w = opt.strategy(new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i)));
-        const weights = w ? cleanWeights(w)
-          : Object.fromEntries(Object.entries(pos).map(([t, q]) => [t, eq > 0 ? (q * P.closeFilled[col(t)][i]) / eq : 0]));
+        const w = opt.strategy(new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i), memo));
+        const nowW = (t: string) => (eq > 0 ? ((pos[t] ?? 0) * P.closeFilled[col(t)][i]) / eq : 0);
+        const weights = w ? Object.fromEntries(Object.entries(cleanWeights(w)).map(([t, x]) => [t, x === HOLD ? nowW(t) : x]))
+          : Object.fromEntries(Object.keys(pos).map((t) => [t, nowW(t)]));
         signal = {
           date: d, kept: !w,
           picks: Object.entries(weights).map(([t, weight]) => ({ ticker: t, weight, close: P.closeFilled[col(t)][i] }))
@@ -209,11 +219,12 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       }
     }
     if (reb.has(i) && i + 1 >= st.warmup && i + 1 >= startIdx) {
-      const ctx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i));
+      const ctx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i), memo);
       const w = opt.strategy(ctx);
       if (w) {
         const clean = cleanWeights(w);
         pending = clean;
+        pendingExact = ctx.exact;
         for (const t in clean) forced.delete(t); // 새 목표에 포함되면 리밸런싱 규칙을 따름
       }
     }
