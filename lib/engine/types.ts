@@ -71,5 +71,8 @@ export interface BacktestResult {
 
 export type Weights = Record<string, number>;
 
+/** 비중 대신 이 값을 주면 "이 종목은 지금 수량 그대로 둠" (다른 종목만 사고팔 때) */
+export const HOLD = -1;
+
 /** 그 날짜 시점의 종목 목록(시총 상위 등). 날짜 오름차순. 생존편향을 없애려고 씀 */
 export interface UniverseSnapshot { date: string; tickers: string[] }

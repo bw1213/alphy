@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Results from "@/components/Results";
 import StrategyBuilder from "@/components/StrategyBuilder";
+import CycleBuilder from "@/components/CycleBuilder";
+import { CYCLE_CODE, cycleParams, cycleWarmup, defaultCycleSpec, normalizeCycleSpec, type CycleSpec } from "@/lib/strategies/cycle";
 import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/strategies/builder";
 import { runBacktest } from "@/lib/engine/engine";
 import { summarize, type Summary } from "@/lib/engine/metrics";
@@ -34,9 +36,10 @@ export default function Page() {
   const [code, setCode] = useState(CUSTOM_TEMPLATE);
   const [customParams, setCustomParams] = useState(CUSTOM_PARAMS);
   const [customName, setCustomName] = useState("내 전략");
-  /** 내 전략을 만드는 방법: 조건 고르기(코드 없이) 또는 코드 작성 */
-  const [mode, setMode] = useState<"builder" | "code">("builder");
+  /** 내 전략을 만드는 방법: 조건 고르기(코드 없이), 적립·분할 매도(숫자만 입력), 코드 작성 */
+  const [mode, setMode] = useState<"builder" | "cycle" | "code">("builder");
   const [spec, setSpec] = useState<BuilderSpec>(defaultSpec);
+  const [cycleSpec, setCycleSpec] = useState<CycleSpec>(defaultCycleSpec);
   // 내 전략: NAS 에 저장된 것(어느 기기에서나 보임) + 이 브라우저에만 있는 것
   const [onNas, setOnNas] = useState<SavedStrategy[]>([]);
   const [local, setLocal] = useState<SavedStrategy[]>([]);
@@ -88,13 +91,18 @@ export default function Page() {
       setTakeProfit(b.takeProfit ? String(b.takeProfit * 100) : "");
     } else if (id === "builder") {
       setMode("builder"); setSpec(defaultSpec()); setCustomName("내 조건 전략"); setRebalance("M"); setStopLoss(""); setTakeProfit("");
+    } else if (id === "cycle") {
+      setMode("cycle"); setCycleSpec(defaultCycleSpec()); setCustomName("적립·분할 매도"); setRebalance("D"); setStopLoss(""); setTakeProfit("");
+      // 이 전략은 정한 종목에만 쓰므로 종목 직접 입력으로 (기본: KODEX 200)
+      if (universeMode !== "list") { setUniverseMode("list"); setTickers("069500"); }
     } else if (id === "custom") {
       setMode("code");
     } else if (id.startsWith("saved:")) {
       const s = saved.find((x) => `saved:${x.name}` === id);
       if (s) {
-        setMode(s.builder ? "builder" : "code");
+        setMode(s.cycle ? "cycle" : s.builder ? "builder" : "code");
         if (s.builder) setSpec(normalizeSpec(s.builder));
+        if (s.cycle) { setCycleSpec(normalizeCycleSpec(s.cycle)); setUniverseMode("list"); }
         setCode(s.code); setCustomParams(s.params); setCustomName(s.name); setRebalance(s.rebalance);
         setStopLoss(s.stopLoss); setTakeProfit(s.takeProfit); setCustomWarmup(s.warmup);
       }
@@ -124,9 +132,12 @@ export default function Page() {
 
   const saveCustom = async () => {
     const g = mode === "builder" ? generate(spec) : null;
-    const item: SavedStrategy = g
-      ? { name: customName.trim() || "내 전략", code: g.code, params: JSON.stringify(g.params), rebalance, stopLoss, takeProfit, warmup: g.warmup, builder: normalizeSpec(spec) }
-      : { name: customName.trim() || "내 전략", code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
+    const name = customName.trim() || "내 전략";
+    const item: SavedStrategy = mode === "cycle"
+      ? { name, code: CYCLE_CODE, params: JSON.stringify(cycleParams(cycleSpec)), rebalance: "D", stopLoss, takeProfit, warmup: cycleWarmup(cycleSpec), cycle: normalizeCycleSpec(cycleSpec) }
+      : g
+      ? { name, code: g.code, params: JSON.stringify(g.params), rebalance, stopLoss, takeProfit, warmup: g.warmup, builder: normalizeSpec(spec) }
+      : { name, code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
     setStratMsg("");
     const keepLocal = (why: string) => {
       const list = [...local.filter((s) => s.name !== item.name), item];
@@ -183,6 +194,9 @@ export default function Page() {
       } else if (mode === "builder") {
         const g = generate(spec);
         p = g.params; fn = compileStrategy(g.code); warmup = g.warmup; label = customName.replace(/\s+/g, "_");
+      } else if (mode === "cycle") {
+        if (universeMode !== "list") throw new Error("적립·분할 매도 전략은 '기간 · 종목'에서 '종목 직접 입력'으로 종목을 정해 주세요 (예: 069500).");
+        p = cycleParams(cycleSpec); fn = compileStrategy(CYCLE_CODE); warmup = cycleWarmup(cycleSpec); label = customName.replace(/\s+/g, "_");
       } else {
         try { p = JSON.parse(customParams || "{}"); } catch { throw new Error("파라미터(JSON) 형식이 올바르지 않습니다."); }
         try { fn = compileStrategy(code); } catch (e) { throw new Error(`전략 코드 문법 오류: ${(e as Error).message}`); }
@@ -210,7 +224,7 @@ export default function Page() {
       let errInStrategy: Error | null = null;
       const exec = (pp: Params, w: number) => runBacktest({
         data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash,
-        settings: { rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w },
+        settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w },
         costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
         strategy: (ctx) => {
           try { return fn(ctx, pp); }
@@ -273,6 +287,7 @@ export default function Page() {
                 </optgroup>
                 <optgroup label="내 전략">
                   <option value="builder">+ 새 전략 만들기 (조건 고르기)</option>
+                  <option value="cycle">+ 새 전략 만들기 (적립 매수·하락 시 분할 매도)</option>
                   <option value="custom">+ 새 전략 만들기 (코드 작성)</option>
                   {saved.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{isLocalOnly(s.name) ? " (이 브라우저만)" : ""}</option>)}
                 </optgroup>
@@ -299,16 +314,24 @@ export default function Page() {
                   <input value={customName} onChange={(e) => setCustomName(e.target.value)} />
                 </label>
                 <div className="seg" style={{ marginTop: 10 }}>
-                  <button className={mode === "builder" ? "on" : ""} onClick={() => setMode("builder")}>조건 고르기</button>
+                  <button className={mode === "builder" ? "on" : ""} onClick={() => { if (mode === "cycle") setRebalance("M"); setMode("builder"); }}>조건 고르기</button>
+                  <button className={mode === "cycle" ? "on" : ""} onClick={() => {
+                    setMode("cycle"); setRebalance("D");
+                    if (universeMode !== "list") { setUniverseMode("list"); setTickers("069500"); }
+                  }}>적립·분할 매도</button>
                   <button className={mode === "code" ? "on" : ""} onClick={() => {
                     if (mode === "builder") { // 지금 조건을 코드로 옮겨서 이어서 고칠 수 있게
                       const g = generate(spec);
                       setCode(g.code); setCustomParams(JSON.stringify(g.params, null, 1).replace(/\n\s*/g, " ")); setCustomWarmup(g.warmup);
+                    } else if (mode === "cycle") {
+                      setCode(CYCLE_CODE); setCustomParams(JSON.stringify(cycleParams(cycleSpec))); setCustomWarmup(cycleWarmup(cycleSpec)); setRebalance("D");
                     }
                     setMode("code");
                   }}>코드 작성</button>
                 </div>
-                {mode === "builder" ? (
+                {mode === "cycle" ? (
+                  <CycleBuilder spec={cycleSpec} onChange={setCycleSpec} />
+                ) : mode === "builder" ? (
                   <>
                     <StrategyBuilder spec={spec} onChange={setSpec} />
                     <p className="help">더 복잡한 규칙이 필요하면 위의 &quot;코드 작성&quot;을 누르세요. 지금 조건이 코드로 바뀌어 이어서 고칠 수 있습니다(코드에서 고친 내용은 조건 화면으로 돌아오지 않습니다).</p>
@@ -338,9 +361,10 @@ export default function Page() {
               </>
             )}
             <h3>운용 규칙</h3>
+            {isCustom && mode === "cycle" && <p className="help">이 전략은 매일 확인하므로 리밸런싱은 &quot;매일&quot;로 고정됩니다. 매수 주기는 위에서 정하세요.</p>}
             <div className="row3">
               <label className="f">리밸런싱
-                <select value={String(rebalance)} onChange={(e) => setRebalance(/^\d+$/.test(e.target.value) ? Number(e.target.value) : (e.target.value as Rebalance))}>
+                <select value={String(isCustom && mode === "cycle" ? "D" : rebalance)} disabled={isCustom && mode === "cycle"} onChange={(e) => setRebalance(/^\d+$/.test(e.target.value) ? Number(e.target.value) : (e.target.value as Rebalance))}>
                   <option value="D">매일</option><option value="W">매주</option><option value="M">매월</option><option value="Q">분기</option>
                 </select>
               </label>

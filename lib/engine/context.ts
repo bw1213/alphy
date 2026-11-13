@@ -31,7 +31,12 @@ export class StrategyContext {
     public readonly names: Readonly<Record<string, string>> = {},
     /** 오늘 시점의 유니버스(시점별 종목 목록을 쓸 때). 없으면 데이터에 있는 전체 종목 */
     private active?: string[],
+    /** 백테스트 한 번 동안 유지되는 전략 메모 (매수 단계·최고가 등 날짜를 넘어 기억할 값) */
+    public readonly state: Record<string, any> = {},
   ) {}
+
+  /** true 로 두면 이번 신호는 리밸런싱 밴드(작은 비중 차이 무시)를 적용하지 않고 정확히 맞춤 */
+  exact = false;
 
   /** 오늘 날짜 YYYY-MM-DD */
   get date(): string { return this.panel.dates[this.i]; }
