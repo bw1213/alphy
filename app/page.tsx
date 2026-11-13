@@ -334,7 +334,7 @@ export default function Page() {
                   <CycleBuilder spec={cycleSpec} onChange={setCycleSpec} />
                 ) : mode === "builder" ? (
                   <>
-                    <StrategyBuilder spec={spec} onChange={setSpec} />
+                    <StrategyBuilder spec={spec} onChange={setSpec} rebalance={rebalance} onRebalance={setRebalance} />
                     <p className="help">더 복잡한 규칙이 필요하면 위의 &quot;코드 작성&quot;을 누르세요. 지금 조건이 코드로 바뀌어 이어서 고칠 수 있습니다(코드에서 고친 내용은 조건 화면으로 돌아오지 않습니다).</p>
                   </>
                 ) : (
@@ -362,10 +362,11 @@ export default function Page() {
               </>
             )}
             <h3>운용 규칙</h3>
-            {isCustom && mode === "cycle" && <p className="help">이 전략은 매일 확인하므로 리밸런싱은 &quot;매일&quot;로 고정됩니다. 매수 주기는 위에서 정하세요.</p>}
+            {isCustom && mode === "cycle" && <p className="help">이 전략은 매일 확인하므로 리밸런싱은 &quot;매일&quot;로 고정됩니다. 매수 주기와 비중 맞추는 주기는 위에서 정하세요.</p>}
+            {isCustom && mode === "builder" && <p className="help">리밸런싱 주기는 위 &quot;4. 투자 비율과 리밸런싱&quot;에서 정합니다.</p>}
             <div className="row3">
               <label className="f">리밸런싱
-                <select value={String(isCustom && mode === "cycle" ? "D" : rebalance)} disabled={isCustom && mode === "cycle"} onChange={(e) => setRebalance(/^\d+$/.test(e.target.value) ? Number(e.target.value) : (e.target.value as Rebalance))}>
+                <select value={String(isCustom && mode === "cycle" ? "D" : rebalance)} disabled={isCustom && mode !== "code"} onChange={(e) => setRebalance(/^\d+$/.test(e.target.value) ? Number(e.target.value) : (e.target.value as Rebalance))}>
                   <option value="D">매일</option><option value="W">매주</option><option value="M">매월</option><option value="Q">분기</option>
                 </select>
               </label>

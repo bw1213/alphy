@@ -22,7 +22,7 @@ describe("조건 고르기 → 전략", () => {
     const g = generate(spec);
     expect(g.params).toEqual({ topK: 10, marketMa: 120, c1n: 20, c1v: 10, c2n: 60, c2v: 0, rankN: 120 });
     expect(g.warmup).toBe(122);
-    expect(g.summary).toHaveLength(4);
+    expect(g.summary).toHaveLength(5);
     const res = run(spec);
     expect(res.trades.length).toBeGreaterThan(0);
     expect(res.signal).not.toBeNull();
@@ -73,5 +73,31 @@ describe("조건 고르기 → 전략", () => {
     const saved = cleanStrategy({ name: "조건 전략", code: g.code, params: JSON.stringify(g.params), rebalance: "M", warmup: g.warmup, builder: { ...defaultSpec(), topK: 7 } });
     expect(saved.builder!.topK).toBe(7);
     expect(cleanStrategy({ name: "코드 전략", code: "return {};", params: "{}" }).builder).toBeUndefined();
+  });
+});
+
+describe("투자 비율·비중 나누기", () => {
+  const base = { ...defaultSpec(), marketMa: 0, topK: 4 };
+  it("투자 비율만큼만 주식, 나머지는 현금", () => {
+    const g = generate({ ...base, invest: 60 });
+    expect(g.params.investPct).toBe(60);
+    const sum = run({ ...base, invest: 60 }).signal!.picks.reduce((a, p) => a + p.weight, 0);
+    expect(sum).toBeCloseTo(0.6, 6);
+  });
+  it("순위 가중: 1등이 가장 많고 합은 투자 비율", () => {
+    const picks = run({ ...base, invest: 80, weighting: "rank" }).signal!.picks;
+    expect(picks.map((p) => +p.weight.toFixed(4))).toEqual([0.32, 0.24, 0.16, 0.08]);
+  });
+  it("변동성 역가중: 합은 1, 비중이 서로 다름", () => {
+    const picks = run({ ...base, weighting: "invVol" }).signal!.picks;
+    expect(picks.reduce((a, p) => a + p.weight, 0)).toBeCloseTo(1, 6);
+    expect(new Set(picks.map((p) => p.weight.toFixed(6))).size).toBeGreaterThan(1);
+  });
+  it("예전에 저장한 조건(새 항목 없음)도 그대로 열린다", () => {
+    const { invest, weighting, ...old } = defaultSpec();
+    const s = normalizeSpec(old);
+    expect(s.invest).toBe(100);
+    expect(s.weighting).toBe("equal");
+    expect(generate(old).code).toContain("ctx.equal(picks)");
   });
 });

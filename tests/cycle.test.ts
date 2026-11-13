@@ -171,3 +171,29 @@ describe("매달 추가 입금", () => {
     expect(buys.length).toBeGreaterThanOrEqual(5); // 첫 달 + 이후 매달
   });
 });
+
+describe("적립·분할 매도: 투자 비율과 리밸런싱", () => {
+  const rise = Array.from({ length: 200 }, (_, k) => 10000 * 1.004 ** k); // 계속 오름 → 매도 신호 없음
+  it("주식 비중 상한까지만 적립한다", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "W", days: 5, unit: "pct", value: 20 }, limit: { maxInvest: 50, rebalance: "off" } });
+    const res = run(spec, { A: series(Array.from({ length: 120 }, () => 10000)) });
+    for (const e of res.equity) expect(e.invested / e.equity).toBeLessThanOrEqual(0.505);
+    expect(res.equity.at(-1)!.invested / res.equity.at(-1)!.equity).toBeGreaterThan(0.45);
+  });
+  it("리밸런싱을 켜면 올라서 넘친 비중을 주기마다 팔아 맞춘다", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "W", days: 5, unit: "pct", value: 30 }, limit: { maxInvest: 50, rebalance: "M" } });
+    const off = run(normalizeCycleSpec({ ...spec, limit: { maxInvest: 50, rebalance: "off" } }), { A: series(rise) });
+    const on = run(spec, { A: series(rise) });
+    const w = (r: typeof on) => r.equity.at(-1)!.invested / r.equity.at(-1)!.equity;
+    expect(w(off)).toBeGreaterThan(0.53); // 리밸런싱 없으면 오른 만큼 비중이 커짐
+    expect(w(on)).toBeLessThan(w(off));
+    expect(on.trades.some((t) => t.side === "SELL")).toBe(true);
+    for (const t of on.trades.filter((x) => x.side === "SELL")) expect(t.date.slice(8)).toMatch(/0[1-5]/); // 월초에만 판다
+  });
+  it("예전에 저장한 값(투자 비율 없음)은 제한 없음으로", () => {
+    const { limit, ...old } = defaultCycleSpec();
+    expect(normalizeCycleSpec(old).limit).toEqual({ maxInvest: 100, rebalance: "off" });
+    expect(describeCycle(normalizeCycleSpec(old))).toHaveLength(4);
+    expect(describeCycle(normalizeCycleSpec({ ...old, limit: { maxInvest: 70, rebalance: "Q" } }))).toHaveLength(5);
+  });
+});

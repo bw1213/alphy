@@ -39,6 +39,8 @@ export interface CycleSpec {
     /** 종가가 n일 이동평균선 위 (0 = 안 봄) */
     ma: number;
   };
+  /** 투자 비율·리밸런싱: 주식 비중 상한(총자산의 %)과, 상한을 넘으면 되돌리는 주기 */
+  limit: { maxInvest: number; rebalance: "off" | "W" | "M" | "Q" };
 }
 
 export const defaultCycleSpec = (): CycleSpec => ({
@@ -46,6 +48,7 @@ export const defaultCycleSpec = (): CycleSpec => ({
   drop: { unit: "pct", value: 10, step: 5, maxSteps: 3, peakDays: 0 },
   sell: { unit: "pct", value: 10 },
   stable: { rebound: 5, calmDays: 10, ma: 0 },
+  limit: { maxInvest: 100, rebalance: "off" },
 });
 
 const num = (v: unknown, lo: number, hi: number, d: number, int = false) => {
@@ -77,6 +80,10 @@ export function normalizeCycleSpec(x: any): CycleSpec {
       calmDays: num(x?.stable?.calmDays, 0, 500, d.stable.calmDays, true),
       ma: num(x?.stable?.ma, 0, 500, d.stable.ma, true),
     },
+    limit: {
+      maxInvest: num(x?.limit?.maxInvest, 1, 100, d.limit.maxInvest),
+      rebalance: ["W", "M", "Q"].includes(x?.limit?.rebalance) ? x.limit.rebalance : "off",
+    },
   };
   // 안정화 조건이 하나도 없으면 영원히 다시 사지 않으므로 최소 하나는 켬
   if (!s.stable.rebound && !s.stable.calmDays && !s.stable.ma) s.stable.calmDays = d.stable.calmDays;
@@ -85,6 +92,8 @@ export function normalizeCycleSpec(x: any): CycleSpec {
 
 const PERIOD_CODE: Record<BuyPeriod, number> = { W: 0, M: 1, Q: 2, days: 3 };
 const PERIOD_FROM_CODE: BuyPeriod[] = ["W", "M", "Q", "days"];
+const REB_CODE = { off: 0, W: 1, M: 2, Q: 3 } as const;
+const REB_FROM_CODE = ["off", "W", "M", "Q"] as const;
 
 /** 화면 값 → 전략 파라미터(모두 숫자) */
 export function cycleParams(spec: CycleSpec): Record<string, number> {
@@ -96,6 +105,7 @@ export function cycleParams(spec: CycleSpec): Record<string, number> {
     maxSteps: s.drop.maxSteps, peakDays: s.drop.peakDays,
     sellUnitMode: s.sell.unit === "won" ? 1 : 0, sellValue: s.sell.value,
     rebound: s.stable.rebound, calmDays: s.stable.calmDays, stableMa: s.stable.ma,
+    maxInvest: s.limit.maxInvest, rebalanceMode: REB_CODE[s.limit.rebalance],
   };
 }
 
@@ -126,6 +136,10 @@ export function describeCycle(spec: CycleSpec): string[] {
     `하락 대응: ${peak} 대비 ${fall(s.drop.unit, s.drop.value)} 이상 떨어지면 매수를 멈추고 ${amount(s.sell.unit, s.sell.value)}만큼 팝니다.`,
     `추가 매도: 그 뒤 ${fall(s.drop.unit, s.drop.step)} 더 떨어질 때마다 ${amount(s.sell.unit, s.sell.value)}씩 더 팝니다${s.drop.maxSteps ? ` (최대 ${s.drop.maxSteps}번)` : " (다 팔 때까지)"}.`,
     `다시 적립: ${stable} 조건을 모두 만족하면 안정된 것으로 보고 바로 한 번 사고 적립을 다시 시작합니다. 최고가는 그날부터 새로 잽니다.`,
+    ...(s.limit.maxInvest < 100 || s.limit.rebalance !== "off" ? [
+      `투자 비율: 주식은 총자산의 ${s.limit.maxInvest}%까지만 삽니다${s.limit.rebalance !== "off"
+        ? `. ${{ W: "매주", M: "매월", Q: "분기마다" }[s.limit.rebalance]} 첫 거래일에 주가가 올라 이 비율을 넘었으면 종목별로 같은 비율만큼 팔아 맞춥니다`
+        : ""}.`] : []),
   ];
 }
 
@@ -166,19 +180,23 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
 
   const out: Weights = {};
   let spare = ctx.cash; // 오늘 매수에 쓸 수 있는 현금 (여러 종목이 나눠 씀)
+  const cap = Math.min(Math.max(p.maxInvest ?? 100, 0), 100) / 100;
+  let room = cap - ctx.held().reduce((a, t) => a + ctx.weight(t), 0); // 주식 비중 상한까지 남은 비중
   let acted = false;
   const buy = (t: string, c: number, s: TickerState) => {
-    const want = Math.min(amt(p.buyUnitMode, p.buyValue), spare * 0.995); // 수수료·슬리피지 여유
+    const want = Math.min(amt(p.buyUnitMode, p.buyValue), spare * 0.995, Math.max(0, room) * eq); // 수수료·슬리피지 여유, 투자 비율 상한
     s.lastBuyKey = periodKey(ctx.date, period);
     s.lastBuyAt = ctx.i;
     if (want < c) return; // 한 주도 못 삼
     spare -= want;
+    room -= want / eq;
     out[t] = ctx.weight(t) + want / eq;
     acted = true;
   };
   const sell = (t: string, times: number) => {
     if (!ctx.positions[t]) return;
     const w = Math.max(0, ctx.weight(t) - (amt(p.sellUnitMode, p.sellValue) * times) / eq);
+    room += ctx.weight(t) - w;
     out[t] = w;
     acted = true;
   };
@@ -217,6 +235,18 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     if ((p.rebound || p.calmDays || p.stableMa) && okRebound && okCalm && okMa) {
       Object.assign(s, { phase: "buy", start: ctx.i, peak: c, steps: 0 });
       buy(t, c, s);
+    }
+  }
+
+  // 리밸런싱: 정한 주기의 첫 거래일에 주식 비중이 상한을 넘었으면 종목별로 같은 비율만큼 줄임
+  const reb = REB_FROM_CODE[p.rebalanceMode] ?? "off";
+  if (reb !== "off" && periodKey(ctx.date, reb) !== ctx.state.cycleRebKey) {
+    ctx.state.cycleRebKey = periodKey(ctx.date, reb);
+    const next = (t: string) => (t in out ? out[t] : ctx.weight(t));
+    const total = ctx.held().reduce((a, t) => a + next(t), 0);
+    if (total > cap + 0.005) {
+      for (const t of ctx.held()) out[t] = (next(t) * cap) / total;
+      acted = true;
     }
   }
 
