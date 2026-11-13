@@ -6,6 +6,7 @@ import { runBacktest } from "@/lib/engine/engine";
 import { summarize, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, Rebalance } from "@/lib/engine/types";
 import type { DataResponse, Source } from "@/lib/data/server";
+import { paramVariants, summarizeSensitivity, type SensitivityResult, type SensitivityRow } from "@/lib/engine/validate";
 import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Params } from "@/lib/strategies";
 
 interface SavedStrategy { name: string; code: string; params: string; rebalance: Rebalance; stopLoss: string; takeProfit: string; warmup: number }
@@ -46,6 +47,7 @@ export default function Page() {
   const [end, setEnd] = useState(today());
   const [universeMode, setUniverseMode] = useState<"top" | "list">("top");
   const [universeSize, setUniverseSize] = useState(100);
+  const [pit, setPit] = useState(false);
   const [tickers, setTickers] = useState("005930, 000660, 005380, 035420, 051910");
 
   // 비용
@@ -58,8 +60,10 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string } | null>(null);
+  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string } | null>(null);
   const dataCache = useRef<Map<string, DataResponse>>(new Map());
+  /** 마지막 실행을 파라미터만 바꿔 다시 돌리는 함수 (민감도 검사용) */
+  const rerun = useRef<{ p: Params; run: (p: Params) => SensitivityRow } | null>(null);
 
   const selectStrategy = (id: string) => {
     setSid(id);
@@ -123,7 +127,8 @@ export default function Page() {
       // 2) 데이터 (워밍업용으로 시작일보다 앞선 데이터까지)
       const loadStart = minusDays(start, Math.max(400, Math.ceil(warmup * 1.5) + 30));
       const list = universeMode === "list" ? tickers.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean) : undefined;
-      const req = { source, start: loadStart, end, tickers: list, universeSize };
+      const usePit = pit && !list && (source === "naver" || source === "kis");
+      const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit };
       const key = JSON.stringify(req);
       let data = dataCache.current.get(key);
       if (!data) {
@@ -139,17 +144,23 @@ export default function Page() {
       setBusy("백테스트 계산 중");
       await new Promise((r) => setTimeout(r, 30));
       let errInStrategy: Error | null = null;
-      const res = runBacktest({
-        data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash,
-        settings: { rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup },
+      const exec = (pp: Params, w: number) => runBacktest({
+        data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash,
+        settings: { rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w },
         costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
         strategy: (ctx) => {
-          try { return fn(ctx, p); }
+          try { return fn(ctx, pp); }
           catch (e) { errInStrategy = new Error(`${ctx.date} 전략 실행 오류: ${(e as Error).message}`); throw errInStrategy; }
         },
       });
+      const res = exec(p, warmup);
+      const warmupOf = builtin ? builtin.warmup : () => warmup;
+      rerun.current = { p, run: (pp) => {
+        try { const x = summarize(exec(pp, warmupOf(pp))); return { label: "", cagr: x.cagr, mdd: x.mdd }; }
+        catch { return { label: "", cagr: NaN, mdd: NaN }; }
+      } };
       if (res.equity.length < 2) throw new Error("평가 구간 데이터가 부족합니다. 기간을 확인하세요.");
-      setOut({ res, s: summarize(res), names: data.names, label });
+      setOut({ res, s: summarize(res), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략") });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -157,9 +168,24 @@ export default function Page() {
     }
   }
 
+  /** 파라미터를 하나씩 ±20% 바꿔 다시 돌려 본다 (화면이 멈추지 않게 한 번씩 쉬어 감) */
+  const sensitivity = async (onProgress: (done: number, total: number) => void): Promise<SensitivityResult> => {
+    const r = rerun.current;
+    if (!r || !out) throw new Error("먼저 백테스트를 실행하세요.");
+    const variants = paramVariants(r.p);
+    if (!variants.length) throw new Error("바꿔 볼 숫자 파라미터가 없습니다.");
+    const rows: SensitivityRow[] = [];
+    for (const [k, v] of variants.entries()) {
+      onProgress(k, variants.length);
+      await new Promise((res) => setTimeout(res, 10));
+      rows.push({ ...r.run({ ...r.p, [v.key]: v.value }), label: v.label });
+    }
+    return summarizeSensitivity({ label: "지금 설정", cagr: out.s.cagr, mdd: out.s.mdd }, rows);
+  };
+
   const paramSpecs = builtin?.params ?? [];
   const sourceHelp = useMemo(() => ({
-    naver: "네이버 증권 일봉(수정주가). 서버가 받아 .cache/ 에 하루 동안 저장합니다.",
+    naver: "네이버 증권 일봉(수정주가). 서버가 받아 .cache/ 에 저장하고 새 날짜만 이어 받습니다.",
     kis: "한국투자증권 Open API 일봉(수정주가). 설정 화면에서 앱키를 넣어야 합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요.",
     csv: "data/csv/{종목코드}.csv (Date,Open,High,Low,Close,Volume). 지수는 KOSPI.csv",
     synthetic: "랜덤 가짜 데이터. 전략 코드가 돌아가는지 확인할 때만 쓰세요.",
@@ -256,9 +282,20 @@ export default function Page() {
               <button className={universeMode === "list" ? "on" : ""} onClick={() => setUniverseMode("list")}>종목 직접 입력</button>
             </div>
             {universeMode === "top" ? (
-              <label className="f" style={{ marginTop: 8 }}>KOSPI 시가총액 상위 몇 종목
-                <input type="number" min={5} max={300} value={universeSize} onChange={(e) => setUniverseSize(Number(e.target.value))} />
-              </label>
+              <>
+                <label className="f" style={{ marginTop: 8 }}>KOSPI 시가총액 상위 몇 종목
+                  <input type="number" min={5} max={pit ? 200 : 300} value={universeSize} onChange={(e) => setUniverseSize(Number(e.target.value))} />
+                </label>
+                {(source === "naver" || source === "kis") && (
+                  <>
+                    <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 8 }}>
+                      <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={pit} onChange={(e) => setPit(e.target.checked)} />
+                      과거 시점의 시총 상위 종목 사용 (생존편향 제거)
+                    </label>
+                    <p className="help">켜면 분기마다 &quot;그때&quot; 시총 상위였던 종목으로 목록을 바꾸고, 그 뒤 상장폐지된 종목도 포함합니다. 끄면 &quot;지금&quot; 시총 상위 종목만 써서 수익률이 실제보다 좋게 나옵니다. 과거 목록은 KRX 정보데이터시스템에서 받으며 처음 한 번은 몇 분 걸립니다.</p>
+                  </>
+                )}
+              </>
             ) : (
               <label className="f" style={{ marginTop: 8 }}>종목코드 (쉼표 구분)
                 <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
@@ -289,7 +326,7 @@ export default function Page() {
             <div className="notice"><b>참고</b><ul>{warnings.slice(0, 8).map((w, k) => <li key={k}>{w}</li>)}</ul>
               {warnings.length > 8 && <span>외 {warnings.length - 8}건</span>}</div>
           )}
-          {out ? <Results {...out} /> : !busy && (
+          {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && (
             <div className="card empty">
               <p><b>왼쪽에서 전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
               <p>결과로 연평균 수익률, 최대 낙폭, KOSPI 대비 성과, 연도별 30% 달성 여부, 매매 내역을 보여드립니다.</p>

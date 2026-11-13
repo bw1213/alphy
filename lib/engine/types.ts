@@ -41,7 +41,7 @@ export interface Trade {
   fee: number;
   pnl: number | null;
   ret: number | null;
-  reason: "rebalance" | "stop_loss" | "take_profit";
+  reason: "rebalance" | "stop_loss" | "take_profit" | "delisted";
 }
 
 export interface EquityPoint {
@@ -52,10 +52,24 @@ export interface EquityPoint {
   benchmark: number | null;
 }
 
+/** 마지막 날 종가 기준으로 전략이 고른 종목 = 다음 거래일에 맞출 목표 */
+export interface Signal {
+  /** 신호 기준일(데이터의 마지막 날) */
+  date: string;
+  picks: { ticker: string; weight: number; close: number }[];
+  /** 전략이 '이번엔 매매 안 함(null)'을 돌려줘서 백테스트상 보유 종목을 그대로 보여주는 경우 */
+  kept: boolean;
+}
+
 export interface BacktestResult {
   equity: EquityPoint[];
   trades: Trade[];
   finalPositions: { ticker: string; qty: number; avgPrice: number; value: number }[];
+  /** 워밍업이 안 끝났으면 null */
+  signal: Signal | null;
 }
 
 export type Weights = Record<string, number>;
+
+/** 그 날짜 시점의 종목 목록(시총 상위 등). 날짜 오름차순. 생존편향을 없애려고 씀 */
+export interface UniverseSnapshot { date: string; tickers: string[] }

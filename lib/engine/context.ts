@@ -29,12 +29,14 @@ export class StrategyContext {
     public readonly cash: number,
     public readonly equity: number,
     public readonly names: Readonly<Record<string, string>> = {},
+    /** 오늘 시점의 유니버스(시점별 종목 목록을 쓸 때). 없으면 데이터에 있는 전체 종목 */
+    private active?: string[],
   ) {}
 
   /** 오늘 날짜 YYYY-MM-DD */
   get date(): string { return this.panel.dates[this.i]; }
   /** 유니버스 티커 목록 */
-  get tickers(): string[] { return this.panel.tickers; }
+  get tickers(): string[] { return this.active ?? this.panel.tickers; }
   /** 백테스트 시작 후 경과 영업일 */
   get dayIndex(): number { return this.i; }
 

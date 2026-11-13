@@ -1,7 +1,8 @@
 /** 서버 측 데이터 로딩: 캐시 → 소스 순서 */
 import { promises as fs } from "fs";
 import path from "path";
-import type { Bar, PriceData, StockInfo } from "../engine/types";
+import type { Bar, PriceData, StockInfo, UniverseSnapshot } from "../engine/types";
+import { buildPitUniverse, krxDaily, krxListings, type KrxListing } from "./krx";
 import { fetchDaily, fetchTopMarketCap } from "./naver";
 import { syntheticData } from "./synthetic";
 import { quoteCredentials } from "../kis/config";
@@ -21,6 +22,8 @@ export interface DataRequest {
   universeSize?: number;
   start: string; // 로드 시작 (워밍업 포함)
   end: string;
+  /** 시점별 시총 상위 목록 사용 (생존편향 제거). naver/kis 의 '시총 상위 N' 에서만 */
+  pit?: boolean;
 }
 
 export interface DataResponse {
@@ -28,6 +31,8 @@ export interface DataResponse {
   names: Record<string, string>;
   benchmark: { date: string; close: number }[] | null;
   warnings: string[];
+  /** 시점별 종목 목록 (pit 또는 CSV 의 universe.csv) */
+  universe?: UniverseSnapshot[];
 }
 
 async function readJson<T>(p: string): Promise<T | null> {
@@ -64,7 +69,7 @@ export function sameHistory(oldBars: Bar[], fresh: Bar[]): boolean {
  * - 오늘 받은 캐시면 그대로, 예전 캐시면 마지막 날짜 근처부터만 받아 이어 붙인다.
  *   액면분할·배당 등으로 수정주가가 바뀌었으면(겹치는 날 종가가 다르면) 전체를 다시 받는다
  */
-export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
+export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "krx" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
   const p = path.join(cacheDir, src, `${symbol}.json`);
   const c = await readJson<DailyCache>(p);
   const covers = !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) <= start;
@@ -95,6 +100,30 @@ function kisFetcher(): DailyFetcher {
   const client = getClient(cred);
   const end = today();
   return (symbol, start) => symbol === "KOSPI" ? kisIndexDaily(client, start, end) : kisDaily(client, symbol, start, end);
+}
+
+/** KRX 전종목 시세. 지난 날짜의 목록은 바뀌지 않으므로 계속 캐시 (휴장일의 빈 결과는 저장하지 않음) */
+async function cachedListings(date: string): Promise<KrxListing[]> {
+  const p = path.join(CACHE, "krx", "listings", `${date}.json`);
+  const c = await readJson<KrxListing[]>(p);
+  if (c && c.length) return c;
+  const rows = await krxListings(date);
+  if (rows.length) await writeJson(p, rows);
+  return rows;
+}
+
+/** data/csv/universe.csv: date,code[,name] → 날짜별 종목 목록 */
+export function parseUniverseCsv(text: string): { snapshots: UniverseSnapshot[]; names: Record<string, string> } {
+  const by = new Map<string, string[]>();
+  const names: Record<string, string> = {};
+  for (const ln of text.trim().split(/\r?\n/)) {
+    const [d, code, name] = ln.split(",").map((x) => x.trim());
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d ?? "") || !/^[0-9A-Z]{6}$/.test(code ?? "")) continue; // 헤더·빈 줄
+    if (!by.has(d)) by.set(d, []);
+    by.get(d)!.push(code);
+    if (name) names[code] = name;
+  }
+  return { snapshots: [...by.entries()].map(([date, tickers]) => ({ date, tickers })).sort((a, b) => a.date.localeCompare(b.date)), names };
 }
 
 async function cachedUniverse(n: number): Promise<StockInfo[]> {
@@ -147,7 +176,7 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
     for (const f of files) {
       const code = f.replace(/\.csv$/, "");
       if (want && !want.has(code)) continue;
-      if (code.toUpperCase() === "KOSPI") continue;
+      if (code.toUpperCase() === "KOSPI" || code.toLowerCase() === "universe") continue;
       data[code] = clip(parseCsv(await fs.readFile(path.join(CSV_DIR, f), "utf8")), req.start, req.end);
       names[code] = code;
     }
@@ -157,7 +186,12 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
         .map((b) => ({ date: b.date, close: b.close }));
     } catch { warnings.push("data/csv/KOSPI.csv 가 없어 지수 비교·시장 필터를 쓸 수 없습니다."); }
     if (!Object.keys(data).length) throw new Error("data/csv/ 폴더에 CSV 파일이 없습니다");
-    return { data, names, benchmark, warnings };
+    let universe: UniverseSnapshot[] | undefined;
+    try {
+      const u = parseUniverseCsv(await fs.readFile(path.join(CSV_DIR, "universe.csv"), "utf8"));
+      if (u.snapshots.length) { universe = u.snapshots; Object.assign(names, u.names); warnings.push(`data/csv/universe.csv 의 시점별 종목 목록(${u.snapshots.length}개 시점)을 적용했습니다.`); }
+    } catch { /* 없으면 전체 종목 */ }
+    return { data, names, benchmark, warnings, universe };
   }
 
   // naver / kis (kis 는 시세만 한국투자증권, 시총 순위는 네이버)
@@ -165,17 +199,44 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
   const fetcher = isKis ? kisFetcher() : fetchDaily;
   const src = isKis ? "kis" : "naver";
   let list: StockInfo[];
+  let universe: UniverseSnapshot[] | undefined;
+  const isin = new Map<string, string>();
   if (req.tickers?.length) list = req.tickers.map((code) => ({ code, name: code }));
-  else {
+  else if (req.pit) {
+    try {
+      const u = await buildPitUniverse(req.start, req.end, req.universeSize ?? 100, cachedListings);
+      universe = u.snapshots;
+      list = [...u.listings.entries()].map(([code, v]) => { isin.set(code, v.isin); return { code, name: v.name }; });
+    } catch (e) {
+      const cause = (e as any)?.cause?.code ?? (e as Error).message;
+      throw new Error(`KRX 정보데이터시스템에서 과거 종목 목록을 받지 못했습니다 (${cause}). KRX 가 접속 방식을 바꿨거나 로그인을 요구할 수 있습니다. '과거 시점의 시총 상위 종목 사용'을 끄고 다시 실행하거나, data/csv/universe.csv 를 직접 넣어 '내 CSV 파일'로 쓰세요.`);
+    }
+    warnings.push(`분기마다 그 시점의 시총 상위 ${req.universeSize ?? 100}종목으로 종목 목록을 바꿉니다(${universe.length}개 시점, 모두 ${list.length}종목). 상장폐지된 종목도 포함해 생존편향을 줄였습니다.`);
+  } else {
     try {
       list = await cachedUniverse(req.universeSize ?? 100);
     } catch (e) {
       const cause = (e as any)?.cause?.code ?? (e as Error).message;
       throw new Error(`네이버 증권에서 시총 순위를 받지 못했습니다 (${cause}). 인터넷 연결이나 방화벽을 확인하세요.${isKis ? " 한국투자증권 시세만 쓰려면 '종목 직접 입력'으로 종목코드를 넣으세요." : " 오프라인이면 '내 CSV 파일' 데이터를 쓰세요."}`);
     }
-    warnings.push("유니버스는 '현재' 시총 상위 종목입니다. 과거에 상장폐지된 종목이 빠져 있어 성과가 실제보다 좋게 나올 수 있습니다(생존편향).");
+    warnings.push("유니버스는 '현재' 시총 상위 종목입니다. 과거에 상장폐지된 종목이 빠져 있어 성과가 실제보다 좋게 나올 수 있습니다(생존편향). '과거 시점의 시총 상위 종목 사용'을 켜면 줄일 수 있습니다.");
   }
-  const results = await pool(list, 6, (s) => cachedDaily(s.code, req.start, src, fetcher));
+  // 상장폐지 종목은 네이버·한국투자증권에 시세가 없을 수 있어 KRX 개별종목 시세로 대신 받는다
+  const krxFetcher = (code: string): DailyFetcher => async (_, start) => {
+    const bars = await krxDaily(isin.get(code)!, start, today());
+    if (!bars.length) throw new Error(`${code}: 데이터 없음`);
+    return bars;
+  };
+  let fromKrx = 0;
+  const results = await pool(list, 6, async (s) => {
+    try { return await cachedDaily(s.code, req.start, src, fetcher); }
+    catch (e) {
+      if (!isin.get(s.code)) throw e;
+      const bars = await cachedDaily(s.code, req.start, "krx", krxFetcher(s.code));
+      fromKrx++;
+      return bars;
+    }
+  });
   const data: PriceData = {}, names: Record<string, string> = {};
   results.forEach((r, k) => {
     const s = list[k];
@@ -194,5 +255,6 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
     }
     benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
   } catch (e) { warnings.push(`KOSPI 지수 조회 실패: ${(e as Error).message}`); }
-  return { data, names, benchmark, warnings };
+  if (fromKrx) warnings.push(`${fromKrx}종목은 ${isKis ? "한국투자증권" : "네이버"}에 시세가 없어(상장폐지 등) KRX 시세를 썼습니다.`);
+  return { data, names, benchmark, warnings, universe };
 }
