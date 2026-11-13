@@ -66,6 +66,16 @@ export default function CycleBuilder({ spec, onChange }: { spec: CycleSpec; onCh
       <div style={row}>바닥 이후 <Num value={spec.stable.calmDays} min={0} step={1} onChange={(v) => set("stable", { calmDays: v })} />영업일 동안 신저가 없음</div>
       <div style={row}>종가가 <Num value={spec.stable.ma} min={0} step={1} onChange={(v) => set("stable", { ma: v })} />일 이동평균선 위</div>
 
+      <h3>4. 투자 비율과 리밸런싱</h3>
+      <div style={row}>주식은 총자산의 <Num value={spec.limit.maxInvest} min={1} onChange={(v) => set("limit", { maxInvest: v })} />%까지만 (100 = 제한 없음)</div>
+      <div style={row}>
+        <select value={spec.limit.rebalance} style={{ width: 120, flex: "none" }} onChange={(e) => set("limit", { rebalance: e.target.value as CycleSpec["limit"]["rebalance"] })}>
+          <option value="off">안 함</option><option value="W">매주</option><option value="M">매월</option><option value="Q">분기마다</option>
+        </select>
+        주가가 올라 이 비율을 넘었으면 팔아서 맞춤
+      </div>
+      <p className="help" style={{ margin: "2px 0 0" }}>적립 매수는 이 비율까지만 하고, 리밸런싱을 켜면 정한 주기의 첫 거래일에 넘친 만큼을 종목별로 같은 비율로 팝니다.</p>
+
       <div className="notice" style={{ marginTop: 12 }}>
         <b>이 전략은 이렇게 움직입니다</b>
         <ul>{describeCycle(spec).map((t, k) => <li key={k}>{t}</li>)}</ul>

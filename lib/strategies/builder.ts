@@ -49,7 +49,18 @@ export interface BuilderSpec {
   /** 남은 종목을 이 기준으로 줄 세움 */
   rank: { metric: MetricId; n: number; m: number; dir: "desc" | "asc" };
   topK: number;
+  /** 투자 비율: 총자산 중 주식에 넣는 % (나머지는 현금) */
+  invest?: number;
+  /** 고른 종목끼리 비중 나누는 방법: 같은 비중 / 순위가 높을수록 많이 / 덜 출렁일수록 많이 */
+  weighting?: Weighting;
 }
+
+export type Weighting = "equal" | "rank" | "invVol";
+export const WEIGHTINGS: { id: Weighting; label: string; help: string }[] = [
+  { id: "equal", label: "같은 비중", help: "고른 종목에 똑같이 나눕니다." },
+  { id: "rank", label: "순위가 높을수록 많이", help: "1등이 가장 많고 아래로 갈수록 줄어듭니다 (예: 3종목이면 50%·33%·17%)." },
+  { id: "invVol", label: "덜 출렁이는 종목에 많이", help: "최근 60일 변동성이 낮은 종목에 더 많이 넣습니다." },
+];
 
 export const defaultSpec = (): BuilderSpec => ({
   marketMa: 120,
@@ -59,6 +70,8 @@ export const defaultSpec = (): BuilderSpec => ({
   ],
   rank: { metric: "ret", n: 120, m: 0, dir: "desc" },
   topK: 10,
+  invest: 100,
+  weighting: "equal",
 });
 
 const int = (v: unknown, lo: number, hi: number, d: number) => {
@@ -67,8 +80,8 @@ const int = (v: unknown, lo: number, hi: number, d: number) => {
 };
 
 /** 저장된 값·화면 입력을 안전한 범위로 정리 */
-export function normalizeSpec(x: any): BuilderSpec {
-  const d = defaultSpec();
+export function normalizeSpec(x: any): Required<BuilderSpec> {
+  const d = defaultSpec() as Required<BuilderSpec>;
   const periods = (id: MetricId, n: unknown, m: unknown) => {
     const md = metric(id);
     return { n: md.periods >= 1 ? int(n, 1, 500, md.defaults.n) : 0, m: md.periods === 2 ? int(m, 1, 500, md.defaults.m) : 0 };
@@ -84,6 +97,8 @@ export function normalizeSpec(x: any): BuilderSpec {
     filters,
     rank: { metric: rid, ...periods(rid, x?.rank?.n, x?.rank?.m), dir: x?.rank?.dir === "asc" ? "asc" : "desc" },
     topK: int(x?.topK, 1, 50, d.topK),
+    invest: Number.isFinite(Number(x?.invest)) && x?.invest !== null && x?.invest !== undefined ? Math.min(Math.max(Number(x.invest), 1), 100) : d.invest,
+    weighting: WEIGHTINGS.some((w) => w.id === x?.weighting) ? x.weighting : d.weighting,
   };
 }
 
@@ -131,8 +146,28 @@ export function generate(input: BuilderSpec): Generated {
     conds.forEach((c, k) => lines.push(`    ${c}${k < conds.length - 1 ? " &&" : ","}`));
   }
   lines.push(");");
-  lines.push("return ctx.equal(picks);   // 같은 비중으로 보유");
-  summary.push(`고르기: 남은 종목을 ${describeMetric(s.rank.metric, s.rank.n, s.rank.m)} ${s.rank.dir === "desc" ? "높은" : "낮은"} 순으로 줄 세워 위에서 ${s.topK}종목을 같은 비중으로 보유합니다.`);
+  const total = s.invest < 100 ? "p.investPct / 100" : "1";
+  if (s.invest < 100) params.investPct = s.invest;
+  if (s.weighting === "equal") {
+    lines.push(`return ctx.equal(picks${s.invest < 100 ? `, ${total}` : ""});   // 같은 비중으로 보유`);
+  } else if (s.weighting === "rank") {
+    use(1);
+    lines.push("// 순위 가중: 1등 n, 2등 n-1, ... 1 의 비율로 나눔");
+    lines.push("const n = picks.length, sum = (n * (n + 1)) / 2, w = {};");
+    lines.push(`picks.forEach((t, k) => { w[t] = ((n - k) / sum) * ${total}; });`);
+    lines.push("return w;");
+  } else {
+    use(61);
+    lines.push("// 변동성 역가중: 최근 60일 변동성이 낮을수록 많이 (변동성을 못 구하면 같은 비중)");
+    lines.push("const iv = picks.map((t) => 1 / ctx.volatility(t, 60));");
+    lines.push("if (!iv.every((x) => Number.isFinite(x) && x > 0)) return ctx.equal(picks" + (s.invest < 100 ? `, ${total}` : "") + ");");
+    lines.push("const sum = iv.reduce((a, b) => a + b, 0), w = {};");
+    lines.push(`picks.forEach((t, k) => { w[t] = (iv[k] / sum) * ${total}; });`);
+    lines.push("return w;");
+  }
+  const how = { equal: "같은 비중으로", rank: "순위가 높을수록 많이", invVol: "변동성이 낮을수록 많이" }[s.weighting];
+  summary.push(`고르기: 남은 종목을 ${describeMetric(s.rank.metric, s.rank.n, s.rank.m)} ${s.rank.dir === "desc" ? "높은" : "낮은"} 순으로 줄 세워 위에서 ${s.topK}종목을 ${how} 나눠 보유합니다.`);
+  summary.push(s.invest < 100 ? `투자 비율: 총자산의 ${s.invest}%만 주식에 넣고 나머지 ${+(100 - s.invest).toFixed(2)}%는 현금으로 둡니다.` : "투자 비율: 총자산을 모두 주식에 넣습니다.");
   // 최고가·변동성 등은 n 일치 데이터가 있어야 하므로 가장 긴 기간 + 여유
   return { code: lines.join("\n"), params, warmup: maxPeriod + 2, summary };
 }
