@@ -77,3 +77,8 @@ tests/engine.test.ts      테스트
 ![화면](docs/screenshot.png)
 
 Python 버전(pykrx/FinanceDataReader 기반 CLI)은 `python/` 폴더에 있습니다.
+
+## 보안 · 밖에서 접속
+앱 전체가 관리자 로그인 뒤에 있습니다(`middleware.ts`). 처음 접속하면 컨테이너 로그의 설정 코드로 비밀번호를 만들고,
+설정 → 보안에서 2단계 인증(휴대폰 인증 앱), 최근 로그인 기록, 모든 기기 로그아웃을 관리합니다.
+인터넷에서 `https://alphy.devsean.me` 로 여는 방법(DSM 역방향 프록시, 인증서, 공유기, 방화벽)은 [docs/external-access.md](docs/external-access.md).

@@ -41,7 +41,15 @@ export interface Settings {
   version: 1;
   kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit };
   backtest: BacktestDefaults;
-  auth: { passwordHash?: string; sessionSecret?: string; setupCode?: string };
+  auth: {
+    passwordHash?: string; sessionSecret?: string; setupCode?: string;
+    /** 2단계 인증 비밀 키(base32). 있으면 로그인에 인증 앱 6자리 코드가 필요 */
+    totpSecret?: string;
+    /** 등록 중(아직 코드 확인 전)인 키 */
+    totpPending?: string;
+    /** 마지막으로 쓴 코드의 시각 단위(같은 코드 재사용 방지) */
+    totpLastCounter?: number;
+  };
 }
 
 export const DEFAULT_BACKTEST: BacktestDefaults = {

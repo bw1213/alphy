@@ -26,9 +26,9 @@
 
 ## 2. 설정 화면에 키 넣기
 
-1. `http://NAS-IP:3000/settings` 접속
+1. `https://alphy.devsean.me/settings` (집 안에서는 `http://NAS-IP:3000/settings`) 접속
 2. **처음 한 번: 관리자 비밀번호 만들기** — 본인 확인용 *설정 코드*(8자리)가 필요합니다.
-   Container Manager → 컨테이너 → `kospi-backtest` → **로그**의 `처음 설정 코드: XXXXXXXX` 줄, 또는 File Station의 `nas/cache/config/setup-code.txt`에 있습니다.
+   Container Manager → 컨테이너 → `alphy` → **로그**의 `처음 설정 코드: XXXXXXXX` 줄, 또는 File Station의 `nas/cache/config/setup-code.txt`에 있습니다.
    (남이 먼저 접속해서 비밀번호를 정하는 걸 막기 위한 장치입니다)
 3. **한국투자증권 · 모의투자** 칸에 앱키, 앱시크릿, 계좌번호(`50012345-01`)를 넣고 저장
 4. (선택) **실전투자** 칸에 실전 앱키·앱시크릿 — 시세가 빨라집니다. 실전 계좌번호는 실전 주문할 때만
