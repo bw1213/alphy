@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Results from "@/components/Results";
+import StrategyBuilder from "@/components/StrategyBuilder";
+import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/strategies/builder";
 import { runBacktest } from "@/lib/engine/engine";
 import { summarize, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, Rebalance } from "@/lib/engine/types";
@@ -9,7 +11,7 @@ import type { DataResponse, Source } from "@/lib/data/server";
 import { paramVariants, summarizeSensitivity, type SensitivityResult, type SensitivityRow } from "@/lib/engine/validate";
 import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Params } from "@/lib/strategies";
 
-interface SavedStrategy { name: string; code: string; params: string; rebalance: Rebalance; stopLoss: string; takeProfit: string; warmup: number }
+import type { SavedStrategy } from "@/lib/strategies/library";
 const LS_KEY = "kbt.custom-strategies";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -32,8 +34,20 @@ export default function Page() {
   const [code, setCode] = useState(CUSTOM_TEMPLATE);
   const [customParams, setCustomParams] = useState(CUSTOM_PARAMS);
   const [customName, setCustomName] = useState("내 전략");
-  const [saved, setSaved] = useState<SavedStrategy[]>([]);
-  useEffect(() => setSaved(loadSaved()), []);
+  /** 내 전략을 만드는 방법: 조건 고르기(코드 없이) 또는 코드 작성 */
+  const [mode, setMode] = useState<"builder" | "code">("builder");
+  const [spec, setSpec] = useState<BuilderSpec>(defaultSpec);
+  // 내 전략: NAS 에 저장된 것(어느 기기에서나 보임) + 이 브라우저에만 있는 것
+  const [onNas, setOnNas] = useState<SavedStrategy[]>([]);
+  const [local, setLocal] = useState<SavedStrategy[]>([]);
+  const [stratMsg, setStratMsg] = useState("");
+  const saved = useMemo(() => [...onNas, ...local.filter((l) => !onNas.some((s) => s.name === l.name))], [onNas, local]);
+  const isLocalOnly = (name: string) => !onNas.some((s) => s.name === name);
+  useEffect(() => {
+    setLocal(loadSaved());
+    fetch("/api/strategies", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])).then((l) => Array.isArray(l) && setOnNas(l)).catch(() => { /* 서버 목록 없이 계속 */ });
+  }, []);
+  const [target, setTarget] = useState({ cagr: 15, mdd: 25 });
 
   // 운용 규칙
   const [rebalance, setRebalance] = useState<Rebalance>(STRATEGIES[0].rebalance);
@@ -72,9 +86,15 @@ export default function Page() {
       setRebalance(b.rebalance);
       setStopLoss(b.stopLoss ? String(b.stopLoss * 100) : "");
       setTakeProfit(b.takeProfit ? String(b.takeProfit * 100) : "");
+    } else if (id === "builder") {
+      setMode("builder"); setSpec(defaultSpec()); setCustomName("내 조건 전략"); setRebalance("M"); setStopLoss(""); setTakeProfit("");
+    } else if (id === "custom") {
+      setMode("code");
     } else if (id.startsWith("saved:")) {
       const s = saved.find((x) => `saved:${x.name}` === id);
       if (s) {
+        setMode(s.builder ? "builder" : "code");
+        if (s.builder) setSpec(normalizeSpec(s.builder));
         setCode(s.code); setCustomParams(s.params); setCustomName(s.name); setRebalance(s.rebalance);
         setStopLoss(s.stopLoss); setTakeProfit(s.takeProfit); setCustomWarmup(s.warmup);
       }
@@ -88,6 +108,7 @@ export default function Page() {
       if (!d) return;
       setSource(d.source); setCash(d.cash); setUniverseSize(d.universeSize);
       setCommission(String(d.commission)); setSlippage(String(d.slippage)); setSellTax(d.sellTax == null ? "" : String(d.sellTax));
+      if (d.targetCagr > 0 && d.maxDrawdown > 0) setTarget({ cagr: d.targetCagr, mdd: d.maxDrawdown });
     }).catch(() => { /* 기본값 그대로 */ });
   }, []);
 
@@ -97,17 +118,57 @@ export default function Page() {
     setCustomParams(JSON.stringify(params[builtin.id], null, 1).replace(/\n\s*/g, " "));
     setCustomName(`${builtin.name} (수정)`);
     setCustomWarmup(builtin.warmup(params[builtin.id]));
+    setMode("code");
     setSid("custom");
   };
 
-  const saveCustom = () => {
-    const item: SavedStrategy = { name: customName.trim() || "내 전략", code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
-    const list = [...saved.filter((s) => s.name !== item.name), item];
-    setSaved(list); storeSaved(list); setSid(`saved:${item.name}`);
+  const saveCustom = async () => {
+    const g = mode === "builder" ? generate(spec) : null;
+    const item: SavedStrategy = g
+      ? { name: customName.trim() || "내 전략", code: g.code, params: JSON.stringify(g.params), rebalance, stopLoss, takeProfit, warmup: g.warmup, builder: normalizeSpec(spec) }
+      : { name: customName.trim() || "내 전략", code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
+    setStratMsg("");
+    const keepLocal = (why: string) => {
+      const list = [...local.filter((s) => s.name !== item.name), item];
+      setLocal(list); storeSaved(list); setStratMsg(why);
+    };
+    try {
+      const r = await fetch("/api/strategies", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item) });
+      const j = await r.json();
+      if (r.ok) {
+        setOnNas(j);
+        const list = local.filter((s) => s.name !== item.name);
+        setLocal(list); storeSaved(list);
+        setStratMsg("NAS에 저장했습니다. 다른 기기에서도 보입니다.");
+      } else if (r.status === 401 || r.status === 403) keepLocal("로그인하지 않아 이 브라우저에만 저장했습니다. 설정 화면에서 로그인한 뒤 다시 저장하면 NAS에 저장됩니다.");
+      else { setStratMsg(j.error ?? `저장 실패 (HTTP ${r.status})`); return; }
+    } catch { keepLocal("서버에 연결하지 못해 이 브라우저에만 저장했습니다."); }
+    setSid(`saved:${item.name}`);
   };
-  const deleteCustom = () => {
-    const list = saved.filter((s) => `saved:${s.name}` !== sid);
-    setSaved(list); storeSaved(list); setSid("custom");
+  const deleteCustom = async () => {
+    const name = sid.replace(/^saved:/, "");
+    setStratMsg("");
+    if (!isLocalOnly(name)) {
+      const r = await fetch(`/api/strategies?name=${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => null);
+      if (!r || !r.ok) { setStratMsg(r && (r.status === 401 || r.status === 403) ? "NAS에 저장된 전략은 설정 화면에서 로그인해야 지울 수 있습니다." : "삭제하지 못했습니다."); return; }
+      setOnNas(await r.json());
+    }
+    const list = local.filter((s) => s.name !== name);
+    setLocal(list); storeSaved(list); setSid("custom");
+  };
+  /** 이 브라우저에만 있는 전략을 모두 NAS 로 */
+  const moveLocalToNas = async () => {
+    setStratMsg("");
+    let last: SavedStrategy[] | null = null;
+    const left: SavedStrategy[] = [];
+    for (const s of local) {
+      const r = await fetch("/api/strategies", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(s) }).catch(() => null);
+      if (r?.ok) last = await r.json();
+      else { left.push(s); if (r && (r.status === 401 || r.status === 403)) { setStratMsg("설정 화면에서 로그인한 뒤 다시 하세요."); left.push(...local.slice(local.indexOf(s) + 1)); break; } }
+    }
+    if (last) setOnNas(last);
+    setLocal(left); storeSaved(left);
+    if (!left.length) setStratMsg("모두 NAS로 옮겼습니다.");
   };
 
   const isCustom = !builtin;
@@ -119,6 +180,9 @@ export default function Page() {
       let fn: (ctx: any, p: Params) => any, p: Params, warmup: number, label: string;
       if (builtin) {
         p = params[builtin.id]; fn = builtin.targetWeights; warmup = builtin.warmup(p); label = builtin.id;
+      } else if (mode === "builder") {
+        const g = generate(spec);
+        p = g.params; fn = compileStrategy(g.code); warmup = g.warmup; label = customName.replace(/\s+/g, "_");
       } else {
         try { p = JSON.parse(customParams || "{}"); } catch { throw new Error("파라미터(JSON) 형식이 올바르지 않습니다."); }
         try { fn = compileStrategy(code); } catch (e) { throw new Error(`전략 코드 문법 오류: ${(e as Error).message}`); }
@@ -156,11 +220,11 @@ export default function Page() {
       const res = exec(p, warmup);
       const warmupOf = builtin ? builtin.warmup : () => warmup;
       rerun.current = { p, run: (pp) => {
-        try { const x = summarize(exec(pp, warmupOf(pp))); return { label: "", cagr: x.cagr, mdd: x.mdd }; }
+        try { const x = summarize(exec(pp, warmupOf(pp)), target.cagr / 100, target.mdd / 100); return { label: "", cagr: x.cagr, mdd: x.mdd }; }
         catch { return { label: "", cagr: NaN, mdd: NaN }; }
       } };
       if (res.equity.length < 2) throw new Error("평가 구간 데이터가 부족합니다. 기간을 확인하세요.");
-      setOut({ res, s: summarize(res), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략") });
+      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략") });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -180,7 +244,7 @@ export default function Page() {
       await new Promise((res) => setTimeout(res, 10));
       rows.push({ ...r.run({ ...r.p, [v.key]: v.value }), label: v.label });
     }
-    return summarizeSensitivity({ label: "지금 설정", cagr: out.s.cagr, mdd: out.s.mdd }, rows);
+    return summarizeSensitivity({ label: "지금 설정", cagr: out.s.cagr, mdd: out.s.mdd }, rows, out.s.target);
   };
 
   const paramSpecs = builtin?.params ?? [];
@@ -195,7 +259,7 @@ export default function Page() {
     <>
       <header className="top">
         <h1>KOSPI 백테스트</h1>
-        <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 30%</p>
+        <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 {target.cagr}%, 최대 낙폭 -{target.mdd}% 이내 (<a href="/settings">설정</a>에서 변경)</p>
         <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
@@ -208,8 +272,9 @@ export default function Page() {
                   {STRATEGIES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </optgroup>
                 <optgroup label="내 전략">
-                  <option value="custom">+ 새 전략 직접 작성</option>
-                  {saved.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}</option>)}
+                  <option value="builder">+ 새 전략 만들기 (조건 고르기)</option>
+                  <option value="custom">+ 새 전략 만들기 (코드 작성)</option>
+                  {saved.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{isLocalOnly(s.name) ? " (이 브라우저만)" : ""}</option>)}
                 </optgroup>
               </select>
             </label>
@@ -233,21 +298,43 @@ export default function Page() {
                 <label className="f" style={{ marginTop: 10 }}>전략 이름
                   <input value={customName} onChange={(e) => setCustomName(e.target.value)} />
                 </label>
-                <label className="f" style={{ marginTop: 10 }}>전략 코드 (JavaScript, ctx·p 사용)
-                  <textarea rows={18} wrap="off" value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} />
-                </label>
-                <div className="row" style={{ marginTop: 10 }}>
-                  <label className="f">파라미터 (JSON)
-                    <input value={customParams} onChange={(e) => setCustomParams(e.target.value)} spellCheck={false} />
-                  </label>
-                  <label className="f">워밍업(영업일)
-                    <input type="number" value={customWarmup} onChange={(e) => setCustomWarmup(Number(e.target.value))} />
-                  </label>
+                <div className="seg" style={{ marginTop: 10 }}>
+                  <button className={mode === "builder" ? "on" : ""} onClick={() => setMode("builder")}>조건 고르기</button>
+                  <button className={mode === "code" ? "on" : ""} onClick={() => {
+                    if (mode === "builder") { // 지금 조건을 코드로 옮겨서 이어서 고칠 수 있게
+                      const g = generate(spec);
+                      setCode(g.code); setCustomParams(JSON.stringify(g.params, null, 1).replace(/\n\s*/g, " ")); setCustomWarmup(g.warmup);
+                    }
+                    setMode("code");
+                  }}>코드 작성</button>
                 </div>
+                {mode === "builder" ? (
+                  <>
+                    <StrategyBuilder spec={spec} onChange={setSpec} />
+                    <p className="help">더 복잡한 규칙이 필요하면 위의 &quot;코드 작성&quot;을 누르세요. 지금 조건이 코드로 바뀌어 이어서 고칠 수 있습니다(코드에서 고친 내용은 조건 화면으로 돌아오지 않습니다).</p>
+                  </>
+                ) : (
+                  <>
+                    <label className="f" style={{ marginTop: 10 }}>전략 코드 (JavaScript, ctx·p 사용)
+                      <textarea rows={18} wrap="off" value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} />
+                    </label>
+                    <div className="row" style={{ marginTop: 10 }}>
+                      <label className="f">파라미터 (JSON)
+                        <input value={customParams} onChange={(e) => setCustomParams(e.target.value)} spellCheck={false} />
+                      </label>
+                      <label className="f">워밍업(영업일)
+                        <input type="number" value={customWarmup} onChange={(e) => setCustomWarmup(Number(e.target.value))} />
+                      </label>
+                    </div>
+                  </>
+                )}
                 <div className="btns" style={{ marginTop: 10 }}>
-                  <button onClick={saveCustom}>이 브라우저에 저장</button>
+                  <button onClick={saveCustom}>저장</button>
                   {sid.startsWith("saved:") && <button onClick={deleteCustom}>삭제</button>}
+                  {local.some((l) => isLocalOnly(l.name)) && <button onClick={moveLocalToNas}>이 브라우저의 전략을 NAS로 옮기기</button>}
                 </div>
+                {stratMsg && <p className="help">{stratMsg}</p>}
+                <p className="help">저장한 전략은 NAS에 보관되어 어느 기기에서나 고를 수 있습니다(저장·삭제는 로그인 필요). 같은 이름으로 저장하면 덮어쓰고, 이름을 바꿔 저장하면 사본이 생깁니다.</p>
               </>
             )}
             <h3>운용 규칙</h3>
@@ -329,7 +416,7 @@ export default function Page() {
           {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && (
             <div className="card empty">
               <p><b>왼쪽에서 전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
-              <p>결과로 연평균 수익률, 최대 낙폭, KOSPI 대비 성과, 연도별 30% 달성 여부, 매매 내역을 보여드립니다.</p>
+              <p>결과로 연평균 수익률, 최대 낙폭, KOSPI 대비 성과, 연도별 목표 달성 여부, 매매 내역을 보여드립니다.</p>
             </div>
           )}
         </section>

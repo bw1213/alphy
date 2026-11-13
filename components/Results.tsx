@@ -5,7 +5,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { drawdown, TARGET_CAGR, type Summary } from "@/lib/engine/metrics";
+import { drawdown, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult } from "@/lib/engine/types";
 import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine/validate";
 import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
@@ -53,6 +53,8 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
   onSensitivity?: (onProgress: (done: number, total: number) => void) => Promise<SensitivityResult>;
 }) {
   const c = useColors();
+  const TARGET_CAGR = s.target;
+  const T = `${+(s.target * 100).toFixed(1)}%`; // 목표 표시용
   const [tab, setTab] = useState<"signal" | "check" | "annual" | "trades" | "positions">("annual");
   const [log, setLog] = useState(true);
 
@@ -71,7 +73,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
   }, [res]);
 
   const split = useMemo(() => splitStats(res.equity), [res]);
-  const rolling = useMemo(() => rollingReturns(res.equity.map((e) => e.equity)), [res]);
+  const rolling = useMemo(() => rollingReturns(res.equity.map((e) => e.equity), 252, s.target), [res, s.target]);
   const [sens, setSens] = useState<SensitivityResult | null>(null);
   const [sensBusy, setSensBusy] = useState("");
   const [sensErr, setSensErr] = useState("");
@@ -104,9 +106,10 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
         <div className="kpi">
           <div className="k">연평균 수익률 (CAGR)</div>
           <div className="v">{pct(s.cagr)}</div>
-          <div className={`badge ${s.meetsTarget ? "ok" : "no"}`}>{s.meetsTarget ? "✓ 목표 30% 달성" : "✕ 목표 30% 미달"}</div>
+          <div className={`badge ${s.meetsTarget ? "ok" : "no"}`}>{s.meetsTarget ? `✓ 목표 ${T} 달성` : `✕ 목표 ${T} 미달`}</div>
         </div>
         <div className="kpi"><div className="k">최대 낙폭 (MDD)</div><div className="v">{pct(s.mdd)}</div>
+          <div className={`badge ${s.withinDrawdown ? "ok" : "no"}`}>{s.withinDrawdown ? `✓ 기준 -${+(s.maxDrawdown * 100).toFixed(1)}% 이내` : `✕ 기준 -${+(s.maxDrawdown * 100).toFixed(1)}% 초과`}</div>
           <div className="s">KOSPI {pct(s.bench?.mdd)}</div></div>
         <div className="kpi"><div className="k">누적 수익률</div><div className="v">{pct(s.totalReturn)}</div>
           <div className="s">KOSPI {pct(s.bench?.totalReturn)}</div></div>
@@ -114,7 +117,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
           <div className="s">소르티노 {num(s.sortino)}</div></div>
         <div className="kpi"><div className="k">승률 (청산 {s.nSells}건)</div><div className="v">{pct(s.winRate, 0)}</div>
           <div className="s">평균 {pct(s.avgTradeRet)}</div></div>
-        <div className="kpi"><div className="k">연 30% 달성 연도</div><div className="v">{s.yearsHitTarget} / {s.annual.length}</div>
+        <div className="kpi"><div className="k">연 {T} 달성 연도</div><div className="v">{s.yearsHitTarget} / {s.annual.length}</div>
           <div className="s">평균 투자비중 {pct(s.exposure, 0)}</div></div>
       </div>
 
@@ -129,7 +132,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
         <div className="legend">
           <span><i style={{ background: c.s1 }} />전략</span>
           {hasBench && <span><i style={{ background: c.s2 }} />KOSPI 지수</span>}
-          <span><i className="dash" />연 30% 목표</span>
+          <span><i className="dash" />연 {T} 목표</span>
         </div>
         <div style={{ height: 320 }}>
           <ResponsiveContainer>
@@ -140,7 +143,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
               <YAxis scale={log ? "log" : "linear"} domain={["auto", "auto"]} tick={{ fill: c.t2, fontSize: 11 }}
                 stroke={c.grid} width={48} allowDataOverflow tickFormatter={(v: number) => v.toFixed(0)} />
               <Tooltip content={<Tip fmt={(v: number) => v.toFixed(1)} />} />
-              <Line dataKey="target" name="연 30% 목표" stroke={c.t3} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+              <Line dataKey="target" name={`연 ${T} 목표`} stroke={c.t3} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
               {hasBench && <Line dataKey="kospi" name="KOSPI" stroke={c.s2} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
               <Line dataKey="strategy" name="전략" stroke={c.s1} dot={false} strokeWidth={2} isAnimationActive={false} />
             </LineChart>
@@ -219,7 +222,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
               <>
                 <div className="tablewrap">
                   <table>
-                    <thead><tr><th className="l">구간</th><th className="l">기간</th><th>CAGR</th><th>MDD</th><th>샤프</th>{hasBench && <th>KOSPI CAGR</th>}<th className="l">목표 30%</th></tr></thead>
+                    <thead><tr><th className="l">구간</th><th className="l">기간</th><th>CAGR</th><th>MDD</th><th>샤프</th>{hasBench && <th>KOSPI CAGR</th>}<th className="l">목표 {T}</th></tr></thead>
                     <tbody>
                       {([["앞 70% (고르는 구간)", split.first], ["뒤 30% (확인 구간)", split.second]] as const).map(([name, x]) => (
                         <tr key={name}>
@@ -242,7 +245,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
             <h3>2. 아무 날에 시작해 1년 보유했다면</h3>
             {!rolling ? <p className="help">기간이 1년 남짓보다 짧아 계산할 수 없습니다.</p> : (
               <div className="kpis">
-                <div className="kpi"><div className="k">30% 이상이었던 비율</div><div className="v">{pct(rolling.hit, 0)}</div><div className="s">{rolling.n.toLocaleString()}개 구간</div></div>
+                <div className="kpi"><div className="k">{T} 이상이었던 비율</div><div className="v">{pct(rolling.hit, 0)}</div><div className="s">{rolling.n.toLocaleString()}개 구간</div></div>
                 <div className="kpi"><div className="k">수익이 난 비율</div><div className="v">{pct(rolling.positive, 0)}</div></div>
                 <div className="kpi"><div className="k">가장 나빴던 1년</div><div className="v">{pct(rolling.worst)}</div></div>
                 <div className="kpi"><div className="k">중간값</div><div className="v">{pct(rolling.median)}</div><div className="s">가장 좋았던 1년 {pct(rolling.best)}</div></div>
@@ -256,7 +259,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
             {sens && (
               <>
                 <p className="help" style={{ marginTop: 10 }}>
-                  지금 설정 CAGR <b>{pct(sens.base.cagr)}</b> · 바꾼 {sens.rows.length}개 조합은 <b>{pct(sens.worst)} ~ {pct(sens.best)}</b> · 그중 30% 이상 {pct(sens.hit, 0)}
+                  지금 설정 CAGR <b>{pct(sens.base.cagr)}</b> · 바꾼 {sens.rows.length}개 조합은 <b>{pct(sens.worst)} ~ {pct(sens.best)}</b> · 그중 {T} 이상 {pct(sens.hit, 0)}
                   {sens.base.cagr > 0 && sens.worst < sens.base.cagr * 0.5 && <b> · 일부 조합에서 수익률이 절반 아래로 떨어집니다. 값에 민감한 전략입니다.</b>}
                 </p>
                 <div className="tablewrap" style={{ maxHeight: 320 }}>
@@ -283,7 +286,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
             <div className="legend">
               <span><i style={{ background: c.s1, height: 8 }} />전략</span>
               {hasBench && <span><i style={{ background: c.s2, height: 8 }} />KOSPI</span>}
-              <span><i className="dash" />30% 목표</span>
+              <span><i className="dash" />{T} 목표</span>
             </div>
             <div style={{ height: 220 }}>
               <ResponsiveContainer>
@@ -293,7 +296,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
                   <YAxis tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} width={48} tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
                   <Tooltip content={<Tip fmt={(v: number) => `${v.toFixed(1)}%`} />} cursor={{ fill: c.grid }} />
                   <ReferenceLine y={0} stroke={c.t3} />
-                  <ReferenceLine y={30} stroke={c.t3} strokeDasharray="4 3" />
+                  <ReferenceLine y={s.target * 100} stroke={c.t3} strokeDasharray="4 3" />
                   <Bar dataKey="strategy" name="전략" fill={c.s1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                   {hasBench && <Bar dataKey="kospi" name="KOSPI" fill={c.s2} radius={[4, 4, 0, 0]} isAnimationActive={false} />}
                 </BarChart>
@@ -301,7 +304,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
             </div>
             <div className="tablewrap">
               <table>
-                <thead><tr><th>연도</th><th>전략</th><th>KOSPI</th><th>초과수익</th><th>30% 달성</th></tr></thead>
+                <thead><tr><th>연도</th><th>전략</th><th>KOSPI</th><th>초과수익</th><th>{T} 달성</th></tr></thead>
                 <tbody>
                   {s.annual.map((a) => (
                     <tr key={a.year}>

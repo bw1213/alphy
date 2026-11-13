@@ -93,6 +93,8 @@ export function applyPatch(s: Settings, p: SettingsPatch): Settings {
     if (b.commission !== undefined) next.backtest.commission = num(b.commission, "수수료 %", 0, 5);
     if (b.slippage !== undefined) next.backtest.slippage = num(b.slippage, "슬리피지 %", 0, 10);
     if (b.sellTax !== undefined) next.backtest.sellTax = b.sellTax === null || String(b.sellTax).trim() === "" ? null : num(b.sellTax, "매도세 %", 0, 5);
+    if (b.targetCagr !== undefined) next.backtest.targetCagr = num(b.targetCagr, "목표 수익률 %", 1, 200);
+    if (b.maxDrawdown !== undefined) next.backtest.maxDrawdown = num(b.maxDrawdown, "최대 낙폭 %", 1, 100);
     if (b.universeSize !== undefined) next.backtest.universeSize = Math.round(num(b.universeSize, "종목 수", 5, 300));
   }
   return next;
