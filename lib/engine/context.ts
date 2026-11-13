@@ -37,6 +37,8 @@ export class StrategyContext {
 
   /** true 로 두면 이번 신호는 리밸런싱 밴드(작은 비중 차이 무시)를 적용하지 않고 정확히 맞춤 */
   exact = false;
+  /** 종목별 매매 이유를 남기면 거래 내역에 그대로 표시됨: ctx.notes[t] = "적립 매수" */
+  notes: Record<string, string> = {};
 
   /** 오늘 날짜 YYYY-MM-DD */
   get date(): string { return this.panel.dates[this.i]; }
