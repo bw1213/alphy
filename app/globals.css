@@ -64,6 +64,8 @@ header.top p { margin: 0; color: var(--text-2); }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; min-width: 0; }
 .stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 
+label.inl { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.builder h3 { margin-top: 14px; }
 label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }

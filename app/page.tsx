@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Results from "@/components/Results";
+import StrategyBuilder from "@/components/StrategyBuilder";
+import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/strategies/builder";
 import { runBacktest } from "@/lib/engine/engine";
 import { summarize, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, Rebalance } from "@/lib/engine/types";
@@ -32,6 +34,9 @@ export default function Page() {
   const [code, setCode] = useState(CUSTOM_TEMPLATE);
   const [customParams, setCustomParams] = useState(CUSTOM_PARAMS);
   const [customName, setCustomName] = useState("내 전략");
+  /** 내 전략을 만드는 방법: 조건 고르기(코드 없이) 또는 코드 작성 */
+  const [mode, setMode] = useState<"builder" | "code">("builder");
+  const [spec, setSpec] = useState<BuilderSpec>(defaultSpec);
   // 내 전략: NAS 에 저장된 것(어느 기기에서나 보임) + 이 브라우저에만 있는 것
   const [onNas, setOnNas] = useState<SavedStrategy[]>([]);
   const [local, setLocal] = useState<SavedStrategy[]>([]);
@@ -81,9 +86,15 @@ export default function Page() {
       setRebalance(b.rebalance);
       setStopLoss(b.stopLoss ? String(b.stopLoss * 100) : "");
       setTakeProfit(b.takeProfit ? String(b.takeProfit * 100) : "");
+    } else if (id === "builder") {
+      setMode("builder"); setSpec(defaultSpec()); setCustomName("내 조건 전략"); setRebalance("M"); setStopLoss(""); setTakeProfit("");
+    } else if (id === "custom") {
+      setMode("code");
     } else if (id.startsWith("saved:")) {
       const s = saved.find((x) => `saved:${x.name}` === id);
       if (s) {
+        setMode(s.builder ? "builder" : "code");
+        if (s.builder) setSpec(normalizeSpec(s.builder));
         setCode(s.code); setCustomParams(s.params); setCustomName(s.name); setRebalance(s.rebalance);
         setStopLoss(s.stopLoss); setTakeProfit(s.takeProfit); setCustomWarmup(s.warmup);
       }
@@ -107,11 +118,15 @@ export default function Page() {
     setCustomParams(JSON.stringify(params[builtin.id], null, 1).replace(/\n\s*/g, " "));
     setCustomName(`${builtin.name} (수정)`);
     setCustomWarmup(builtin.warmup(params[builtin.id]));
+    setMode("code");
     setSid("custom");
   };
 
   const saveCustom = async () => {
-    const item: SavedStrategy = { name: customName.trim() || "내 전략", code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
+    const g = mode === "builder" ? generate(spec) : null;
+    const item: SavedStrategy = g
+      ? { name: customName.trim() || "내 전략", code: g.code, params: JSON.stringify(g.params), rebalance, stopLoss, takeProfit, warmup: g.warmup, builder: normalizeSpec(spec) }
+      : { name: customName.trim() || "내 전략", code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
     setStratMsg("");
     const keepLocal = (why: string) => {
       const list = [...local.filter((s) => s.name !== item.name), item];
@@ -165,6 +180,9 @@ export default function Page() {
       let fn: (ctx: any, p: Params) => any, p: Params, warmup: number, label: string;
       if (builtin) {
         p = params[builtin.id]; fn = builtin.targetWeights; warmup = builtin.warmup(p); label = builtin.id;
+      } else if (mode === "builder") {
+        const g = generate(spec);
+        p = g.params; fn = compileStrategy(g.code); warmup = g.warmup; label = customName.replace(/\s+/g, "_");
       } else {
         try { p = JSON.parse(customParams || "{}"); } catch { throw new Error("파라미터(JSON) 형식이 올바르지 않습니다."); }
         try { fn = compileStrategy(code); } catch (e) { throw new Error(`전략 코드 문법 오류: ${(e as Error).message}`); }
@@ -254,7 +272,8 @@ export default function Page() {
                   {STRATEGIES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </optgroup>
                 <optgroup label="내 전략">
-                  <option value="custom">+ 새 전략 직접 작성</option>
+                  <option value="builder">+ 새 전략 만들기 (조건 고르기)</option>
+                  <option value="custom">+ 새 전략 만들기 (코드 작성)</option>
                   {saved.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{isLocalOnly(s.name) ? " (이 브라우저만)" : ""}</option>)}
                 </optgroup>
               </select>
@@ -279,17 +298,36 @@ export default function Page() {
                 <label className="f" style={{ marginTop: 10 }}>전략 이름
                   <input value={customName} onChange={(e) => setCustomName(e.target.value)} />
                 </label>
-                <label className="f" style={{ marginTop: 10 }}>전략 코드 (JavaScript, ctx·p 사용)
-                  <textarea rows={18} wrap="off" value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} />
-                </label>
-                <div className="row" style={{ marginTop: 10 }}>
-                  <label className="f">파라미터 (JSON)
-                    <input value={customParams} onChange={(e) => setCustomParams(e.target.value)} spellCheck={false} />
-                  </label>
-                  <label className="f">워밍업(영업일)
-                    <input type="number" value={customWarmup} onChange={(e) => setCustomWarmup(Number(e.target.value))} />
-                  </label>
+                <div className="seg" style={{ marginTop: 10 }}>
+                  <button className={mode === "builder" ? "on" : ""} onClick={() => setMode("builder")}>조건 고르기</button>
+                  <button className={mode === "code" ? "on" : ""} onClick={() => {
+                    if (mode === "builder") { // 지금 조건을 코드로 옮겨서 이어서 고칠 수 있게
+                      const g = generate(spec);
+                      setCode(g.code); setCustomParams(JSON.stringify(g.params, null, 1).replace(/\n\s*/g, " ")); setCustomWarmup(g.warmup);
+                    }
+                    setMode("code");
+                  }}>코드 작성</button>
                 </div>
+                {mode === "builder" ? (
+                  <>
+                    <StrategyBuilder spec={spec} onChange={setSpec} />
+                    <p className="help">더 복잡한 규칙이 필요하면 위의 &quot;코드 작성&quot;을 누르세요. 지금 조건이 코드로 바뀌어 이어서 고칠 수 있습니다(코드에서 고친 내용은 조건 화면으로 돌아오지 않습니다).</p>
+                  </>
+                ) : (
+                  <>
+                    <label className="f" style={{ marginTop: 10 }}>전략 코드 (JavaScript, ctx·p 사용)
+                      <textarea rows={18} wrap="off" value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} />
+                    </label>
+                    <div className="row" style={{ marginTop: 10 }}>
+                      <label className="f">파라미터 (JSON)
+                        <input value={customParams} onChange={(e) => setCustomParams(e.target.value)} spellCheck={false} />
+                      </label>
+                      <label className="f">워밍업(영업일)
+                        <input type="number" value={customWarmup} onChange={(e) => setCustomWarmup(Number(e.target.value))} />
+                      </label>
+                    </div>
+                  </>
+                )}
                 <div className="btns" style={{ marginTop: 10 }}>
                   <button onClick={saveCustom}>저장</button>
                   {sid.startsWith("saved:") && <button onClick={deleteCustom}>삭제</button>}

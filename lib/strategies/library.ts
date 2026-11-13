@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { configDir } from "../settings/store";
 import type { Rebalance } from "../engine/types";
+import { normalizeSpec, type BuilderSpec } from "./builder";
 
 export interface SavedStrategy {
   name: string;
@@ -17,6 +18,8 @@ export interface SavedStrategy {
   stopLoss: string;
   takeProfit: string;
   warmup: number;
+  /** 조건 고르기로 만든 전략이면 그 조건 (다시 열어 고칠 수 있게) */
+  builder?: BuilderSpec;
   /** 저장 시각 (ISO) */
   updatedAt?: string;
 }
@@ -42,6 +45,7 @@ export function cleanStrategy(x: any): SavedStrategy {
   const pctStr = (v: unknown) => { const t = String(v ?? "").trim(); return t !== "" && Number.isFinite(Number(t)) && Number(t) > 0 ? t : ""; };
   const warmup = Math.min(Math.max(Math.round(Number(x?.warmup) || 0), 0), 2000);
   return { name, code, params, rebalance, stopLoss: pctStr(x?.stopLoss), takeProfit: pctStr(x?.takeProfit), warmup,
+    ...(x?.builder && typeof x.builder === "object" ? { builder: normalizeSpec(x.builder) } : {}),
     updatedAt: typeof x?.updatedAt === "string" ? x.updatedAt.slice(0, 30) : undefined };
 }
 
