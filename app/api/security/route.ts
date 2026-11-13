@@ -4,22 +4,25 @@ import { checkTotp, clientIp, cookieHeader, issueSession, logoutAll, requireAdmi
 import { readLoginLog, recordLogin } from "@/lib/settings/loginlog";
 import { loadSettings, updateSettings } from "@/lib/settings/store";
 import { newTotpSecret, otpauthUri, verifyTotp } from "@/lib/settings/totp";
+import { createDiagToken, listDiagTokens, revokeDiagToken } from "@/lib/settings/diag";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** 보안 상태: 2단계 인증 여부, 최근 로그인 기록 */
+/** 보안 상태: 2단계 인증 여부, 최근 로그인 기록, 점검 키 목록(원문 없음) */
 export async function GET(req: Request) {
   const denied = requireAdmin(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
-  return NextResponse.json({ totpEnabled: totpEnabled(), log: readLoginLog().slice(0, 30), you: clientIp(req) });
+  return NextResponse.json({ totpEnabled: totpEnabled(), log: readLoginLog().slice(0, 30), you: clientIp(req), diagTokens: listDiagTokens() });
 }
 
 /**
  * { action: "totp-begin" }            새 키를 만들고 QR 코드 반환 (아직 켜지지 않음)
  * { action: "totp-enable", code }     인증 앱 코드로 확인되면 켬
  * { action: "totp-disable", code }    지금 코드로 확인되면 끔
- * { action: "logout-all" }            모든 기기 로그아웃 (이 기기는 새로 로그인 유지)
+ * { action: "logout-all" }            모든 기기 로그아웃 (이 기기는 새로 로그인 유지, 점검 키도 폐기)
+ * { action: "diag-create", name, days } 읽기 전용 점검 키 발급 (원문은 이 응답에만)
+ * { action: "diag-revoke", id }       점검 키 폐기
  */
 export async function POST(req: Request) {
   const denied = requireAdmin(req);
@@ -59,6 +62,16 @@ export async function POST(req: Request) {
       const res = NextResponse.json({ ok: true });
       res.headers.set("set-cookie", cookieHeader(req, s.value, s.maxAge));
       return res;
+    }
+    if (b.action === "diag-create") {
+      const { token, view } = createDiagToken(String(b.name ?? ""), Number(b.days));
+      recordLogin(req, ip, "diag-create");
+      return NextResponse.json({ token, view });
+    }
+    if (b.action === "diag-revoke") {
+      revokeDiagToken(String(b.id ?? ""));
+      recordLogin(req, ip, "diag-revoke");
+      return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ error: "알 수 없는 요청" }, { status: 400 });
   } catch (e) {

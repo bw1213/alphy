@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import SecurityCard from "@/components/SecurityCard";
+import DiagTokenCard from "@/components/DiagTokenCard";
 import type { FieldView, SettingsPatch, SettingsView } from "@/lib/settings/view";
 import type { DataSource } from "@/lib/settings/store";
 
@@ -214,6 +215,8 @@ export default function SettingsPage() {
 
         <SecurityCard />
 
+        <DiagTokenCard />
+
         <div className="card wide why">
           <h2>어떤 건 화면에서, 어떤 건 환경변수로?</h2>
           <table>
@@ -223,6 +226,7 @@ export default function SettingsPage() {
               <tr><td>주문 대상(모의/실전), 실전 주문 금액 상한, 백테스트 기본값</td><td>화면</td><td>자주 바꾸고 비밀값이 아닙니다.</td></tr>
               <tr><td>관리자 비밀번호</td><td>화면</td><td>scrypt 해시로만 저장합니다. 처음 만들 때는 컨테이너 로그에 나온 설정 코드가 있어야 해서, 남이 먼저 접속해 비밀번호를 정할 수 없습니다.</td></tr>
               <tr><td>2단계 인증</td><td>화면</td><td>인증 앱 키는 NAS 설정 파일에만 저장됩니다. 휴대폰을 잃어버리면 NAS 파일(<code>disable-2fa.txt</code>)로만 끌 수 있습니다.</td></tr>
+              <tr><td>점검 키</td><td>화면</td><td>읽기 전용 점검 API(/api/diag)에만 쓰이고 주문·설정 변경에는 쓸 수 없습니다. 해시만 저장하고 기간이 지나면 저절로 막힙니다.</td></tr>
               <tr><td><b>실전 주문 잠금 해제</b> (KIS_ALLOW_REAL_ORDERS)</td><td>.env 만</td><td>화면 비밀번호가 새거나 브라우저가 털려도 실제 돈이 나가지 않게, NAS 파일에 손댈 수 있는 사람만 풀 수 있게 했습니다.</td></tr>
               <tr><td>포트, 실행 사용자(PUID/PGID)</td><td>docker-compose</td><td>컨테이너가 뜨기 전에 정해져야 하는 값이라 앱이 바꿀 수 없습니다.</td></tr>
             </tbody>

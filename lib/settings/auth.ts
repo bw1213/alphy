@@ -129,13 +129,14 @@ export function setPassword(pw: string, e: Env = process.env) {
     s.auth.passwordHash = hashPassword(pw);
     s.auth.sessionSecret = randomBytes(32).toString("base64");
     delete s.auth.setupCode;
+    delete s.auth.diagTokens; // 점검 키도 모두 폐기
   }, e);
   clearSetupCode(e);
 }
 
-/** 모든 기기 로그아웃: 쿠키 서명 키를 바꿔서 지금까지 발급한 로그인을 모두 무효로 */
+/** 모든 기기 로그아웃: 쿠키 서명 키를 바꿔서 지금까지 발급한 로그인을 모두 무효로. 점검 키도 모두 폐기 */
 export function logoutAll(e: Env = process.env) {
-  updateSettings((s) => { s.auth.sessionSecret = randomBytes(32).toString("base64"); }, e);
+  updateSettings((s) => { s.auth.sessionSecret = randomBytes(32).toString("base64"); delete s.auth.diagTokens; }, e);
 }
 
 // ── 2단계 인증 ──

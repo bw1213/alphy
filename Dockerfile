@@ -24,6 +24,11 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 # 캐시·CSV 폴더 (compose 에서 NAS 폴더로 연결)
 RUN mkdir -p .cache data/csv && chmod 777 .cache data/csv
+# 점검 API(/api/diag)에서 배포된 버전을 확인하는 용도. 매번 바뀌므로 맨 끝에 둠 (GitHub Actions 가 넣어 줌)
+ARG GIT_SHA=""
+ARG BUILD_TIME=""
+ENV ALPHY_GIT_SHA=$GIT_SHA \
+    ALPHY_BUILD_TIME=$BUILD_TIME
 EXPOSE 3000
 HEALTHCHECK --interval=60s --timeout=5s --start-period=20s \
   CMD wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1

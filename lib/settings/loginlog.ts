@@ -8,7 +8,7 @@ import { configDir } from "./store";
 
 type Env = Record<string, string | undefined>;
 
-export type LoginEvent = "login" | "fail" | "otp-fail" | "setup" | "change" | "locked" | "logout-all" | "2fa-on" | "2fa-off";
+export type LoginEvent = "login" | "fail" | "otp-fail" | "setup" | "change" | "locked" | "logout-all" | "2fa-on" | "2fa-off" | "diag-create" | "diag-revoke";
 export interface LoginRecord { t: number; ip: string; event: LoginEvent; ua?: string }
 
 const MAX = 100;
