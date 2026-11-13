@@ -1,34 +1,44 @@
-# Synology Container Manager → 프로젝트 → 생성 에서 이 파일을 그대로 사용합니다.
+# Synology Container Manager → 프로젝트 → 생성 에서 이 파일을 그대로 사용합니다. (NAS 폴더: /docker/alphy)
 # 이미지는 GitHub Actions 가 main 머지 때마다 만들어 GHCR 에 올리고,
 # 아래 watchtower 가 5분마다 확인해서 새 이미지면 앱 컨테이너를 자동으로 교체합니다.
 # NAS 에서 직접 빌드하려면: docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# 밖(인터넷)에서 접속: DSM 역방향 프록시(https://alphy.devsean.me → localhost:3000)로만 엽니다. docs/external-access.md
+#   공유기에서 3000 번 포트는 절대 열지 마세요 (HTTPS 없이 비밀번호가 그대로 오갑니다).
 services:
-  kospi-backtest:
+  alphy:
     image: ghcr.io/bw1213/alphy:latest
-    container_name: kospi-backtest
+    container_name: alphy
     restart: unless-stopped
     labels:
       - com.centurylinklabs.watchtower.enable=true
     # NAS 사용자 권한으로 실행 (SSH 에서 `id` 로 확인. DSM 첫 관리자 계정은 보통 1026:100)
     user: "${PUID:-1026}:${PGID:-100}"
+    # 컨테이너가 뚫려도 권한을 더 얻지 못하게 (앱은 특별한 권한이 필요 없음)
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "${PORT:-3000}:3000"
     environment:
       - TZ=Asia/Seoul
-      # 앱키·계좌번호·주문 대상·백테스트 기본값은 웹 화면(/settings)에서 설정하고 nas/cache/config/ 에 저장됩니다.
+      # 앱키·계좌번호·주문 대상·백테스트 기본값·2단계 인증은 웹 화면(/settings)에서 설정하고 nas/cache/config/ 에 저장됩니다.
       # 아래 두 개만 같은 폴더의 .env 파일로 넣습니다 (.env.example 참고)
       # 실전 주문 잠금 해제: 보안상 화면이 아닌 환경변수로만 풀 수 있음
       - KIS_ALLOW_REAL_ORDERS=${KIS_ALLOW_REAL_ORDERS:-}
-      # 선택: 관리자 비밀번호 고정 (비우면 처음 /settings 접속 때 화면에서 만듦)
+      # 선택: 관리자 비밀번호 고정 (비우면 처음 접속 때 화면에서 만듦)
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     volumes:
-      - ./nas/cache:/app/.cache       # 화면 설정(config/)·시세 캐시·KIS 접근토큰
+      - ./nas/cache:/app/.cache       # 화면 설정(config/)·로그인 기록·시세 캐시·KIS 접근토큰
       - ./nas/csv:/app/data/csv       # 내 CSV 데이터 ({종목코드}.csv, KOSPI.csv)
 
   watchtower:
     image: containrrr/watchtower:1.7.1
-    container_name: kospi-watchtower
+    container_name: alphy-watchtower
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       - TZ=Asia/Seoul
       - WATCHTOWER_LABEL_ENABLE=true      # 위 라벨이 붙은 컨테이너만 갱신 (NAS 의 다른 컨테이너는 건드리지 않음)

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
+import SecurityCard from "@/components/SecurityCard";
 import type { FieldView, SettingsPatch, SettingsView } from "@/lib/settings/view";
 import type { DataSource } from "@/lib/settings/store";
 
@@ -75,7 +76,7 @@ export default function SettingsPage() {
     if (!r.ok) return setError(j.error ?? `HTTP ${r.status}`);
     setPw({ current: "", next: "", next2: "" }); flash("비밀번호를 바꿨습니다. 다른 기기는 다시 로그인해야 합니다.");
   };
-  const logout = async () => { await fetch("/api/auth", { method: "DELETE" }); refresh(); };
+  const logout = async () => { await fetch("/api/auth", { method: "DELETE" }); window.location.href = "/login"; };
 
   const header = (
     <header className="top">
@@ -208,6 +209,8 @@ export default function SettingsPage() {
           )}
         </div>
 
+        <SecurityCard />
+
         <div className="card wide why">
           <h2>어떤 건 화면에서, 어떤 건 환경변수로?</h2>
           <table>
@@ -216,6 +219,7 @@ export default function SettingsPage() {
               <tr><td>앱키·앱시크릿·계좌번호</td><td>화면</td><td>NAS 안의 파일(<code>nas/cache/config/settings.json</code>, 권한 600)에 저장되어 .env 파일과 보안 수준이 같습니다. 화면에는 다시 보여주지 않고(끝 4자리만) 바꾸거나 지우기만 됩니다.</td></tr>
               <tr><td>주문 대상(모의/실전), 실전 주문 금액 상한, 백테스트 기본값</td><td>화면</td><td>자주 바꾸고 비밀값이 아닙니다.</td></tr>
               <tr><td>관리자 비밀번호</td><td>화면</td><td>scrypt 해시로만 저장합니다. 처음 만들 때는 컨테이너 로그에 나온 설정 코드가 있어야 해서, 남이 먼저 접속해 비밀번호를 정할 수 없습니다.</td></tr>
+              <tr><td>2단계 인증</td><td>화면</td><td>인증 앱 키는 NAS 설정 파일에만 저장됩니다. 휴대폰을 잃어버리면 NAS 파일(<code>disable-2fa.txt</code>)로만 끌 수 있습니다.</td></tr>
               <tr><td><b>실전 주문 잠금 해제</b> (KIS_ALLOW_REAL_ORDERS)</td><td>.env 만</td><td>화면 비밀번호가 새거나 브라우저가 털려도 실제 돈이 나가지 않게, NAS 파일에 손댈 수 있는 사람만 풀 수 있게 했습니다.</td></tr>
               <tr><td>포트, 실행 사용자(PUID/PGID)</td><td>docker-compose</td><td>컨테이너가 뜨기 전에 정해져야 하는 값이라 앱이 바꿀 수 없습니다.</td></tr>
             </tbody>

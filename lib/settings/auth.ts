@@ -3,9 +3,14 @@
  * - 비밀번호: 환경변수 ADMIN_PASSWORD(선택) 또는 화면에서 만든 비밀번호(scrypt 해시로 저장)
  * - 로그인하면 서명된 httpOnly 쿠키(30일). 비밀번호를 바꾸면 모든 기기의 로그인이 풀림
  * - 연속 5번 틀리면 10분간 로그인 차단
+ * - 2단계 인증(선택): 켜 두면 휴대폰 인증 앱의 6자리 코드도 필요 (lib/settings/totp.ts)
+ * - 앱 전체가 로그인 뒤에 있음 (middleware.ts)
  */
 import { createHmac, randomBytes, scryptSync, timingSafeEqual, createHash } from "crypto";
-import { clearSetupCode, envPassword, loadSettings, updateSettings } from "./store";
+import fs from "fs";
+import path from "path";
+import { clearSetupCode, configDir, envPassword, loadSettings, updateSettings } from "./store";
+import { verifyTotp } from "./totp";
 
 type Env = Record<string, string | undefined>;
 
@@ -96,10 +101,15 @@ export function cookieHeader(req: Request, value: string, maxAge: number): strin
 const MAX_FAILS = 5, MAX_FAILS_TOTAL = 30, WINDOW_MS = 10 * 60_000;
 let fails: { t: number; ip: string }[] = [];
 
-/** 프록시가 넣어 준 접속 주소. 없으면 모두 같은 주소로 취급 */
+/**
+ * 프록시(DSM 역방향 프록시)가 넣어 준 접속 주소. 없으면 모두 같은 주소로 취급.
+ * x-forwarded-for 의 앞쪽 값은 접속자가 마음대로 써 보낼 수 있으므로,
+ * 프록시가 덮어쓰는 x-real-ip 를 먼저 보고, 없으면 x-forwarded-for 의 마지막 값(프록시가 붙인 값)을 씁니다.
+ */
 export function clientIp(req: Request): string {
-  const xff = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return (xff || req.headers.get("x-real-ip")?.trim() || "unknown").slice(0, 64);
+  const real = req.headers.get("x-real-ip")?.trim();
+  const xff = req.headers.get("x-forwarded-for")?.split(",").map((x) => x.trim()).filter(Boolean).pop();
+  return (real || xff || "unknown").slice(0, 64);
 }
 
 export function loginBlockedFor(ip = "unknown", now = Date.now()): number {
@@ -121,4 +131,45 @@ export function setPassword(pw: string, e: Env = process.env) {
     delete s.auth.setupCode;
   }, e);
   clearSetupCode(e);
+}
+
+/** 모든 기기 로그아웃: 쿠키 서명 키를 바꿔서 지금까지 발급한 로그인을 모두 무효로 */
+export function logoutAll(e: Env = process.env) {
+  updateSettings((s) => { s.auth.sessionSecret = randomBytes(32).toString("base64"); }, e);
+}
+
+// ── 2단계 인증 ──
+
+/**
+ * 휴대폰을 잃어버렸을 때: NAS 의 설정 폴더(nas/cache/config)에 disable-2fa 또는 disable-2fa.txt 파일을
+ * 올리면 다음 접속 때 2단계 인증이 꺼지고 파일은 지워집니다. (NAS 파일에 손댈 수 있는 사람만 가능)
+ */
+const DISABLE_FILES = ["disable-2fa", "disable-2fa.txt"];
+function consumeDisableFile(e: Env) {
+  for (const name of DISABLE_FILES) {
+    const f = path.join(configDir(e), name);
+    if (!fs.existsSync(f)) continue;
+    try {
+      updateSettings((s) => { delete s.auth.totpSecret; delete s.auth.totpPending; delete s.auth.totpLastCounter; }, e);
+      fs.unlinkSync(f);
+      console.log(`[alphy] ${name} 파일이 있어서 2단계 인증을 껐습니다.`);
+    } catch (err) {
+      console.error(`[alphy] 2단계 인증 끄기 실패: ${(err as Error).message}`);
+    }
+  }
+}
+
+export function totpEnabled(e: Env = process.env): boolean {
+  consumeDisableFile(e);
+  return !!loadSettings(e).auth.totpSecret;
+}
+
+/** 2단계 인증 코드 확인 (꺼져 있으면 항상 통과). 맞으면 같은 코드를 다시 못 쓰게 기록 */
+export function checkTotp(code: string | undefined, e: Env = process.env, now = Date.now()): boolean {
+  if (!totpEnabled(e)) return true;
+  const a = loadSettings(e).auth;
+  const k = verifyTotp(a.totpSecret!, code ?? "", now, a.totpLastCounter ?? -1);
+  if (k === null) return false;
+  updateSettings((s) => { s.auth.totpLastCounter = k; }, e);
+  return true;
 }

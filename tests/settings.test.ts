@@ -139,8 +139,9 @@ describe("로그인 잠금", () => {
     expect(loginBlockedFor("1.1.1.1", 2000)).toBe(0);
     expect(loginBlockedFor("2.2.2.2", 2000)).toBeGreaterThan(0);
   });
-  it("접속 주소는 x-forwarded-for 첫 값", () => {
-    expect(clientIp(new Request("http://nas/", { headers: { "x-forwarded-for": "203.0.113.7, 10.0.0.1" } }))).toBe("203.0.113.7");
+  it("접속 주소: 프록시가 쓰는 x-real-ip, 없으면 x-forwarded-for 마지막 값 (앞쪽은 접속자가 속일 수 있음)", () => {
+    expect(clientIp(new Request("http://nas/", { headers: { "x-forwarded-for": "1.2.3.4, 203.0.113.7" } }))).toBe("203.0.113.7");
+    expect(clientIp(new Request("http://nas/", { headers: { "x-forwarded-for": "1.2.3.4, 203.0.113.7", "x-real-ip": "203.0.113.7" } }))).toBe("203.0.113.7");
     expect(clientIp(new Request("http://nas/"))).toBe("unknown");
   });
 });
