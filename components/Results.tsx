@@ -9,6 +9,7 @@ import { drawdown, perf, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult } from "@/lib/engine/types";
 import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine/validate";
 import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
+import CycleStatusCard from "./CycleStatusCard";
 
 const pct = (x: number | null | undefined, d = 1) =>
   x == null || !Number.isFinite(x) ? "–" : `${(x * 100).toFixed(d)}%`;
@@ -102,6 +103,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
 
   return (
     <div className="stack">
+      <CycleStatusCard res={res} names={names} />
       <div className="kpis">
         <div className="kpi">
           <div className="k">연평균 수익률 (CAGR)</div>
