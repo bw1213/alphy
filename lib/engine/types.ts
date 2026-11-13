@@ -46,7 +46,12 @@ export interface Trade {
 
 export interface EquityPoint {
   date: string;
+  /** 실제 평가액(현금 + 주식). 추가 입금이 있으면 입금만큼 늘어남 */
   equity: number;
+  /** 수익률 계산용 가치: 추가 입금 효과를 뺀 시간가중 기준, 시작 자금에서 출발. 입금이 없으면 equity 와 같음 */
+  nav?: number;
+  /** 지금까지 넣은 돈 (시작 자금 + 추가 입금) */
+  contributed?: number;
   cash: number;
   invested: number;
   benchmark: number | null;

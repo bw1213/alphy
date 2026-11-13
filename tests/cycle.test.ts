@@ -5,6 +5,7 @@ import { cleanStrategy } from "@/lib/strategies/library";
 import { runBacktest } from "@/lib/engine/engine";
 import { businessDays, syntheticData } from "@/lib/data/synthetic";
 import { paramVariants } from "@/lib/engine/validate";
+import { summarize } from "@/lib/engine/metrics";
 import { HOLD, type Bar, type PriceData } from "@/lib/engine/types";
 
 /** 가격 경로를 일봉으로 (시가 = 전일 종가, 거래량 있음) */
@@ -122,5 +123,51 @@ describe("적립 매수 + 하락 시 분할 매도", () => {
     const keys = new Set(paramVariants(cycleParams(defaultCycleSpec())).map((v) => v.key));
     expect([...keys].some((k) => k.endsWith("Mode"))).toBe(false);
     expect(keys.has("dropValue")).toBe(true);
+  });
+});
+
+describe("매달 추가 입금", () => {
+  const flat = Array.from({ length: 130 }, () => 10000);
+  const base = (deposit: number, prices = flat) => runBacktest({
+    data: { A: series(prices) }, initialCash: 10_000_000, monthlyDeposit: deposit,
+    settings: { rebalance: "M", stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: 1 },
+    costs: { commission: 0, slippage: 0, sellTax: 0 },
+    strategy: () => ({ A: 1 }),
+  });
+
+  it("매월 첫 거래일에 들어오고, 수익률은 입금 효과를 뺀다", () => {
+    const res = base(1_000_000);
+    const last = res.equity.at(-1)!;
+    const months = new Set(res.equity.map((e) => e.date.slice(0, 7))).size;
+    expect(last.contributed).toBe(10_000_000 + (months - 1) * 1_000_000);
+    expect(last.equity).toBeCloseTo(last.contributed!, -1); // 가격이 그대로라 손익 0
+    const s = summarize(res);
+    expect(s.totalReturn).toBeCloseTo(0, 6); // 입금이 수익으로 잡히지 않음
+    expect(s.deposits).toBe((months - 1) * 1_000_000);
+    expect(s.contributed).toBeCloseTo(res.equity[0].equity + s.deposits, 6);
+    expect(s.final).toBe(last.equity);
+    // 입금된 돈은 다음 리밸런싱에 투자됨
+    expect(res.trades.filter((t) => t.side === "BUY").length).toBeGreaterThan(1);
+  });
+
+  it("입금이 있어도 같은 가격 흐름이면 수익률은 거의 같다", () => {
+    const up = Array.from({ length: 130 }, (_, k) => 10000 * 1.002 ** k);
+    const a = summarize(base(0, up)), b = summarize(base(2_000_000, up));
+    expect(Math.abs(a.totalReturn - b.totalReturn)).toBeLessThan(0.01);
+    expect(b.final).toBeGreaterThan(a.final);
+  });
+
+  it("입금이 없으면 nav 와 평가액이 같다", () => {
+    for (const e of base(0).equity) expect(e.nav).toBe(e.equity);
+  });
+
+  it("적립·분할 매도 전략은 입금된 현금으로 다음 적립을 한다", () => {
+    const fn = compileStrategy(CYCLE_CODE);
+    const p = cycleParams(normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "M", days: 20, unit: "won", value: 1_000_000 } }));
+    const res = runBacktest({ data: { A: series(flat) }, initialCash: 1_000_000, monthlyDeposit: 1_000_000,
+      settings: { rebalance: "D", stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: 2 },
+      costs: { commission: 0, slippage: 0, sellTax: 0 }, strategy: (c) => fn(c, p) });
+    const buys = res.trades.filter((t) => t.side === "BUY");
+    expect(buys.length).toBeGreaterThanOrEqual(5); // 첫 달 + 이후 매달
   });
 });

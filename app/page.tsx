@@ -69,6 +69,7 @@ export default function Page() {
 
   // 비용
   const [cash, setCash] = useState(10_000_000);
+  const [monthly, setMonthly] = useState(0);
   const [commission, setCommission] = useState("0.015");
   const [slippage, setSlippage] = useState("0.1");
   const [sellTax, setSellTax] = useState("");
@@ -223,7 +224,7 @@ export default function Page() {
       await new Promise((r) => setTimeout(r, 30));
       let errInStrategy: Error | null = null;
       const exec = (pp: Params, w: number) => runBacktest({
-        data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash,
+        data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly,
         settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w },
         costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
         strategy: (ctx) => {
@@ -418,11 +419,12 @@ export default function Page() {
             <h2>자금 · 비용</h2>
             <div className="row">
               <label className="f">초기 자금(원)<input type="number" step={1_000_000} value={cash} onChange={(e) => setCash(Number(e.target.value))} /></label>
+              <label className="f">매달 추가 입금(원)<input type="number" min={0} step={100_000} placeholder="0 = 없음" value={monthly || ""} onChange={(e) => setMonthly(Math.max(0, Number(e.target.value) || 0))} /></label>
               <label className="f">수수료 % (매수·매도)<input value={commission} onChange={(e) => setCommission(e.target.value)} /></label>
               <label className="f">슬리피지 %<input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></label>
               <label className="f">매도세 %<input placeholder="연도별 자동" value={sellTax} onChange={(e) => setSellTax(e.target.value)} /></label>
             </div>
-            <p className="help">매도세 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%) 적용. 신호는 당일 종가, 체결은 다음 날 시가.</p>
+            <p className="help">추가 입금은 시작 다음 달부터 매월 첫 거래일 장 시작 전에 현금으로 들어오고, 전략이 다음 매매 때 씁니다. 수익률은 입금 효과를 뺀 값으로 계산합니다. 매도세 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%) 적용. 신호는 당일 종가, 체결은 다음 날 시가.</p>
           </div>
 
           <button className="primary" onClick={run} disabled={!!busy}>

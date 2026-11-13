@@ -1,4 +1,7 @@
-import type { BacktestResult } from "./types";
+import type { BacktestResult, EquityPoint } from "./types";
+
+/** 수익률·낙폭 계산에 쓰는 값: 추가 입금 효과를 뺀 nav (없으면 평가액) */
+export const perf = (e: EquityPoint) => e.nav ?? e.equity;
 
 /** 기본 목표: 연 15%, 최대 낙폭 -25% (설정 화면에서 바꿈) */
 export const TARGET_CAGR = 0.15;
@@ -19,6 +22,10 @@ export interface Summary extends Stats {
   end: string;
   initial: number;
   final: number;
+  /** 평가 기간 동안 추가로 넣은 돈 합계 */
+  deposits: number;
+  /** 넣은 돈 합계 (평가 시작 시점 자산 + 추가 입금) */
+  contributed: number;
   nTrades: number;
   nSells: number;
   winRate: number;
@@ -80,7 +87,7 @@ export function drawdown(values: number[]): number[] {
 
 export function summarize(res: BacktestResult, target = TARGET_CAGR, maxDrawdown = MAX_DRAWDOWN): Summary {
   const dates = res.equity.map((e) => e.date);
-  const vals = res.equity.map((e) => e.equity);
+  const vals = res.equity.map(perf);
   const s = stats(dates, vals);
   const sells = res.trades.filter((t) => t.side === "SELL");
   const ar = annual(dates, vals);
@@ -91,7 +98,9 @@ export function summarize(res: BacktestResult, target = TARGET_CAGR, maxDrawdown
   return {
     ...s,
     start: dates[0], end: dates[dates.length - 1],
-    initial: vals[0], final: vals[vals.length - 1],
+    initial: res.equity[0]?.equity ?? NaN, final: res.equity.at(-1)?.equity ?? NaN,
+    deposits: (res.equity.at(-1)?.contributed ?? 0) - (res.equity[0]?.contributed ?? 0),
+    contributed: (res.equity[0]?.equity ?? NaN) + ((res.equity.at(-1)?.contributed ?? 0) - (res.equity[0]?.contributed ?? 0)),
     nTrades: res.trades.length, nSells: sells.length,
     winRate: sells.length ? sells.filter((t) => (t.pnl ?? 0) > 0).length / sells.length : NaN,
     avgTradeRet: sells.length ? sells.reduce((a, t) => a + (t.ret ?? 0), 0) / sells.length : NaN,

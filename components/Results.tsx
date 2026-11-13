@@ -5,7 +5,7 @@ import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { drawdown, type Summary } from "@/lib/engine/metrics";
+import { drawdown, perf, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult } from "@/lib/engine/types";
 import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine/validate";
 import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
@@ -61,11 +61,11 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
   const series = useMemo(() => {
     const e0 = res.equity[0];
     const b0 = e0?.benchmark;
-    const dd = drawdown(res.equity.map((e) => e.equity));
+    const dd = drawdown(res.equity.map(perf));
     const t0 = Date.parse(e0.date);
     return res.equity.map((e, k) => ({
       date: e.date,
-      strategy: (e.equity / e0.equity) * 100,
+      strategy: (perf(e) / perf(e0)) * 100,
       kospi: b0 && e.benchmark ? (e.benchmark / b0) * 100 : null,
       target: 100 * (1 + TARGET_CAGR) ** ((Date.parse(e.date) - t0) / (365.25 * 864e5)),
       dd: dd[k] * 100,
@@ -73,7 +73,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
   }, [res]);
 
   const split = useMemo(() => splitStats(res.equity), [res]);
-  const rolling = useMemo(() => rollingReturns(res.equity.map((e) => e.equity), 252, s.target), [res, s.target]);
+  const rolling = useMemo(() => rollingReturns(res.equity.map(perf), 252, s.target), [res, s.target]);
   const [sens, setSens] = useState<SensitivityResult | null>(null);
   const [sensBusy, setSensBusy] = useState("");
   const [sensErr, setSensErr] = useState("");
@@ -120,6 +120,13 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
         <div className="kpi"><div className="k">연 {T} 달성 연도</div><div className="v">{s.yearsHitTarget} / {s.annual.length}</div>
           <div className="s">평균 투자비중 {pct(s.exposure, 0)}</div></div>
       </div>
+
+      {s.deposits > 0 && (
+        <div className="notice">
+          <b>매달 추가 입금 포함</b>: 넣은 돈 {won(s.contributed)} (시작 {won(s.initial)} + 추가 {won(s.deposits)}) → 최종자산 {won(s.final)}, 손익 {won(s.final - s.contributed)}.
+          {" "}수익률·낙폭·그래프는 입금으로 늘어난 금액을 빼고 계산한 값(펀드 기준가처럼 계산한 시간가중 수익률)입니다.
+        </div>
+      )}
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
@@ -317,7 +324,9 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
               </table>
             </div>
             <p className="help">
-              기간 {s.start} ~ {s.end} · 최종자산 {won(s.final)} (시작 {won(s.initial)}) · 매매 {s.nTrades}건 · 비용(수수료+세금) {won(s.totalFees)}
+              기간 {s.start} ~ {s.end} · 최종자산 {won(s.final)} ({s.deposits > 0
+                ? <>넣은 돈 {won(s.contributed)} = 시작 {won(s.initial)} + 추가 입금 {won(s.deposits)}, 손익 {won(s.final - s.contributed)}</>
+                : <>시작 {won(s.initial)}</>}) · 매매 {s.nTrades}건 · 비용(수수료+세금) {won(s.totalFees)}
             </p>
           </>
         )}
