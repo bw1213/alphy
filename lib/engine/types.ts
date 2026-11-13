@@ -74,6 +74,8 @@ export interface BacktestResult {
   finalPositions: { ticker: string; qty: number; avgPrice: number; value: number }[];
   /** 워밍업이 안 끝났으면 null */
   signal: Signal | null;
+  /** 전략이 ctx.state 에 남긴 메모 (마지막 날 상태 설명용) */
+  state?: Record<string, any>;
 }
 
 export type Weights = Record<string, number>;

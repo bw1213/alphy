@@ -259,6 +259,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     trades: trades.filter((t) => !opt.startDate || t.date >= opt.startDate),
     finalPositions,
     signal,
+    state: memo,
   };
 }
 

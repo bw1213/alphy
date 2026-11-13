@@ -7,6 +7,7 @@ import CycleBuilder from "@/components/CycleBuilder";
 import { CYCLE_CODE, cycleParams, cycleWarmup, defaultCycleSpec, normalizeCycleSpec, type CycleSpec } from "@/lib/strategies/cycle";
 import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/strategies/builder";
 import { runBacktest } from "@/lib/engine/engine";
+import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, Rebalance } from "@/lib/engine/types";
 import type { DataResponse, Source } from "@/lib/data/server";
@@ -218,7 +219,7 @@ export default function Page() {
         data = j as DataResponse;
         dataCache.current.set(key, data);
       }
-      setWarnings(data.warnings);
+      setWarnings([...data.warnings, ...staleWarnings(data, end)]);
       // 3) 백테스트
       setBusy("백테스트 계산 중");
       await new Promise((r) => setTimeout(r, 30));

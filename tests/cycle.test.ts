@@ -6,6 +6,8 @@ import { runBacktest } from "@/lib/engine/engine";
 import { businessDays, syntheticData } from "@/lib/data/synthetic";
 import { paramVariants } from "@/lib/engine/validate";
 import { summarize } from "@/lib/engine/metrics";
+import { cycleStatus } from "@/lib/strategies/cycle";
+import { staleWarnings } from "@/lib/data/stale";
 import { HOLD, type Bar, type PriceData } from "@/lib/engine/types";
 
 /** 가격 경로를 일봉으로 (시가 = 전일 종가, 거래량 있음) */
@@ -225,5 +227,44 @@ describe("거래 내역의 매매 이유", () => {
     const res = runBacktest({ data: d.data, settings: { rebalance: "M", stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: 21 },
       strategy: (c) => c.equal(c.topBy((t) => c.ret(t, 20), 2)) });
     expect(res.trades.every((t) => t.note === undefined)).toBe(true);
+  });
+});
+
+describe("거래가 멈춘 이유", () => {
+  const rise = Array.from({ length: 300 }, (_, k) => 10000 * 1.003 ** k); // 계속 올라 매도 없음
+  it("현금이 다 떨어지면 건너뛴 매수 횟수와 이유를 남긴다", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "M", days: 20, unit: "pct", value: 30 } });
+    const res = run(spec, { A: series(rise) });
+    const dates = res.equity.map((e) => e.date);
+    const [st] = cycleStatus(res.state, dates);
+    expect(st.phase).toBe("buy");
+    expect(st.skipped?.reason).toBe("cash");
+    expect(st.skipped!.count).toBeGreaterThan(5);
+    const lastBuy = res.trades.filter((t) => t.side === "BUY").at(-1)!.date;
+    expect(st.skipped!.since > lastBuy.slice(0, 7)).toBe(true);
+  });
+  it("투자 비율 상한에 걸린 경우", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "M", days: 20, unit: "pct", value: 30 }, limit: { maxInvest: 50, rebalance: "off" } });
+    const [st] = cycleStatus(run(spec, { A: series(rise) }).state, []);
+    expect(st.skipped?.reason).toBe("cap");
+  });
+  it("하락 대응 단계면 다시 적립까지 남은 조건을 보여 준다", () => {
+    const down = [...Array.from({ length: 60 }, (_, k) => 10000 + k * 50), ...Array.from({ length: 30 }, (_, k) => 12950 - k * 150)];
+    const res = run(defaultCycleSpec(), { A: series(down) });
+    const [st] = cycleStatus(res.state, res.equity.map((e) => e.date));
+    expect(st.phase).toBe("sell");
+    expect(st.reboundNeed).toBe(5);
+    expect(st.calmNeed).toBe(10);
+    expect(st.calmNow).toBe(0);
+    expect(st.troughDate).toBe(res.equity.at(-1)!.date);
+  });
+  it("다른 전략은 상태가 없다", () => {
+    expect(cycleStatus({}, [])).toEqual([]);
+  });
+  it("시세가 일찍 끊긴 종목을 알려 준다", () => {
+    const w = staleWarnings({ data: { A: series(rise.slice(0, 50), "2025-09-01"), B: series(rise, "2025-09-01") }, names: { A: "KODEX 200" } }, "2026-11-13", "2026-11-13");
+    expect(w).toHaveLength(2); // A 는 2025-11, B 는 2026-10 말까지 → 둘 다 10일 넘게 비어 있음
+    expect(w[0]).toContain("KODEX 200(A) 시세가 2025-11");
+    expect(staleWarnings({ data: { A: series(rise, "2025-09-01") }, names: {} }, "2026-10-01", "2026-11-13")).toHaveLength(0);
   });
 });

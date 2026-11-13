@@ -155,6 +155,54 @@ interface TickerState {
   troughAt: number;
   lastBuyKey: string;
   lastBuyAt: number;
+  /** 화면 설명용: 마지막 날의 기준 최고가·현재가, 건너뛴 매수 */
+  peakNow?: number;
+  closeNow?: number;
+  skipped?: { count: number; since: string; reason: "cash" | "cap"; cash: number; need: number };
+  /** 어제 낸 매수 신호 (오늘 체결됐는지 확인용) */
+  pendingBuy?: { date: string; qty: number; cash: number; need: number };
+}
+
+/** 결과 화면에서 "왜 거래가 없는지" 보여 주는 마지막 날 상태 */
+export interface CycleStatus {
+  ticker: string;
+  phase: "buy" | "sell";
+  close: number;
+  /** 적립 단계: 기준 최고가와 첫 매도까지 남은 하락 / 하락 대응 단계: 기준 최고가 */
+  peak: number;
+  dropNow: number;
+  dropUnit: "pct" | "won";
+  sellAt: number;
+  /** 하락 대응 단계 */
+  trough?: number;
+  troughDate?: string;
+  reboundNow?: number;
+  reboundNeed?: number;
+  calmNow?: number;
+  calmNeed?: number;
+  maNeed?: number;
+  /** 적립 단계에서 매수를 건너뛴 기록 (마지막 매매 이후) */
+  skipped?: TickerState["skipped"];
+}
+
+/** 백테스트 결과의 state 에서 종목별 상태를 꺼냄 (적립·분할 매도 전략이 아니면 빈 배열) */
+export function cycleStatus(state: Record<string, any> | undefined, dates: string[]): CycleStatus[] {
+  const st = state?.cycle as Record<string, TickerState> | undefined;
+  const p = state?.cycleParams as Record<string, number> | undefined;
+  if (!st || !p) return [];
+  const last = dates.length - 1;
+  return Object.entries(st).map(([ticker, s]) => {
+    const close = s.closeNow ?? NaN;
+    const peak = s.phase === "buy" ? s.peakNow ?? close : s.peak;
+    const unit = p.dropUnitMode === 1 ? "won" : "pct";
+    const dropNow = unit === "won" ? peak - close : (1 - close / peak) * 100;
+    const base: CycleStatus = { ticker, phase: s.phase, close, peak, dropNow, dropUnit: unit,
+      sellAt: s.phase === "buy" ? p.dropValue : p.dropValue + s.steps * p.dropStep };
+    if (s.phase === "buy") return { ...base, skipped: s.skipped };
+    return { ...base, trough: s.trough, troughDate: dates[s.troughAt],
+      reboundNow: (close / s.trough - 1) * 100, reboundNeed: p.rebound || undefined,
+      calmNow: last - s.troughAt, calmNeed: p.calmDays || undefined, maNeed: p.stableMa || undefined };
+  });
 }
 
 const periodKey = (date: string, mode: BuyPeriod): string => {
@@ -172,6 +220,7 @@ const periodKey = (date: string, mode: BuyPeriod): string => {
  */
 export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights | null {
   const st: Record<string, TickerState> = (ctx.state.cycle ??= {});
+  ctx.state.cycleParams = p;
   const period = PERIOD_FROM_CODE[p.buyPeriodMode] ?? "M";
   const eq = ctx.equity;
   if (!(eq > 0)) return null;
@@ -187,7 +236,13 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     const want = Math.min(amt(p.buyUnitMode, p.buyValue), spare * 0.995, Math.max(0, room) * eq); // 수수료·슬리피지 여유, 투자 비율 상한
     s.lastBuyKey = periodKey(ctx.date, period);
     s.lastBuyAt = ctx.i;
-    if (want < c) return; // 한 주도 못 삼
+    if (want < c * 1.05) { // 비용·다음 날 시가 차이까지 치면 한 주도 못 삼 → 이유를 남김 (현금 부족 / 투자 비율 상한)
+      const reason = room * eq < c * 1.05 && room * eq <= spare * 0.995 ? "cap" : "cash";
+      const prev = s.skipped;
+      s.skipped = { count: (prev?.count ?? 0) + 1, since: prev?.since ?? ctx.date, reason, cash: spare, need: Math.max(c, amt(p.buyUnitMode, p.buyValue)) };
+      return;
+    }
+    s.pendingBuy = { date: ctx.date, qty: ctx.positions[t] ?? 0, cash: spare, need: Math.max(c, amt(p.buyUnitMode, p.buyValue)) };
     spare -= want;
     room -= want / eq;
     out[t] = ctx.weight(t) + want / eq;
@@ -207,12 +262,23 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     const c = ctx.close(t);
     if (!Number.isFinite(c) || c <= 0) continue;
     const s = (st[t] ??= { phase: "buy", start: ctx.i, peak: c, steps: 0, trough: c, troughAt: ctx.i, lastBuyKey: "", lastBuyAt: -1e9 });
+    s.closeNow = c;
+    // 어제 매수 신호를 냈는데 수량이 그대로면 (현금이 시가·비용에 모자라) 체결되지 않은 것 → 건너뛴 매수로 기록
+    if (s.pendingBuy) {
+      const pb = s.pendingBuy;
+      s.pendingBuy = undefined;
+      if ((ctx.positions[t] ?? 0) <= pb.qty) {
+        s.skipped = { count: (s.skipped?.count ?? 0) + 1, since: s.skipped?.since ?? pb.date, reason: "cash", cash: ctx.cash, need: pb.need };
+      } else s.skipped = undefined;
+    }
 
     if (s.phase === "buy") {
       const from = p.peakDays > 0 ? Math.max(s.start, ctx.i - p.peakDays + 1) : s.start;
       const hist = ctx.history(t, ctx.i - from + 1, "close").filter(Number.isFinite);
       const peak = hist.length ? Math.max(...hist) : c;
+      s.peakNow = peak;
       if (dropOf(peak, c) >= p.dropValue) {
+        s.skipped = undefined;
         Object.assign(s, { phase: "sell", peak, steps: 1, trough: c, troughAt: ctx.i });
         sell(t, 1, `하락 매도 (최고가 대비 ${p.dropUnitMode === 1 ? `${Math.round(peak - c).toLocaleString("ko-KR")}원` : `${((1 - c / peak) * 100).toFixed(1)}%`})`);
         continue;
