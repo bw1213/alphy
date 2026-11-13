@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { drawdown, TARGET_CAGR, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult } from "@/lib/engine/types";
+import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine/validate";
 import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
 
 const pct = (x: number | null | undefined, d = 1) =>
@@ -47,11 +48,12 @@ function Tip({ active, payload, label, fmt }: any) {
   );
 }
 
-export default function Results({ res, s, names, label, title }: {
+export default function Results({ res, s, names, label, title, onSensitivity }: {
   res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title?: string;
+  onSensitivity?: (onProgress: (done: number, total: number) => void) => Promise<SensitivityResult>;
 }) {
   const c = useColors();
-  const [tab, setTab] = useState<"signal" | "annual" | "trades" | "positions">("annual");
+  const [tab, setTab] = useState<"signal" | "check" | "annual" | "trades" | "positions">("annual");
   const [log, setLog] = useState(true);
 
   const series = useMemo(() => {
@@ -67,6 +69,19 @@ export default function Results({ res, s, names, label, title }: {
       dd: dd[k] * 100,
     }));
   }, [res]);
+
+  const split = useMemo(() => splitStats(res.equity), [res]);
+  const rolling = useMemo(() => rollingReturns(res.equity.map((e) => e.equity)), [res]);
+  const [sens, setSens] = useState<SensitivityResult | null>(null);
+  const [sensBusy, setSensBusy] = useState("");
+  const [sensErr, setSensErr] = useState("");
+  useEffect(() => { setSens(null); setSensErr(""); }, [res]);
+  const runSens = async () => {
+    if (!onSensitivity) return;
+    setSensErr(""); setSensBusy("계산 중…");
+    try { setSens(await onSensitivity((d, t) => setSensBusy(`계산 중… ${d + 1}/${t}`))); }
+    catch (e) { setSensErr((e as Error).message); } finally { setSensBusy(""); }
+  };
 
   const hasBench = s.bench != null;
   const annual = s.annual.map((a) => ({ year: String(a.year), strategy: a.ret * 100, kospi: a.bench == null ? null : a.bench * 100 }));
@@ -148,6 +163,7 @@ export default function Results({ res, s, names, label, title }: {
       <div className="card">
         <div className="tabs">
           <button className={tab === "signal" ? "on" : ""} onClick={() => setTab("signal")}>추천 종목{res.signal ? ` (${res.signal.picks.length})` : ""}</button>
+          <button className={tab === "check" ? "on" : ""} onClick={() => setTab("check")}>검증</button>
           <button className={tab === "annual" ? "on" : ""} onClick={() => setTab("annual")}>연도별 수익률</button>
           <button className={tab === "trades" ? "on" : ""} onClick={() => setTab("trades")}>매매 내역 ({res.trades.length})</button>
           <button className={tab === "positions" ? "on" : ""} onClick={() => setTab("positions")}>현재 보유 ({res.finalPositions.length})</button>
@@ -192,6 +208,74 @@ export default function Results({ res, s, names, label, title }: {
               <p className="help">주문 화면에서 내 잔고와 비교해 살 종목·팔 종목 목록을 만듭니다. 목록을 확인하고 실행을 눌러야 주문이 나갑니다. 과거 성과가 미래 수익을 보장하지 않습니다.</p>
             </>
           )
+        )}
+
+        {tab === "check" && (
+          <>
+            <p className="help">파라미터를 이리저리 바꾸다 보면 과거에만 잘 맞는 조합을 고르기 쉽습니다(과최적화). 아래 세 가지가 모두 괜찮아야 믿을 만합니다.</p>
+
+            <h3>1. 앞 기간과 뒤 기간</h3>
+            {!split ? <p className="help">기간이 짧아 나눌 수 없습니다(각 구간 60영업일 이상 필요).</p> : (
+              <>
+                <div className="tablewrap">
+                  <table>
+                    <thead><tr><th className="l">구간</th><th className="l">기간</th><th>CAGR</th><th>MDD</th><th>샤프</th>{hasBench && <th>KOSPI CAGR</th>}<th className="l">목표 30%</th></tr></thead>
+                    <tbody>
+                      {([["앞 70% (고르는 구간)", split.first], ["뒤 30% (확인 구간)", split.second]] as const).map(([name, x]) => (
+                        <tr key={name}>
+                          <td className="l">{name}</td><td className="l">{x.start} ~ {x.end}</td>
+                          <td>{pct(x.cagr)}</td><td>{pct(x.mdd)}</td><td>{num(x.sharpe)}</td>
+                          {hasBench && <td>{pct(x.bench?.cagr)}</td>}
+                          <td className="l"><span className={`badge ${x.cagr >= TARGET_CAGR ? "ok" : "no"}`}>{x.cagr >= TARGET_CAGR ? "달성" : "미달"}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="help">
+                  파라미터는 앞 구간 성과만 보고 정하고, 뒤 구간은 마지막에 한 번만 확인하세요. 뒤 구간을 보면서 계속 고치면 뒤 구간도 맞춘 것이 됩니다.
+                  {split.second.cagr < split.first.cagr * 0.5 && split.first.cagr > 0 && <b> 뒤 구간 수익률이 앞 구간의 절반에 못 미칩니다. 과최적화를 의심하세요.</b>}
+                </p>
+              </>
+            )}
+
+            <h3>2. 아무 날에 시작해 1년 보유했다면</h3>
+            {!rolling ? <p className="help">기간이 1년 남짓보다 짧아 계산할 수 없습니다.</p> : (
+              <div className="kpis">
+                <div className="kpi"><div className="k">30% 이상이었던 비율</div><div className="v">{pct(rolling.hit, 0)}</div><div className="s">{rolling.n.toLocaleString()}개 구간</div></div>
+                <div className="kpi"><div className="k">수익이 난 비율</div><div className="v">{pct(rolling.positive, 0)}</div></div>
+                <div className="kpi"><div className="k">가장 나빴던 1년</div><div className="v">{pct(rolling.worst)}</div></div>
+                <div className="kpi"><div className="k">중간값</div><div className="v">{pct(rolling.median)}</div><div className="s">가장 좋았던 1년 {pct(rolling.best)}</div></div>
+              </div>
+            )}
+
+            <h3>3. 파라미터를 조금 바꿔도 비슷한가</h3>
+            <p className="help">숫자 파라미터를 하나씩 20% 줄이고 늘려서 다시 돌립니다. 조금만 바꿔도 수익률이 크게 떨어지면 우연히 맞은 값일 가능성이 큽니다.</p>
+            {onSensitivity && <button disabled={!!sensBusy} onClick={runSens}>{sensBusy || "파라미터 민감도 검사"}</button>}
+            {sensErr && <div className="error" style={{ marginTop: 8 }}>{sensErr}</div>}
+            {sens && (
+              <>
+                <p className="help" style={{ marginTop: 10 }}>
+                  지금 설정 CAGR <b>{pct(sens.base.cagr)}</b> · 바꾼 {sens.rows.length}개 조합은 <b>{pct(sens.worst)} ~ {pct(sens.best)}</b> · 그중 30% 이상 {pct(sens.hit, 0)}
+                  {sens.base.cagr > 0 && sens.worst < sens.base.cagr * 0.5 && <b> · 일부 조합에서 수익률이 절반 아래로 떨어집니다. 값에 민감한 전략입니다.</b>}
+                </p>
+                <div className="tablewrap" style={{ maxHeight: 320 }}>
+                  <table>
+                    <thead><tr><th className="l">바꾼 값</th><th>CAGR</th><th>지금 대비</th><th>MDD</th></tr></thead>
+                    <tbody>
+                      {sens.rows.map((r) => (
+                        <tr key={r.label}>
+                          <td className="l">{r.label}</td><td>{pct(r.cagr)}</td>
+                          <td style={{ color: r.cagr >= sens.base.cagr ? "var(--good)" : "var(--bad)" }}>{Number.isFinite(r.cagr) ? `${((r.cagr - sens.base.cagr) * 100).toFixed(1)}%p` : "–"}</td>
+                          <td>{pct(r.mdd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </>
         )}
 
         {tab === "annual" && (
@@ -255,7 +339,7 @@ export default function Results({ res, s, names, label, title }: {
                       <td>{Math.round(t.fee).toLocaleString()}</td>
                       <td>{t.pnl == null ? "" : Math.round(t.pnl).toLocaleString()}</td>
                       <td>{t.ret == null ? "" : pct(t.ret)}</td>
-                      <td className="l">{{ rebalance: "리밸런싱", stop_loss: "손절", take_profit: "익절" }[t.reason]}</td>
+                      <td className="l">{{ rebalance: "리밸런싱", stop_loss: "손절", take_profit: "익절", delisted: "상장폐지" }[t.reason]}</td>
                     </tr>
                   ))}
                 </tbody>

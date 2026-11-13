@@ -17,7 +17,9 @@ export async function POST(req: Request) {
       if (denied) return NextResponse.json({ error: `한국투자증권 시세는 로그인해야 쓸 수 있습니다. ${denied[1]}` }, { status: denied[0] });
     }
     if (body.tickers) body.tickers = body.tickers.filter((t) => /^[0-9A-Z]{6}$/.test(t));
-    body.universeSize = Math.min(Math.max(body.universeSize ?? 100, 1), 300);
+    body.pit = body.pit === true;
+    // 시점별 목록은 종목이 계속 바뀌어 전체 종목 수가 2배쯤 되므로 200 까지만
+    body.universeSize = Math.min(Math.max(body.universeSize ?? 100, 1), body.pit ? 200 : 300);
     return NextResponse.json(await loadData(body));
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

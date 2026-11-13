@@ -8,7 +8,7 @@
  */
 import { buildPanel, StrategyContext, type Panel } from "./context";
 import { DEFAULT_COSTS, sellTax } from "./costs";
-import type { BacktestResult, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Signal, Trade, Weights } from "./types";
+import type { BacktestResult, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Signal, Trade, UniverseSnapshot, Weights } from "./types";
 
 export type TargetFn = (ctx: StrategyContext) => Weights | null | undefined;
 
@@ -22,7 +22,12 @@ export interface RunOptions {
   /** 이 날짜부터 성과 집계 (이전 구간은 지표 워밍업용) */
   startDate?: string;
   names?: Record<string, string>;
+  /** 시점별 종목 목록. 주면 전략은 그 날짜 시점에 목록에 있던 종목만 고를 수 있다 */
+  universe?: UniverseSnapshot[] | null;
 }
+
+/** 데이터가 끝나고 이만큼(영업일) 지나도 시세가 없으면 상장폐지로 보고 마지막 종가에 청산 */
+export const DELIST_AFTER_DAYS = 10;
 
 export function rebalanceDays(dates: string[], rule: Rebalance): Set<number> {
   const out = new Set<number>();
@@ -75,6 +80,25 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   };
 
   const col = (t: string) => P.index.get(t)!;
+
+  // 종목별 마지막 시세 날짜 (상장폐지 판단용)
+  const lastIdx = new Map<string, number>();
+  tickers.forEach((t, k) => {
+    let j = N - 1;
+    while (j >= 0 && Number.isNaN(P.close[k][j])) j--;
+    lastIdx.set(t, j);
+  });
+
+  // 시점별 유니버스: 그 날짜 이전의 가장 최근 목록 (첫 목록보다 앞선 날짜는 첫 목록)
+  const snaps = (opt.universe ?? []).filter((u) => u.tickers.length)
+    .map((u) => ({ date: u.date, tickers: u.tickers.filter((t) => P.index.has(t)) }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  let snapK = 0;
+  const activeAt = (i: number): string[] | undefined => {
+    if (!snaps.length) return undefined;
+    while (snapK + 1 < snaps.length && snaps[snapK + 1].date <= dates[i]) snapK++;
+    return snaps[snapK].tickers;
+  };
 
   for (let i = 0; i < N; i++) {
     const d = dates[i];
@@ -140,6 +164,21 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       forced = new Map();
     }
 
+    // ---------- 1.5) 상장폐지 청산 ----------
+    // 시세가 끊긴 뒤 다시 나오지 않는 종목은 마지막 종가에 판 것으로 처리 (정리매매 가격이 마지막 종가에 반영돼 있음)
+    for (const t of Object.keys(pos)) {
+      const li = lastIdx.get(t)!;
+      if (li < N - 1 - DELIST_AFTER_DAYS && i === li + 1) {
+        const q = pos[t], px = P.closeFilled[col(t)][li];
+        const gross = q * px;
+        const fee = gross * (costs.commission + sellTax(costs, Number(d.slice(0, 4))));
+        cash += gross - fee;
+        trades.push({ date: d, ticker: t, side: "SELL", qty: q, price: px, fee, pnl: (px - avg[t]) * q - fee, ret: px / avg[t] - 1, reason: "delisted" });
+        delete pos[t]; delete avg[t];
+        forced.delete(t);
+      }
+    }
+
     // ---------- 2) 종가 평가 ----------
     let invested = 0;
     for (const [t, q] of Object.entries(pos)) invested += q * P.closeFilled[col(t)][i];
@@ -149,7 +188,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     if (i === N - 1) {
       // 마지막 날: 리밸런싱 주기와 상관없이 "지금 전략이 고르는 종목"을 계산 (추천 종목용, 체결은 없음)
       if (i + 1 >= st.warmup) {
-        const w = opt.strategy(new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names));
+        const w = opt.strategy(new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i)));
         const weights = w ? cleanWeights(w)
           : Object.fromEntries(Object.entries(pos).map(([t, q]) => [t, eq > 0 ? (q * P.closeFilled[col(t)][i]) / eq : 0]));
         signal = {
@@ -170,7 +209,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       }
     }
     if (reb.has(i) && i + 1 >= st.warmup && i + 1 >= startIdx) {
-      const ctx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names);
+      const ctx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i));
       const w = opt.strategy(ctx);
       if (w) {
         const clean = cleanWeights(w);

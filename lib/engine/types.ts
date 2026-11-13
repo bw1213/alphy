@@ -41,7 +41,7 @@ export interface Trade {
   fee: number;
   pnl: number | null;
   ret: number | null;
-  reason: "rebalance" | "stop_loss" | "take_profit";
+  reason: "rebalance" | "stop_loss" | "take_profit" | "delisted";
 }
 
 export interface EquityPoint {
@@ -70,3 +70,6 @@ export interface BacktestResult {
 }
 
 export type Weights = Record<string, number>;
+
+/** 그 날짜 시점의 종목 목록(시총 상위 등). 날짜 오름차순. 생존편향을 없애려고 씀 */
+export interface UniverseSnapshot { date: string; tickers: string[] }
