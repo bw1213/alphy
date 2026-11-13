@@ -25,6 +25,8 @@ export interface RunOptions {
   names?: Record<string, string>;
   /** 시점별 종목 목록. 주면 전략은 그 날짜 시점에 목록에 있던 종목만 고를 수 있다 */
   universe?: UniverseSnapshot[] | null;
+  /** 매달 추가로 넣는 돈(원). 평가 시작 다음 달부터 매월 첫 거래일 장 시작 전에 현금으로 들어온다 */
+  monthlyDeposit?: number;
 }
 
 /** 데이터가 끝나고 이만큼(영업일) 지나도 시세가 없으면 상장폐지로 보고 마지막 종가에 청산 */
@@ -63,6 +65,11 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   const startIdx = opt.startDate ? Math.max(0, dates.findIndex((d) => d >= opt.startDate!)) : 0;
 
   let cash = opt.initialCash ?? 10_000_000;
+  // 추가 입금: 수익률은 펀드 '좌수'처럼 계산해 입금 효과를 뺀다 (nav = 평가액 / 좌수, 시작 nav = 시작 자금)
+  const deposit = Math.max(0, opt.monthlyDeposit ?? 0);
+  let contributed = cash;
+  let units = 1;
+  let prevEq = cash;
   const pos: Record<string, number> = {};
   const avg: Record<string, number> = {};
   const trades: Trade[] = [];
@@ -109,6 +116,14 @@ export function runBacktest(opt: RunOptions): BacktestResult {
 
   for (let i = 0; i < N; i++) {
     const d = dates[i];
+
+    // ---------- 0) 추가 입금 (매월 첫 거래일, 평가 시작 이후) ----------
+    if (deposit > 0 && i > startIdx && d.slice(0, 7) !== dates[i - 1].slice(0, 7)) {
+      const unitPrice = prevEq > 0 && units > 0 ? prevEq / units : 1;
+      units += deposit / unitPrice;
+      cash += deposit;
+      contributed += deposit;
+    }
 
     // ---------- 1) 시가 체결 ----------
     if (pending || forced.size) {
@@ -192,7 +207,8 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     let invested = 0;
     for (const [t, q] of Object.entries(pos)) invested += q * P.closeFilled[col(t)][i];
     const eq = cash + invested;
-    equity.push({ date: d, equity: eq, cash, invested, benchmark: P.bench ? P.bench[i] : null });
+    prevEq = eq;
+    equity.push({ date: d, equity: eq, nav: units > 0 ? eq / units : eq, contributed, cash, invested, benchmark: P.bench ? P.bench[i] : null });
 
     if (i === N - 1) {
       // 마지막 날: 리밸런싱 주기와 상관없이 "지금 전략이 고르는 종목"을 계산 (추천 종목용, 체결은 없음)

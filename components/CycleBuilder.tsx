@@ -69,7 +69,7 @@ export default function CycleBuilder({ spec, onChange }: { spec: CycleSpec; onCh
       <div className="notice" style={{ marginTop: 12 }}>
         <b>이 전략은 이렇게 움직입니다</b>
         <ul>{describeCycle(spec).map((t, k) => <li key={k}>{t}</li>)}</ul>
-        <p className="help" style={{ margin: 0 }}>매수 금액은 처음 넣은 &quot;초기 자금&quot; 안에서 씁니다(매달 새 돈이 들어오는 적금식은 아님). 현금이 다 떨어지면 적립은 쉬고, 매도로 현금이 생기면 다시 삽니다.</p>
+        <p className="help" style={{ margin: 0 }}>매수는 현금 안에서 합니다. 매달 새 돈을 넣으려면 아래 &quot;자금 · 비용&quot;의 <b>매달 추가 입금</b>을 쓰세요. 현금이 다 떨어지면 적립은 쉬고, 입금이나 매도로 현금이 생기면 다시 삽니다.</p>
       </div>
     </div>
   );

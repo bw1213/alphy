@@ -4,7 +4,7 @@
  * - 1년 구간 수익률: 아무 날에 시작해 1년 뒤의 수익률 분포
  * - 파라미터 민감도: 파라미터를 조금씩 바꿔 다시 돌린 결과의 흔들림
  */
-import { stats, TARGET_CAGR, type Stats } from "./metrics";
+import { perf, stats, TARGET_CAGR, type Stats } from "./metrics";
 import type { EquityPoint } from "./types";
 
 export interface PeriodStats extends Stats { start: string; end: string; days: number; bench: Stats | null }
@@ -15,7 +15,7 @@ function period(eq: EquityPoint[]): PeriodStats {
   const dates = eq.map((e) => e.date);
   const hasBench = eq.every((e) => e.benchmark != null && Number.isFinite(e.benchmark));
   return {
-    ...stats(dates, eq.map((e) => e.equity)),
+    ...stats(dates, eq.map(perf)),
     start: dates[0], end: dates[dates.length - 1], days: eq.length,
     bench: hasBench ? stats(dates, eq.map((e) => e.benchmark as number)) : null,
   };
