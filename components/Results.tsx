@@ -90,9 +90,9 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
   const sells = res.trades.filter((t) => t.side === "SELL");
 
   const download = () => {
-    const head = "date,ticker,name,side,qty,price,fee,pnl,ret,reason";
+    const head = "date,ticker,name,side,qty,price,fee,pnl,ret,reason,note";
     const rows = res.trades.map((t) => [t.date, t.ticker, names[t.ticker] ?? "", t.side, t.qty, t.price.toFixed(0),
-      t.fee.toFixed(0), t.pnl?.toFixed(0) ?? "", t.ret?.toFixed(4) ?? "", t.reason].join(","));
+      t.fee.toFixed(0), t.pnl?.toFixed(0) ?? "", t.ret?.toFixed(4) ?? "", t.reason, (t.note ?? "").replace(/,/g, " ")].join(","));
     const blob = new Blob(["﻿" + [head, ...rows].join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -351,7 +351,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
                       <td>{Math.round(t.fee).toLocaleString()}</td>
                       <td>{t.pnl == null ? "" : Math.round(t.pnl).toLocaleString()}</td>
                       <td>{t.ret == null ? "" : pct(t.ret)}</td>
-                      <td className="l">{{ rebalance: "리밸런싱", stop_loss: "손절", take_profit: "익절", delisted: "상장폐지" }[t.reason]}</td>
+                      <td className="l">{t.note ?? { rebalance: "리밸런싱", stop_loss: "손절", take_profit: "익절", delisted: "상장폐지" }[t.reason]}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -76,6 +76,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   const equity: EquityPoint[] = [];
   let pending: Weights | null = null;
   let pendingExact = false;
+  let pendingNotes: Record<string, string> = {};
   const memo: Record<string, any> = {};
   let forced = new Map<string, Trade["reason"]>();
   let signal: Signal | null = null;
@@ -165,7 +166,8 @@ export function runBacktest(opt: RunOptions): BacktestResult {
           const fee = gross * (costs.commission + tax);
           cash += gross - fee;
           trades.push({ date: d, ticker: t, side: "SELL", qty: n, price: px, fee,
-            pnl: (px - avg[t]) * n - fee, ret: px / avg[t] - 1, reason: forced.get(t) ?? "rebalance" });
+            pnl: (px - avg[t]) * n - fee, ret: px / avg[t] - 1, reason: forced.get(t) ?? "rebalance",
+            ...(!forced.has(t) && pendingNotes[t] ? { note: pendingNotes[t] } : {}) });
           if (tgt === 0) { delete pos[t]; delete avg[t]; } else pos[t] = tgt;
         }
       }
@@ -180,11 +182,13 @@ export function runBacktest(opt: RunOptions): BacktestResult {
           cash -= n * px + fee;
           avg[t] = ((avg[t] ?? 0) * q + px * n) / (q + n);
           pos[t] = q + n;
-          trades.push({ date: d, ticker: t, side: "BUY", qty: n, price: px, fee, pnl: null, ret: null, reason: "rebalance" });
+          trades.push({ date: d, ticker: t, side: "BUY", qty: n, price: px, fee, pnl: null, ret: null, reason: "rebalance",
+            ...(pendingNotes[t] ? { note: pendingNotes[t] } : {}) });
         }
       }
       pending = null;
       pendingExact = false;
+      pendingNotes = {};
       forced = new Map();
     }
 
@@ -241,6 +245,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         const clean = cleanWeights(w);
         pending = clean;
         pendingExact = ctx.exact;
+        pendingNotes = { ...ctx.notes };
         for (const t in clean) forced.delete(t); // 새 목표에 포함되면 리밸런싱 규칙을 따름
       }
     }

@@ -197,3 +197,33 @@ describe("적립·분할 매도: 투자 비율과 리밸런싱", () => {
     expect(describeCycle(normalizeCycleSpec({ ...old, limit: { maxInvest: 70, rebalance: "Q" } }))).toHaveLength(5);
   });
 });
+
+describe("거래 내역의 매매 이유", () => {
+  it("리밸런싱을 끄면 리밸런싱 거래가 없고, 모든 거래에 실제 이유가 붙는다", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "M", days: 20, unit: "pct", value: 30 }, sell: { unit: "pct", value: 15 } });
+    const res = run(spec);
+    expect(res.trades.length).toBeGreaterThan(0);
+    for (const t of res.trades) {
+      expect(t.note, `${t.date} ${t.side}`).toBeTruthy();
+      expect(t.note).not.toContain("리밸런싱");
+    }
+    const notes = res.trades.map((t) => t.note!);
+    expect(notes).toContain("적립 매수");
+    expect(notes.some((n) => n.startsWith("하락 매도"))).toBe(true);
+    expect(notes.some((n) => n.startsWith("추가 매도"))).toBe(true);
+    expect(notes).toContain("안정화 후 다시 적립");
+  });
+  it("리밸런싱을 켜면 비중 맞추기 매도에 리밸런싱이라고 표시된다", () => {
+    const rise = Array.from({ length: 200 }, (_, k) => 10000 * 1.004 ** k);
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "W", days: 5, unit: "pct", value: 30 }, limit: { maxInvest: 50, rebalance: "M" } });
+    const sells = run(spec, { A: series(rise) }).trades.filter((t) => t.side === "SELL");
+    expect(sells.length).toBeGreaterThan(0);
+    for (const t of sells) expect(t.note).toMatch(/^리밸런싱 \(주식 비중/);
+  });
+  it("이유를 남기지 않는 전략은 예전처럼 note 가 없다", () => {
+    const d = syntheticData(5, "2021-01-01", "2022-12-30");
+    const res = runBacktest({ data: d.data, settings: { rebalance: "M", stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: 21 },
+      strategy: (c) => c.equal(c.topBy((t) => c.ret(t, 20), 2)) });
+    expect(res.trades.every((t) => t.note === undefined)).toBe(true);
+  });
+});

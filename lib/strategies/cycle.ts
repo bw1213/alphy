@@ -183,7 +183,7 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
   const cap = Math.min(Math.max(p.maxInvest ?? 100, 0), 100) / 100;
   let room = cap - ctx.held().reduce((a, t) => a + ctx.weight(t), 0); // 주식 비중 상한까지 남은 비중
   let acted = false;
-  const buy = (t: string, c: number, s: TickerState) => {
+  const buy = (t: string, c: number, s: TickerState, note = "적립 매수") => {
     const want = Math.min(amt(p.buyUnitMode, p.buyValue), spare * 0.995, Math.max(0, room) * eq); // 수수료·슬리피지 여유, 투자 비율 상한
     s.lastBuyKey = periodKey(ctx.date, period);
     s.lastBuyAt = ctx.i;
@@ -191,10 +191,12 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     spare -= want;
     room -= want / eq;
     out[t] = ctx.weight(t) + want / eq;
+    ctx.notes[t] = note;
     acted = true;
   };
-  const sell = (t: string, times: number) => {
+  const sell = (t: string, times: number, note: string) => {
     if (!ctx.positions[t]) return;
+    ctx.notes[t] = note;
     const w = Math.max(0, ctx.weight(t) - (amt(p.sellUnitMode, p.sellValue) * times) / eq);
     room += ctx.weight(t) - w;
     out[t] = w;
@@ -212,7 +214,7 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
       const peak = hist.length ? Math.max(...hist) : c;
       if (dropOf(peak, c) >= p.dropValue) {
         Object.assign(s, { phase: "sell", peak, steps: 1, trough: c, troughAt: ctx.i });
-        sell(t, 1);
+        sell(t, 1, `하락 매도 (최고가 대비 ${p.dropUnitMode === 1 ? `${Math.round(peak - c).toLocaleString("ko-KR")}원` : `${((1 - c / peak) * 100).toFixed(1)}%`})`);
         continue;
       }
       const due = period === "days"
@@ -228,13 +230,13 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     while (p.dropStep > 0 && more < 100 && (!p.maxSteps || s.steps - 1 < p.maxSteps) && dropOf(s.peak, c) >= p.dropValue + s.steps * p.dropStep) {
       s.steps++; more++;
     }
-    if (more) { sell(t, more); continue; }
+    if (more) { sell(t, more, `추가 매도 ${s.steps - 1}단계`); continue; }
     const okRebound = !p.rebound || (c / s.trough - 1) * 100 >= p.rebound;
     const okCalm = !p.calmDays || ctx.i - s.troughAt >= p.calmDays;
     const okMa = !p.stableMa || c > ctx.sma(t, p.stableMa);
     if ((p.rebound || p.calmDays || p.stableMa) && okRebound && okCalm && okMa) {
       Object.assign(s, { phase: "buy", start: ctx.i, peak: c, steps: 0 });
-      buy(t, c, s);
+      buy(t, c, s, "안정화 후 다시 적립");
     }
   }
 
@@ -245,7 +247,7 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     const next = (t: string) => (t in out ? out[t] : ctx.weight(t));
     const total = ctx.held().reduce((a, t) => a + next(t), 0);
     if (total > cap + 0.005) {
-      for (const t of ctx.held()) out[t] = (next(t) * cap) / total;
+      for (const t of ctx.held()) { out[t] = (next(t) * cap) / total; ctx.notes[t] ??= `리밸런싱 (주식 비중 ${Math.round(total * 100)}% → ${Math.round(cap * 100)}%)`; }
       acted = true;
     }
   }
