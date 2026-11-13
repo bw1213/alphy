@@ -55,5 +55,9 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # 점검 API(/api/diag)에서 지금 NAS 에 떠 있는 버전이 어느 커밋인지 확인하는 용도
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp || github.event.pull_request.updated_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

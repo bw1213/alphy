@@ -8,6 +8,7 @@ interface SecState { totpEnabled: boolean; log: LogRow[]; you: string }
 const EVENT: Record<string, string> = {
   login: "로그인", fail: "비밀번호 틀림", "otp-fail": "인증 코드 틀림", setup: "처음 비밀번호 만듦", change: "비밀번호 바꿈",
   locked: "잠긴 상태에서 시도", "logout-all": "모든 기기 로그아웃", "2fa-on": "2단계 인증 켬", "2fa-off": "2단계 인증 끔",
+  "diag-create": "점검 키 발급", "diag-revoke": "점검 키 폐기",
 };
 const BAD = new Set(["fail", "otp-fail", "locked"]);
 

@@ -53,6 +53,8 @@ export interface Settings {
     totpPending?: string;
     /** 마지막으로 쓴 코드의 시각 단위(같은 코드 재사용 방지) */
     totpLastCounter?: number;
+    /** 점검용 접근 키 (lib/settings/diag.ts). 해시만 저장 */
+    diagTokens?: import("./diag").DiagToken[];
   };
 }
 
