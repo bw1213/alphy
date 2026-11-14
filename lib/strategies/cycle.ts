@@ -132,7 +132,7 @@ export function describeCycle(spec: CycleSpec): string[] {
     s.stable.ma ? `종가가 ${s.stable.ma}일 이동평균선 위` : "",
   ].filter(Boolean).join(", ");
   return [
-    `적립: ${when}에 종목마다 ${amount(s.buy.unit, s.buy.value)}만큼 삽니다(현금이 모자라면 있는 만큼).`,
+    `적립: ${when}에 종목마다 ${amount(s.buy.unit, s.buy.value)}만큼 삽니다(현금이 모자라면 있는 만큼, 1주 값이 안 되면 모아 두었다가 1주가 되면 삽니다).`,
     `하락 대응: ${peak} 대비 ${fall(s.drop.unit, s.drop.value)} 이상 떨어지면 매수를 멈추고 ${amount(s.sell.unit, s.sell.value)}만큼 팝니다.`,
     `추가 매도: 그 뒤 ${fall(s.drop.unit, s.drop.step)} 더 떨어질 때마다 ${amount(s.sell.unit, s.sell.value)}씩 더 팝니다${s.drop.maxSteps ? ` (최대 ${s.drop.maxSteps}번)` : " (다 팔 때까지)"}.`,
     `다시 적립: ${stable} 조건을 모두 만족하면 안정된 것으로 보고 바로 한 번 사고 적립을 다시 시작합니다. 최고가는 그날부터 새로 잽니다.`,
@@ -158,9 +158,11 @@ interface TickerState {
   /** 화면 설명용: 마지막 날의 기준 최고가·현재가, 건너뛴 매수 */
   peakNow?: number;
   closeNow?: number;
-  skipped?: { count: number; since: string; reason: "cash" | "cap"; cash: number; need: number };
+  skipped?: { count: number; since: string; reason: "cash" | "cap" | "share"; cash: number; need: number; saved?: number };
   /** 어제 낸 매수 신호 (오늘 체결됐는지 확인용) */
-  pendingBuy?: { date: string; qty: number; cash: number; need: number };
+  pendingBuy?: { date: string; qty: number; cash: number; need: number; spent?: number };
+  /** 1주 값이 안 돼서 아직 못 쓴 적립 금액 (다음 적립에 더해 1주 이상이 되면 삼) */
+  carry?: number;
 }
 
 /** 결과 화면에서 "왜 거래가 없는지" 보여 주는 마지막 날 상태 */
@@ -233,16 +235,25 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
   let room = cap - ctx.held().reduce((a, t) => a + ctx.weight(t), 0); // 주식 비중 상한까지 남은 비중
   let acted = false;
   const buy = (t: string, c: number, s: TickerState, note = "적립 매수") => {
-    const want = Math.min(amt(p.buyUnitMode, p.buyValue), spare * 0.995, Math.max(0, room) * eq); // 수수료·슬리피지 여유, 투자 비율 상한
+    // 이번 적립 금액 + 지난번에 1주가 안 돼 못 쓴 금액
+    const amount = amt(p.buyUnitMode, p.buyValue);
+    const budget = (s.carry ?? 0) + amount;
+    const want = Math.min(budget, spare * 0.995, Math.max(0, room) * eq); // 수수료·슬리피지 여유, 투자 비율 상한
     s.lastBuyKey = periodKey(ctx.date, period);
     s.lastBuyAt = ctx.i;
-    if (want < c * 1.05) { // 비용·다음 날 시가 차이까지 치면 한 주도 못 삼 → 이유를 남김 (현금 부족 / 투자 비율 상한)
-      const reason = room * eq < c * 1.05 && room * eq <= spare * 0.995 ? "cap" : "cash";
+    const one = c * 1.05; // 비용·다음 날 시가 차이까지 친 1주 값
+    if (want < one) { // 한 주도 못 삼 → 이유를 남김
+      const reason = budget < one && budget <= spare * 0.995 && budget <= room * eq ? "share"
+        : room * eq < one && room * eq <= spare * 0.995 ? "cap" : "cash";
+      // 1주가 안 되는 금액은 모아 둠. 현금·상한 때문이면 무한히 쌓이지 않게 1주 값 정도로만
+      s.carry = reason === "share" ? budget : Math.min(budget, Math.max(amount, one));
       const prev = s.skipped;
-      s.skipped = { count: (prev?.count ?? 0) + 1, since: prev?.since ?? ctx.date, reason, cash: spare, need: Math.max(c, amt(p.buyUnitMode, p.buyValue)) };
+      s.skipped = { count: (prev?.reason === reason ? prev.count : 0) + 1, since: prev?.reason === reason ? prev.since : ctx.date, reason,
+        cash: spare, need: Math.max(c, amount), saved: s.carry };
       return;
     }
-    s.pendingBuy = { date: ctx.date, qty: ctx.positions[t] ?? 0, cash: spare, need: Math.max(c, amt(p.buyUnitMode, p.buyValue)) };
+    s.carry = Math.max(0, budget - want);
+    s.pendingBuy = { date: ctx.date, qty: ctx.positions[t] ?? 0, cash: spare, need: Math.max(c, amount), spent: want };
     spare -= want;
     room -= want / eq;
     out[t] = ctx.weight(t) + want / eq;
@@ -268,7 +279,8 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
       const pb = s.pendingBuy;
       s.pendingBuy = undefined;
       if ((ctx.positions[t] ?? 0) <= pb.qty) {
-        s.skipped = { count: (s.skipped?.count ?? 0) + 1, since: s.skipped?.since ?? pb.date, reason: "cash", cash: ctx.cash, need: pb.need };
+        s.carry = Math.min((s.carry ?? 0) + (pb.spent ?? 0), Math.max(pb.need, c * 1.05)); // 못 쓴 돈은 다음 적립으로
+        s.skipped = { count: (s.skipped?.reason === "cash" ? s.skipped.count : 0) + 1, since: s.skipped?.reason === "cash" ? s.skipped.since : pb.date, reason: "cash", cash: ctx.cash, need: pb.need };
       } else s.skipped = undefined;
     }
 
