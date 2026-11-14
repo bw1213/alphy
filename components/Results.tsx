@@ -7,6 +7,15 @@ import {
 } from "recharts";
 import { drawdown, perf, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult } from "@/lib/engine/types";
+
+/** 비교용 매수 후 보유 결과 (같은 자금·기간·비용, 같은 종목을 똑같이 나눠 사기만 함) */
+export interface HoldCompare {
+  res: BacktestResult;
+  s: Summary;
+  /** list = 직접 입력한 종목, traded = 전략이 기간 중 산 종목 */
+  basis: "list" | "traded";
+  tickers: string[];
+}
 import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine/validate";
 import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
 import CycleStatusCard from "./CycleStatusCard";
@@ -18,10 +27,10 @@ const num = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "–");
 
 function useColors() {
   const read = () => {
-    if (typeof window === "undefined") return { s1: "#2a78d6", s2: "#eb6834", grid: "#ecebe7", t2: "#52514e", t3: "#8a8984", bad: "#c62828" };
+    if (typeof window === "undefined") return { s1: "#2a78d6", s2: "#eb6834", s3: "#1f9e89", grid: "#ecebe7", t2: "#52514e", t3: "#8a8984", bad: "#c62828" };
     const cs = getComputedStyle(document.documentElement);
     const g = (k: string) => cs.getPropertyValue(k).trim();
-    return { s1: g("--series-1"), s2: g("--series-2"), grid: g("--grid"), t2: g("--text-2"), t3: g("--text-3"), bad: g("--bad") };
+    return { s1: g("--series-1"), s2: g("--series-2"), s3: g("--series-3"), grid: g("--grid"), t2: g("--text-2"), t3: g("--text-3"), bad: g("--bad") };
   };
   const [c, setC] = useState(read);
   useEffect(() => {
@@ -49,8 +58,8 @@ function Tip({ active, payload, label, fmt }: any) {
   );
 }
 
-export default function Results({ res, s, names, label, title, onSensitivity }: {
-  res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title?: string;
+export default function Results({ res, s, names, label, title, hold, onSensitivity }: {
+  res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title?: string; hold?: HoldCompare | null;
   onSensitivity?: (onProgress: (done: number, total: number) => void) => Promise<SensitivityResult>;
 }) {
   const c = useColors();
@@ -64,14 +73,19 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
     const b0 = e0?.benchmark;
     const dd = drawdown(res.equity.map(perf));
     const t0 = Date.parse(e0.date);
+    const h0 = hold?.res.equity[0];
+    const hByDate = new Map((hold?.res.equity ?? []).map((h) => [h.date, h0 ? (perf(h) / perf(h0)) * 100 : null]));
+    const hdd = hold ? new Map(drawdown(hold.res.equity.map(perf)).map((v, k) => [hold.res.equity[k].date, v * 100])) : null;
     return res.equity.map((e, k) => ({
       date: e.date,
       strategy: (perf(e) / perf(e0)) * 100,
+      hold: hByDate.get(e.date) ?? null,
+      holdDd: hdd?.get(e.date) ?? null,
       kospi: b0 && e.benchmark ? (e.benchmark / b0) * 100 : null,
       target: 100 * (1 + TARGET_CAGR) ** ((Date.parse(e.date) - t0) / (365.25 * 864e5)),
       dd: dd[k] * 100,
     }));
-  }, [res]);
+  }, [res, hold]);
 
   const split = useMemo(() => splitStats(res.equity), [res]);
   const rolling = useMemo(() => rollingReturns(res.equity.map(perf), 252, s.target), [res, s.target]);
@@ -87,7 +101,9 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
   };
 
   const hasBench = s.bench != null;
-  const annual = s.annual.map((a) => ({ year: String(a.year), strategy: a.ret * 100, kospi: a.bench == null ? null : a.bench * 100 }));
+  const holdYear = new Map((hold?.s.annual ?? []).map((a) => [a.year, a.ret]));
+  const annual = s.annual.map((a) => ({ year: String(a.year), strategy: a.ret * 100, hold: holdYear.has(a.year) ? holdYear.get(a.year)! * 100 : null, kospi: a.bench == null ? null : a.bench * 100 }));
+  const holdName = hold ? (hold.tickers.length === 1 ? (names[hold.tickers[0]] ?? hold.tickers[0]) : `${hold.tickers.length}종목 똑같이`) : "";
   const sells = res.trades.filter((t) => t.side === "SELL");
 
   const download = () => {
@@ -109,12 +125,13 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
           <div className="k">연평균 수익률 (CAGR)</div>
           <div className="v">{pct(s.cagr)}</div>
           <div className={`badge ${s.meetsTarget ? "ok" : "no"}`}>{s.meetsTarget ? `✓ 목표 ${T} 달성` : `✕ 목표 ${T} 미달`}</div>
+          {hold && <div className="s">매수 후 보유 {pct(hold.s.cagr)}</div>}
         </div>
         <div className="kpi"><div className="k">최대 낙폭 (MDD)</div><div className="v">{pct(s.mdd)}</div>
           <div className={`badge ${s.withinDrawdown ? "ok" : "no"}`}>{s.withinDrawdown ? `✓ 기준 -${+(s.maxDrawdown * 100).toFixed(1)}% 이내` : `✕ 기준 -${+(s.maxDrawdown * 100).toFixed(1)}% 초과`}</div>
-          <div className="s">KOSPI {pct(s.bench?.mdd)}</div></div>
+          <div className="s">{hold && <>매수 후 보유 {pct(hold.s.mdd)} · </>}KOSPI {pct(s.bench?.mdd)}</div></div>
         <div className="kpi"><div className="k">누적 수익률</div><div className="v">{pct(s.totalReturn)}</div>
-          <div className="s">KOSPI {pct(s.bench?.totalReturn)}</div></div>
+          <div className="s">{hold && <>매수 후 보유 {pct(hold.s.totalReturn)} · </>}KOSPI {pct(s.bench?.totalReturn)}</div></div>
         <div className="kpi"><div className="k">샤프 / 소르티노</div><div className="v">{num(s.sharpe)}</div>
           <div className="s">소르티노 {num(s.sortino)}</div></div>
         <div className="kpi"><div className="k">승률 (청산 {s.nSells}건)</div><div className="v">{pct(s.winRate, 0)}</div>
@@ -130,6 +147,8 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
         </div>
       )}
 
+      {hold && <HoldCard s={s} hold={hold} names={names} />}
+
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
           <h2>자산 추이 (시작 = 100)</h2>
@@ -140,6 +159,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
         </div>
         <div className="legend">
           <span><i style={{ background: c.s1 }} />전략</span>
+          {hold && <span><i style={{ background: c.s3 }} />매수 후 보유 ({holdName})</span>}
           {hasBench && <span><i style={{ background: c.s2 }} />KOSPI 지수</span>}
           <span><i className="dash" />연 {T} 목표</span>
         </div>
@@ -154,6 +174,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
               <Tooltip content={<Tip fmt={(v: number) => v.toFixed(1)} />} />
               <Line dataKey="target" name={`연 ${T} 목표`} stroke={c.t3} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
               {hasBench && <Line dataKey="kospi" name="KOSPI" stroke={c.s2} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
+              {hold && <Line dataKey="hold" name="매수 후 보유" stroke={c.s3} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
               <Line dataKey="strategy" name="전략" stroke={c.s1} dot={false} strokeWidth={2} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
@@ -166,7 +187,8 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
               <XAxis dataKey="date" hide />
               <YAxis tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} width={48} tickFormatter={(v: number) => v.toFixed(0)} />
               <Tooltip content={<Tip fmt={(v: number) => `${v.toFixed(1)}%`} />} />
-              <Area dataKey="dd" name="낙폭" stroke={c.bad} fill={c.bad} fillOpacity={0.25} strokeWidth={1.5} isAnimationActive={false} />
+              <Area dataKey="dd" name="전략 낙폭" stroke={c.bad} fill={c.bad} fillOpacity={0.25} strokeWidth={1.5} isAnimationActive={false} />
+              {hold && <Area dataKey="holdDd" name="매수 후 보유 낙폭" stroke={c.s3} fill="none" strokeWidth={1.2} isAnimationActive={false} />}
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -294,6 +316,7 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
           <>
             <div className="legend">
               <span><i style={{ background: c.s1, height: 8 }} />전략</span>
+              {hold && <span><i style={{ background: c.s3, height: 8 }} />매수 후 보유</span>}
               {hasBench && <span><i style={{ background: c.s2, height: 8 }} />KOSPI</span>}
               <span><i className="dash" />{T} 목표</span>
             </div>
@@ -307,17 +330,18 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
                   <ReferenceLine y={0} stroke={c.t3} />
                   <ReferenceLine y={s.target * 100} stroke={c.t3} strokeDasharray="4 3" />
                   <Bar dataKey="strategy" name="전략" fill={c.s1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                  {hold && <Bar dataKey="hold" name="매수 후 보유" fill={c.s3} radius={[4, 4, 0, 0]} isAnimationActive={false} />}
                   {hasBench && <Bar dataKey="kospi" name="KOSPI" fill={c.s2} radius={[4, 4, 0, 0]} isAnimationActive={false} />}
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div className="tablewrap">
               <table>
-                <thead><tr><th>연도</th><th>전략</th><th>KOSPI</th><th>초과수익</th><th>{T} 달성</th></tr></thead>
+                <thead><tr><th>연도</th><th>전략</th>{hold && <th>매수 후 보유</th>}<th>KOSPI</th><th>초과수익(KOSPI 대비)</th><th>{T} 달성</th></tr></thead>
                 <tbody>
                   {s.annual.map((a) => (
                     <tr key={a.year}>
-                      <td>{a.year}</td><td>{pct(a.ret)}</td><td>{pct(a.bench)}</td>
+                      <td>{a.year}</td><td>{pct(a.ret)}</td>{hold && <td>{pct(holdYear.get(a.year))}</td>}<td>{pct(a.bench)}</td>
                       <td>{a.bench == null ? "–" : pct(a.ret - a.bench)}</td>
                       <td>{a.ret >= TARGET_CAGR ? "✓" : ""}</td>
                     </tr>
@@ -383,6 +407,63 @@ export default function Results({ res, s, names, label, title, onSensitivity }: 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 전략 vs 같은 종목을 사기만 하고 보유 vs KOSPI 지수 */
+function HoldCard({ s, hold, names }: { s: Summary; hold: HoldCompare; names: Record<string, string> }) {
+  const h = hold.s;
+  const diff = (a: number, b: number) => (Number.isFinite(a) && Number.isFinite(b) ? `${a - b >= 0 ? "+" : ""}${((a - b) * 100).toFixed(1)}%p` : "–");
+  const tone = (good: boolean) => ({ color: good ? "var(--good)" : "var(--bad)" });
+  const list = hold.tickers.map((t) => names[t] ?? t);
+  const shown = list.length > 8 ? `${list.slice(0, 8).join(", ")} 외 ${list.length - 8}종목` : list.join(", ");
+  const rows: [string, (x: Summary | Summary["bench"]) => string, number, number, boolean][] = [
+    ["누적 수익률", (x) => pct(x?.totalReturn), s.totalReturn, h.totalReturn, true],
+    ["연평균 수익률 (CAGR)", (x) => pct(x?.cagr), s.cagr, h.cagr, true],
+    ["최대 낙폭 (MDD)", (x) => pct(x?.mdd), s.mdd, h.mdd, true],
+    ["변동성 (연)", (x) => pct(x?.volatility), s.volatility, h.volatility, false],
+    ["샤프", (x) => num(x?.sharpe ?? NaN), s.sharpe, h.sharpe, true],
+  ];
+  const beat = s.cagr - h.cagr;
+  return (
+    <div className="card">
+      <h2>매수 후 보유와 비교</h2>
+      <p className="help">
+        같은 기간·같은 돈(시작 자금{s.deposits > 0 ? "과 매달 추가 입금" : ""})·같은 수수료로 <b>{shown}</b>{list.length > 1 ? "을(를) 똑같은 금액으로 나눠" : "을(를)"} 첫날 시가에 전부 사고, 팔지 않고 들고 있었다면의 결과입니다.
+        {s.deposits > 0 && " 추가 입금도 들어온 날 시가에 같은 비율로 바로 삽니다."}
+        {hold.basis === "traded" && " 종목을 직접 정하지 않아서, 전략이 기간 중 한 번이라도 산 종목으로 비교합니다(나중에 산 종목도 첫날부터 샀다고 보므로 참고용)."}
+      </p>
+      <div className="tablewrap">
+        <table>
+          <thead><tr><th className="l">지표</th><th>전략</th><th>매수 후 보유</th><th>차이 (전략 − 보유)</th>{s.bench && <th>KOSPI 지수</th>}</tr></thead>
+          <tbody>
+            {rows.map(([name, f, a, b, higherBetter]) => (
+              <tr key={name}>
+                <td className="l">{name}</td><td>{f(s)}</td><td>{f(h)}</td>
+                <td style={Number.isFinite(a - b) && Math.abs(a - b) > 1e-9 ? tone(higherBetter ? a > b : a < b) : undefined}>
+                  {name === "샤프" ? (Number.isFinite(a - b) ? `${a - b >= 0 ? "+" : ""}${(a - b).toFixed(2)}` : "–") : diff(a, b)}
+                </td>
+                {s.bench && <td>{f(s.bench)}</td>}
+              </tr>
+            ))}
+            <tr>
+              <td className="l">최종자산</td><td>{won(s.final)}</td><td>{won(h.final)}</td>
+              <td style={tone(s.final >= h.final)}>{s.final - h.final >= 0 ? "+" : ""}{won(s.final - h.final)}</td>{s.bench && <td>–</td>}
+            </tr>
+            <tr>
+              <td className="l">매매 / 비용</td><td>{s.nTrades}건 · {won(s.totalFees)}</td><td>{h.nTrades}건 · {won(h.totalFees)}</td><td></td>{s.bench && <td>–</td>}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="help">
+        {Number.isFinite(beat) && (beat >= 0
+          ? <>전략이 매수 후 보유보다 연 <b>{(beat * 100).toFixed(1)}%p</b> 더 벌었습니다.</>
+          : <>전략이 매수 후 보유보다 연 <b>{(-beat * 100).toFixed(1)}%p</b> 덜 벌었습니다. 사고파는 수고와 비용을 들일 만한지 따져 보세요.</>)}
+        {" "}{Number.isFinite(s.mdd - h.mdd) && (s.mdd >= h.mdd ? `최대 낙폭은 ${((s.mdd - h.mdd) * 100).toFixed(1)}%p 작았습니다.` : `최대 낙폭은 ${((h.mdd - s.mdd) * 100).toFixed(1)}%p 컸습니다.`)}
+        {" "}KOSPI 지수는 수수료·입금 없이 지수만 본 값이라, 같은 돈으로 실제로 샀을 때와 비교하려면 매수 후 보유 열을 보세요.
+      </p>
     </div>
   );
 }

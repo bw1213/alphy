@@ -12,6 +12,7 @@ import fs from "fs";
 import path from "path";
 import { loadData, type DataRequest, type DataResponse } from "../data/server";
 import { staleWarnings } from "../data/stale";
+import { holdTickers, runBuyAndHold } from "../engine/buyhold";
 import { runBacktest } from "../engine/engine";
 import { summarize } from "../engine/metrics";
 import type { Bar, Rebalance } from "../engine/types";
@@ -237,6 +238,12 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   });
   if (res.equity.length < 2) throw new Error("평가 구간 데이터가 부족합니다. 기간을 확인하세요.");
   const s = summarize(res, def.targetCagr / 100, def.maxDrawdown / 100);
+  const pick = holdTickers(res, tickers.length ? tickers : null);
+  const holdRes = pick ? runBuyAndHold({
+    data: d.data, benchmark: d.benchmark, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers,
+    costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100 },
+  }) : null;
+  const hs = holdRes && holdRes.equity.length >= 2 ? summarize(holdRes) : null;
   const dates = res.equity.map((x) => x.date);
   const nTrades = Math.min(Math.max(Math.round(Number(r.trades) || 50), 0), 500);
   // 월말 자산만 (전체 곡선은 너무 큼)
@@ -249,6 +256,7 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
       start: s.start, end: s.end, initial: s.initial, final: s.final, deposits: s.deposits, contributed: s.contributed,
       cagr: s.cagr, mdd: s.mdd, sharpe: s.sharpe, nTrades: s.nTrades, nSells: s.nSells, winRate: s.winRate,
     },
+    buyAndHold: hs && pick ? { basis: pick.basis, tickers: pick.tickers, final: hs.final, totalReturn: hs.totalReturn, cagr: hs.cagr, mdd: hs.mdd, sharpe: hs.sharpe, nTrades: hs.nTrades } : null,
     lastTrade: res.trades.at(-1)?.date ?? null,
     trades: nTrades ? res.trades.slice(-nTrades) : [],
     finalPositions: res.finalPositions,
