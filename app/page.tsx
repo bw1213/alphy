@@ -15,7 +15,9 @@ import { paramVariants, summarizeSensitivity, type SensitivityResult, type Sensi
 import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Params } from "@/lib/strategies";
 
 import type { SavedStrategy } from "@/lib/strategies/library";
+import type { LastState } from "@/lib/strategies/lastState";
 const LS_KEY = "kbt.custom-strategies";
+const LAST_KEY = "alphy.last-state";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const minusDays = (d: string, n: number) => new Date(Date.parse(d) - n * 864e5).toISOString().slice(0, 10);
@@ -112,15 +114,69 @@ export default function Page() {
   };
   useEffect(() => selectStrategy(STRATEGIES[0].id), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 설정 화면(/settings)에서 정한 기본값 불러오기
+  // 1) 설정 화면(/settings)에서 정한 기본값 → 2) 마지막으로 쓴 설정(NAS, 없으면 이 브라우저) 순서로 덮어씀
+  /** 복원이 끝나기 전에는 저장하지 않음 (기본값으로 마지막 설정을 덮어쓰지 않게) */
+  const [restored, setRestored] = useState(false);
+  const [lastMsg, setLastMsg] = useState("");
   useEffect(() => {
-    fetch("/api/settings/defaults", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((d) => {
-      if (!d) return;
-      setSource(d.source); setCash(d.cash); setUniverseSize(d.universeSize);
-      setCommission(String(d.commission)); setSlippage(String(d.slippage)); setSellTax(d.sellTax == null ? "" : String(d.sellTax));
-      if (d.targetCagr > 0 && d.maxDrawdown > 0) setTarget({ cagr: d.targetCagr, mdd: d.maxDrawdown });
-    }).catch(() => { /* 기본값 그대로 */ });
-  }, []);
+    const getJson = (url: string) => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    (async () => {
+      const d = await getJson("/api/settings/defaults");
+      if (d) {
+        setSource(d.source); setCash(d.cash); setUniverseSize(d.universeSize);
+        setCommission(String(d.commission)); setSlippage(String(d.slippage)); setSellTax(d.sellTax == null ? "" : String(d.sellTax));
+        if (d.targetCagr > 0 && d.maxDrawdown > 0) setTarget({ cagr: d.targetCagr, mdd: d.maxDrawdown });
+      }
+      let s: LastState | null = await getJson("/api/last-state");
+      if (!s) { try { s = JSON.parse(localStorage.getItem(LAST_KEY) ?? "null"); } catch { s = null; } }
+      if (s && typeof s === "object" && s.sid) applyLast(s);
+      setRestored(true);
+    })();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const applyLast = (s: LastState) => {
+    setSid(s.sid);
+    setMode(s.mode);
+    setParams((cur) => {
+      const next = { ...cur };
+      for (const b of STRATEGIES) if (s.params?.[b.id]) next[b.id] = { ...cur[b.id], ...s.params[b.id] };
+      return next;
+    });
+    setCode(s.code || CUSTOM_TEMPLATE); setCustomParams(s.customParams || CUSTOM_PARAMS);
+    setCustomName(s.customName || "내 전략"); setCustomWarmup(s.customWarmup ?? 250);
+    if (s.spec) setSpec(normalizeSpec(s.spec));
+    if (s.cycleSpec) setCycleSpec(normalizeCycleSpec(s.cycleSpec));
+    setRebalance(s.rebalance); setStopLoss(s.stopLoss ?? ""); setTakeProfit(s.takeProfit ?? "");
+    setSource(s.source); setStart(s.start); setEnd(s.end || today());
+    setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? "");
+    setCash(s.cash); setMonthly(s.monthly ?? 0);
+    setCommission(s.commission); setSlippage(s.slippage); setSellTax(s.sellTax ?? "");
+    setLastMsg(s.savedAt ? `마지막 설정을 불러왔습니다 (${s.savedAt.slice(0, 16).replace("T", " ")} 저장).` : "마지막 설정을 불러왔습니다.");
+  };
+
+  // 바뀔 때마다(1초 쉬었다가) NAS 와 이 브라우저에 저장
+  const snapshot = useMemo<LastState>(() => ({
+    version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
+    rebalance, stopLoss, takeProfit, source, start, end: end === today() ? "" : end,
+    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax,
+  }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit,
+    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax]);
+  useEffect(() => {
+    if (!restored) return;
+    const t = setTimeout(() => {
+      const body = JSON.stringify(snapshot);
+      try { localStorage.setItem(LAST_KEY, body); } catch { /* 저장 불가 환경 */ }
+      fetch("/api/last-state", { method: "PUT", headers: { "Content-Type": "application/json" }, body }).catch(() => { /* 다음 변경 때 다시 */ });
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [snapshot, restored]);
+
+  const resetLast = async () => {
+    try { localStorage.removeItem(LAST_KEY); } catch { /* 무시 */ }
+    setRestored(false); // 지우는 동안 다시 저장되지 않게
+    await fetch("/api/last-state", { method: "DELETE" }).catch(() => null);
+    location.reload();
+  };
 
   const editAsCustom = () => {
     if (!builtin) return;
@@ -292,9 +348,11 @@ export default function Page() {
                   <option value="cycle">+ 새 전략 만들기 (적립 매수·하락 시 분할 매도)</option>
                   <option value="custom">+ 새 전략 만들기 (코드 작성)</option>
                   {saved.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{isLocalOnly(s.name) ? " (이 브라우저만)" : ""}</option>)}
+                  {sid.startsWith("saved:") && !saved.some((s) => `saved:${s.name}` === sid) && <option value={sid}>{sid.slice(6)} (지난번 설정)</option>}
                 </optgroup>
               </select>
             </label>
+            <p className="help">마지막으로 쓴 전략·종목·기간·자금 설정은 NAS에 자동 저장되어, 어느 기기에서 다시 열어도 그대로 이어집니다.{lastMsg && <> {lastMsg}</>} <button className="link" onClick={resetLast}>처음 설정으로 되돌리기</button></p>
             {builtin && (
               <>
                 <p className="desc">{builtin.description}</p>
