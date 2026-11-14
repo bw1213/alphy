@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Results from "@/components/Results";
+import Results, { type HoldCompare } from "@/components/Results";
 import StrategyBuilder from "@/components/StrategyBuilder";
 import CycleBuilder from "@/components/CycleBuilder";
 import { CYCLE_CODE, cycleParams, cycleWarmup, defaultCycleSpec, normalizeCycleSpec, type CycleSpec } from "@/lib/strategies/cycle";
 import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/strategies/builder";
 import { runBacktest } from "@/lib/engine/engine";
+import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
 import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, Rebalance } from "@/lib/engine/types";
@@ -81,7 +82,7 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string } | null>(null);
+  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string; hold: HoldCompare | null } | null>(null);
   const dataCache = useRef<Map<string, DataResponse>>(new Map());
   /** 마지막 실행을 파라미터만 바꿔 다시 돌리는 함수 (민감도 검사용) */
   const rerun = useRef<{ p: Params; run: (p: Params) => SensitivityRow } | null>(null);
@@ -296,7 +297,17 @@ export default function Page() {
         catch { return { label: "", cagr: NaN, mdd: NaN }; }
       } };
       if (res.equity.length < 2) throw new Error("평가 구간 데이터가 부족합니다. 기간을 확인하세요.");
-      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략") });
+      // 비교용: 같은 자금·기간·비용으로 같은 종목을 똑같이 나눠 사기만 했다면
+      let hold: HoldCompare | null = null;
+      const pick = holdTickers(res, list);
+      if (pick) {
+        const h = runBuyAndHold({
+          data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers,
+          costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
+        });
+        if (h && h.equity.length >= 2) hold = { res: h, s: summarize(h, target.cagr / 100, target.mdd / 100), basis: pick.basis, tickers: pick.tickers.filter((t) => t in data!.data) };
+      }
+      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략"), hold });
     } catch (e) {
       setError((e as Error).message);
     } finally {
