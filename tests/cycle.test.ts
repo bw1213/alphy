@@ -268,3 +268,39 @@ describe("거래가 멈춘 이유", () => {
     expect(staleWarnings({ data: { A: series(rise, "2025-09-01") }, names: {} }, "2026-10-01", "2026-11-13")).toHaveLength(0);
   });
 });
+
+describe("1주 값보다 작은 적립 금액", () => {
+  it("모아 두었다가 1주가 되면 산다 (매주 5만 원, 주가 8만 원)", () => {
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "W", days: 5, unit: "won", value: 50_000 } });
+    const flat = Array.from({ length: 60 }, () => 80_000);
+    const res = run(spec, { A: series(flat) }, 500_000);
+    const buys = res.trades.filter((t) => t.side === "BUY");
+    expect(buys.length).toBeGreaterThanOrEqual(4); // 12주 동안 5만×12 = 60만 → 현금 50만 안에서 약 6주
+    for (const b of buys) expect(b.qty).toBeGreaterThanOrEqual(1);
+    expect(res.equity.at(-1)!.invested).toBeGreaterThan(0);
+  });
+  it("다 팔린 뒤 주가가 적립 금액보다 비싸도 다시 산다", () => {
+    // 4만 원대에서 적립 → 급락으로 전량 매도 → 8만 원대로 급등
+    const prices = [
+      ...Array.from({ length: 40 }, () => 40_000),
+      ...Array.from({ length: 20 }, (_, k) => 40_000 - k * 1_000),
+      ...Array.from({ length: 80 }, (_, k) => 21_000 + k * 800),
+    ];
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "W", days: 5, unit: "won", value: 50_000 },
+      drop: { unit: "pct", value: 2, step: 2, maxSteps: 0, peakDays: 0 }, stable: { rebound: 2, calmDays: 3, ma: 0 } });
+    const res = run(spec, { A: series(prices) }, 500_000);
+    const lateBuys = res.trades.filter((t) => t.side === "BUY" && t.price > 50_000);
+    expect(lateBuys.length).toBeGreaterThan(0); // 예전엔 5만 원 넘으면 영영 못 샀음
+    const [st] = cycleStatus(res.state, res.equity.map((e) => e.date));
+    // '현금 부족'이라고 할 때는 정말 1주 살 현금이 없어야 함 (예전엔 현금 68만 원인데도 '현금 부족'으로 나옴)
+    if (st.skipped?.reason === "cash") expect(st.skipped.cash).toBeLessThan(st.close * 1.05);
+  });
+});
+
+it("현금은 충분한데 적립 금액이 1주 값보다 작으면 이유가 '1주 값 미만'", () => {
+  const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "M", days: 20, unit: "won", value: 50_000 } });
+  const res = run(spec, { A: series(Array.from({ length: 25 }, () => 300_000)) }, 1_000_000); // 1주 30만 원, 매달 5만 원
+  const [st] = cycleStatus(res.state, res.equity.map((e) => e.date));
+  expect(st.skipped?.reason).toBe("share");
+  expect(st.skipped?.saved).toBe(100_000); // 두 달치 모음
+});
