@@ -7,6 +7,7 @@ import CycleBuilder from "@/components/CycleBuilder";
 import { CYCLE_CODE, cycleParams, cycleWarmup, defaultCycleSpec, normalizeCycleSpec, type CycleSpec } from "@/lib/strategies/cycle";
 import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/strategies/builder";
 import { runBacktest } from "@/lib/engine/engine";
+import { dividendTaxFn, KR_DIVIDEND_TAX } from "@/lib/engine/dividends";
 import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
 import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type Summary } from "@/lib/engine/metrics";
@@ -77,6 +78,8 @@ export default function Page() {
   const [commission, setCommission] = useState("0.015");
   const [slippage, setSlippage] = useState("0.1");
   const [sellTax, setSellTax] = useState("");
+  const [useDiv, setUseDiv] = useState(true);
+  const [divTax, setDivTax] = useState("15.4");
 
   // 결과
   const [busy, setBusy] = useState<string | null>(null);
@@ -167,6 +170,7 @@ export default function Page() {
     setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? "");
     setCash(s.cash); setMonthly(s.monthly ?? 0);
     setCommission(s.commission); setSlippage(s.slippage); setSellTax(s.sellTax ?? "");
+    setUseDiv(s.dividends !== false); setDivTax(s.divTax ?? "15.4");
     setLastMsg(s.savedAt ? `마지막 설정을 불러왔습니다 (${new Date(s.savedAt).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })} 저장).` : "마지막 설정을 불러왔습니다.");
   };
 
@@ -174,9 +178,9 @@ export default function Page() {
   const snapshot = useMemo<LastState>(() => ({
     version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
     rebalance, stopLoss, takeProfit, source, start, end: end === today() ? "" : end,
-    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax,
+    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax,
   }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit,
-    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax]);
+    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax]);
   const snapRef = useRef(snapshot);
   snapRef.current = snapshot;
   const saveNow = (keepalive = false) => {
@@ -312,7 +316,7 @@ export default function Page() {
       const loadStart = minusDays(start, Math.max(400, Math.ceil(warmup * 1.5) + 30));
       const list = universeMode === "list" ? tickers.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean) : undefined;
       const usePit = pit && !list && (source === "naver" || source === "kis");
-      const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit };
+      const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit, dividends: useDiv };
       const key = JSON.stringify(req);
       let data = dataCache.current.get(key);
       if (!data) {
@@ -324,12 +328,15 @@ export default function Page() {
         dataCache.current.set(key, data);
       }
       setWarnings([...data.warnings, ...staleWarnings(data, end)]);
+      const krTax = divTax.trim() === "" ? KR_DIVIDEND_TAX : Number(divTax) / 100;
+      if (useDiv && !(krTax >= 0 && krTax <= 1)) throw new Error("배당소득세는 0~100 사이 숫자(%)로 넣어 주세요. 비우면 15.4%.");
+      const div = useDiv ? { dividends: data.dividends, dividendTax: dividendTaxFn(krTax) } : {};
       // 3) 백테스트
       setBusy("백테스트 계산 중");
       await new Promise((r) => setTimeout(r, 30));
       let errInStrategy: Error | null = null;
       const exec = (pp: Params, w: number) => runBacktest({
-        data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly,
+        data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
         settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w },
         costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
         strategy: (ctx) => {
@@ -349,7 +356,7 @@ export default function Page() {
       const pick = holdTickers(res, list);
       if (pick) {
         const h = runBuyAndHold({
-          data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers,
+          data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers, ...div,
           costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
         });
         if (h && h.equity.length >= 2) hold = { res: h, s: summarize(h, target.cagr / 100, target.mdd / 100), basis: pick.basis, tickers: pick.tickers.filter((t) => t in data!.data) };
@@ -542,7 +549,15 @@ export default function Page() {
               <label className="f">슬리피지 %<input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></label>
               <label className="f">매도세 %<input placeholder="연도별 자동" value={sellTax} onChange={(e) => setSellTax(e.target.value)} /></label>
             </div>
-            <p className="help">추가 입금은 시작 다음 달부터 매월 첫 거래일 장 시작 전에 현금으로 들어오고, 전략이 다음 매매 때 씁니다. 수익률은 입금 효과를 뺀 값으로 계산합니다. 매도세 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%) 적용. 신호는 당일 종가, 체결은 다음 날 시가.</p>
+            <div className="row" style={{ marginTop: 8, alignItems: "flex-end" }}>
+              <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, paddingBottom: 8 }}>
+                <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={useDiv} onChange={(e) => setUseDiv(e.target.checked)} />
+                배당금·분배금 반영
+              </label>
+              {useDiv && <label className="f">배당소득세 %<input placeholder="15.4" value={divTax} onChange={(e) => setDivTax(e.target.value)} /></label>}
+            </div>
+            <p className="help">추가 입금은 시작 다음 달부터 매월 첫 거래일 장 시작 전에 현금으로 들어오고, 전략이 다음 매매 때 씁니다. 수익률은 입금 효과를 뺀 값으로 계산합니다. 매도세 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%) 적용. 신호는 당일 종가, 체결은 다음 날 시가.
+              {useDiv && " 배당금·분배금은 배당락일 장 시작 전에 들고 있던 수량만큼 세금을 뗀 금액이 현금으로 들어옵니다(실제 입금은 몇 주 뒤지만 배당락일로 계산). 전략은 그 현금을 다음 매매 때 쓰고, 매수 후 보유 비교는 같은 종목을 다시 삽니다. 배당소득세 기본 15.4%(ISA·연금계좌면 0으로), 미국 종목은 현지 원천징수 15%."}</p>
           </div>
 
           <button className="primary" onClick={run} disabled={!!busy}>

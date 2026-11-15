@@ -1,7 +1,8 @@
 /** 서버 측 데이터 로딩: 캐시 → 소스 순서 */
 import { promises as fs } from "fs";
 import path from "path";
-import type { Bar, PriceData, StockInfo, UniverseSnapshot } from "../engine/types";
+import type { Bar, DividendData, PriceData, StockInfo, UniverseSnapshot } from "../engine/types";
+import { dividendGaps, fetchDividends, parseDividendCsv } from "./dividends";
 import { buildPitUniverse, krxDaily, krxListings, type KrxListing } from "./krx";
 import { fetchDaily, fetchTopMarketCap } from "./naver";
 import { syntheticData } from "./synthetic";
@@ -24,6 +25,8 @@ export interface DataRequest {
   end: string;
   /** 시점별 시총 상위 목록 사용 (생존편향 제거). naver/kis 의 '시총 상위 N' 에서만 */
   pit?: boolean;
+  /** 배당금·분배금 이력도 받기 (기본 true) */
+  dividends?: boolean;
 }
 
 export interface DataResponse {
@@ -33,6 +36,10 @@ export interface DataResponse {
   warnings: string[];
   /** 시점별 종목 목록 (pit 또는 CSV 의 universe.csv) */
   universe?: UniverseSnapshot[];
+  /** 배당금·분배금 이력 (1주당 원화, 배당락일). 못 받은 종목은 빠짐 */
+  dividends?: DividendData;
+  /** 원/달러 환율 (미국 종목이 있을 때) */
+  fx?: { date: string; close: number }[];
 }
 
 async function readJson<T>(p: string): Promise<T | null> {
@@ -163,6 +170,72 @@ function parseCsv(text: string): Bar[] {
 const clip = (bars: Bar[], s: string, e: string) => bars.filter((b) => b.date >= s && b.date <= e);
 
 export async function loadData(req: DataRequest): Promise<DataResponse> {
+  const out = await loadPrices(req);
+  if (req.dividends === false || req.source === "synthetic") return out;
+  try {
+    out.dividends = req.source === "csv" ? await csvDividends(Object.keys(out.data)) : await onlineDividends(Object.keys(out.data), req, out);
+  } catch (e) { out.warnings.push(`배당금·분배금 이력을 받지 못해 배당 없이 계산합니다: ${(e as Error).message}`); }
+  return out;
+}
+
+const isKrCode = (t: string) => /^\d[0-9A-Z]{5}$/.test(t);
+
+/** 그 날짜(또는 직전)의 환율 */
+function fxOn(fx: { date: string; close: number }[], date: string): number | null {
+  let lo = 0, hi = fx.length - 1, ans = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (fx[m].date <= date) { ans = m; lo = m + 1; } else hi = m - 1; }
+  return ans >= 0 ? fx[ans].close : fx.length ? fx[0].close : null;
+}
+
+interface DividendCache { fetched: string; divs: { date: string; amount: number }[] }
+
+/** 배당 이력 캐시: 하루 한 번만 새로 받음. 실패하면 예전 캐시라도 씀 */
+export async function cachedDividends(code: string, fetcher = fetchDividends, cacheDir = CACHE) {
+  const p = path.join(cacheDir, "dividends", `${code}.json`);
+  const c = await readJson<DividendCache>(p);
+  if (c && c.fetched === today() && Array.isArray(c.divs)) return c.divs;
+  try {
+    const divs = await fetcher(code);
+    await writeJson(p, { fetched: today(), divs } satisfies DividendCache);
+    return divs;
+  } catch (e) {
+    if (c && Array.isArray(c.divs)) return c.divs;
+    throw e;
+  }
+}
+
+async function onlineDividends(codes: string[], req: DataRequest, out: DataResponse): Promise<DividendData> {
+  const results = await pool(codes, 3, (c) => cachedDividends(c));
+  const res: DividendData = {};
+  const failed: string[] = [], gaps: string[] = [];
+  let count = 0;
+  results.forEach((r, k) => {
+    const code = codes[k];
+    if (r.status !== "fulfilled") { failed.push(code); return; }
+    let divs = r.value.filter((d) => d.date >= req.start && d.date <= req.end);
+    if (!isKrCode(code)) {
+      // 미국 종목: 시세가 원화로 바뀌어 있으므로 배당도 배당락일 환율로 원화 환산
+      if (!out.fx?.length) { failed.push(code); return; }
+      divs = divs.map((d) => ({ date: d.date, amount: d.amount * (fxOn(out.fx!, d.date) ?? NaN) })).filter((d) => d.amount > 0);
+    }
+    if (divs.length) { res[code] = divs; count++; }
+    const g = dividendGaps(r.value, req.start, req.end);
+    if (g.length) gaps.push(`${code}(${g.map((x) => `${x.from}~${x.to}`).join(", ")})`);
+  });
+  if (count) out.warnings.push(`배당금·분배금: ${count}종목의 배당 이력(Yahoo Finance)을 반영했습니다. 배당락일 장 시작 전에 들고 있던 수량만큼 세후 금액이 현금으로 들어옵니다.`);
+  if (failed.length) out.warnings.push(`배당 이력을 못 받아 배당 없이 계산한 종목: ${failed.slice(0, 10).join(", ")}${failed.length > 10 ? ` 외 ${failed.length - 10}개` : ""}`);
+  if (gaps.length) out.warnings.push(`배당 기록이 평소보다 오래 비어 있어 일부가 빠졌을 수 있는 종목: ${gaps.slice(0, 5).join("; ")}${gaps.length > 5 ? ` 외 ${gaps.length - 5}개` : ""}`);
+  return res;
+}
+
+async function csvDividends(codes: string[]): Promise<DividendData> {
+  let text: string;
+  try { text = await fs.readFile(path.join(CSV_DIR, "dividends.csv"), "utf8"); } catch { return {}; }
+  const all = parseDividendCsv(text);
+  return Object.fromEntries(codes.filter((c) => all[c]?.length).map((c) => [c, all[c]]));
+}
+
+async function loadPrices(req: DataRequest): Promise<DataResponse> {
   const warnings: string[] = [];
   if (req.source === "synthetic") {
     const n = req.tickers?.length || req.universeSize || 50;
@@ -176,7 +249,7 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
     for (const f of files) {
       const code = f.replace(/\.csv$/, "");
       if (want && !want.has(code)) continue;
-      if (code.toUpperCase() === "KOSPI" || code.toLowerCase() === "universe") continue;
+      if (code.toUpperCase() === "KOSPI" || code.toLowerCase() === "universe" || code.toLowerCase() === "dividends") continue;
       data[code] = clip(parseCsv(await fs.readFile(path.join(CSV_DIR, f), "utf8")), req.start, req.end);
       names[code] = code;
     }

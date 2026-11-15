@@ -10,6 +10,24 @@ export interface Bar {
 /** 티커별 일봉 */
 export type PriceData = Record<string, Bar[]>;
 
+/** 배당금·분배금 1건: date = 배당락일(이날 장 시작 전에 들고 있던 수량만 받음), amount = 1주당 세전 금액(시세와 같은 통화·분할 기준) */
+export interface Dividend { date: string; amount: number }
+/** 티커별 배당 이력 (날짜 오름차순) */
+export type DividendData = Record<string, Dividend[]>;
+
+/** 백테스트 중 받은 배당 1건 */
+export interface DividendPayment {
+  date: string;
+  ticker: string;
+  /** 받은 수량(배당락일 전날 종가 기준 보유 수량) */
+  qty: number;
+  perShare: number;
+  gross: number;
+  tax: number;
+  /** 세후 = 계좌에 들어온 돈 */
+  net: number;
+}
+
 export interface StockInfo {
   code: string;
   name: string;
@@ -76,6 +94,8 @@ export interface BacktestResult {
   signal: Signal | null;
   /** 전략이 ctx.state 에 남긴 메모 (마지막 날 상태 설명용) */
   state?: Record<string, any>;
+  /** 받은 배당금·분배금 (배당 데이터를 넣었을 때만) */
+  dividends?: DividendPayment[];
 }
 
 export type Weights = Record<string, number>;

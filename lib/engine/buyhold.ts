@@ -8,12 +8,14 @@
  *    그날 거래가 안 되는 종목(거래정지, 아직 상장 전)도 그 몫을 모아 두었다가 거래되는 날 산다.
  *  - 팔지 않는다. 단, 시세가 끊긴 종목(상장폐지)은 엔진과 같은 규칙으로 마지막 종가에 정리하고
  *    그 돈은 남은 종목에 똑같이 나눠 다시 산다.
+ *  - 배당금·분배금(데이터가 있으면)은 세후 금액을 그 종목 몫으로 모아 두었다가 1주 이상 되면 다시 산다(재투자).
  *  - 수익률은 엔진과 같이 추가 입금 효과를 뺀 시간가중(nav) 기준.
  */
 import { buildPanel } from "./context";
 import { DEFAULT_COSTS, sellTax } from "./costs";
 import { DELIST_AFTER_DAYS, type RunOptions } from "./engine";
-import type { BacktestResult, EquityPoint, Trade } from "./types";
+import { dividendBook } from "./dividends";
+import type { BacktestResult, DividendPayment, EquityPoint, Trade } from "./types";
 
 export type HoldOptions = Omit<RunOptions, "strategy" | "settings" | "universe"> & {
   /** 살 종목. 데이터에 없는 종목은 빠진다 */
@@ -51,6 +53,8 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
   const trades: Trade[] = [];
   const equity: EquityPoint[] = [];
   let alive = [...tickers];
+  const divBook = dividendBook(dates, opt.dividends, opt.dividendTax);
+  const divs: DividendPayment[] = [];
   const share = (amount: number, list: string[]) => {
     if (!list.length) return;
     for (const t of list) budget[t] = (budget[t] ?? 0) + amount / list.length;
@@ -65,6 +69,13 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
       cash += deposit;
       contributed += deposit;
       if (alive.length) share(deposit, alive);
+    }
+
+    // 배당락: 어제까지 들고 있던 수량만큼 받아 그 종목에 재투자할 몫으로 (그날 장 마감 때 들어온 것으로 보고 다음 날부터 삼)
+    const divNet: Record<string, number> = {};
+    if (divBook.has) for (const [t, q] of Object.entries(pos)) {
+      const p = divBook.pay(t, i, q, d);
+      if (p) { divs.push(p); divNet[t] = p.net; }
     }
 
     // 시가 매수
@@ -106,6 +117,12 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
       }
     }
 
+    for (const [t, v] of Object.entries(divNet)) {
+      cash += v;
+      if (alive.includes(t)) budget[t] = (budget[t] ?? 0) + v;
+      else share(v, alive);
+    }
+
     let invested = 0;
     for (const [t, q] of Object.entries(pos)) invested += q * P.closeFilled[col(t)][i];
     const eq = cash + invested;
@@ -118,6 +135,7 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
     trades,
     finalPositions: Object.entries(pos).map(([t, q]) => ({ ticker: t, qty: q, avgPrice: avg[t], value: q * P.closeFilled[col(t)][N - 1] })),
     signal: null,
+    ...(divBook.has ? { dividends: divs } : {}),
   };
 }
 

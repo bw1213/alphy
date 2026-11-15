@@ -31,6 +31,11 @@ export interface Summary extends Stats {
   winRate: number;
   avgTradeRet: number;
   totalFees: number;
+  /** 받은 배당금·분배금 (세후 합계, 세금 합계, 건수). 배당 데이터를 안 썼으면 hasDividendData = false */
+  dividendsNet: number;
+  dividendTax: number;
+  nDividends: number;
+  hasDividendData: boolean;
   exposure: number;
   annual: { year: number; ret: number; bench: number | null }[];
   yearsHitTarget: number;
@@ -105,6 +110,10 @@ export function summarize(res: BacktestResult, target = TARGET_CAGR, maxDrawdown
     winRate: sells.length ? sells.filter((t) => (t.pnl ?? 0) > 0).length / sells.length : NaN,
     avgTradeRet: sells.length ? sells.reduce((a, t) => a + (t.ret ?? 0), 0) / sells.length : NaN,
     totalFees: res.trades.reduce((a, t) => a + t.fee, 0),
+    dividendsNet: (res.dividends ?? []).reduce((a, x) => a + x.net, 0),
+    dividendTax: (res.dividends ?? []).reduce((a, x) => a + x.tax, 0),
+    nDividends: res.dividends?.length ?? 0,
+    hasDividendData: !!res.dividends,
     exposure: res.equity.reduce((a, e) => a + (e.equity ? e.invested / e.equity : 0), 0) / res.equity.length,
     annual: annualRows,
     yearsHitTarget: annualRows.filter((r) => r.ret >= target).length,
