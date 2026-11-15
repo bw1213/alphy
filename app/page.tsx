@@ -20,6 +20,9 @@ import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Param
 
 import type { SavedStrategy } from "@/lib/strategies/library";
 import type { LastState } from "@/lib/strategies/lastState";
+import FinderResults from "@/components/FinderResults";
+import { buildCandidates, maxWarmup, type Candidate } from "@/lib/finder/candidates";
+import { evaluate, OBJECTIVES, type FinderReport, type Objective } from "@/lib/finder/search";
 const LS_KEY = "kbt.custom-strategies";
 const LAST_KEY = "alphy.last-state";
 
@@ -301,6 +304,38 @@ export default function Page() {
 
   const isCustom = !builtin;
 
+  /** 시세 받기 (같은 조건이면 이 화면에서 받아 둔 것을 다시 씀) */
+  async function loadData(warmup: number, list: string[] | undefined): Promise<DataResponse> {
+    const loadStart = minusDays(start, Math.max(400, Math.ceil(warmup * 1.5) + 30));
+    const usePit = pit && !list && (source === "naver" || source === "kis");
+    const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit, dividends: useDiv };
+    const key = JSON.stringify(req);
+    let data = dataCache.current.get(key);
+    if (!data) {
+      setBusy(source === "naver" || source === "kis" ? "시세 데이터를 받는 중입니다 (처음 한 번은 몇 분 걸릴 수 있어요)" : "데이터 준비 중");
+      const r = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      data = j as DataResponse;
+      dataCache.current.set(key, data);
+    }
+    setWarnings([...data.warnings, ...staleWarnings(data, end)]);
+    return data;
+  }
+
+  /** 화면의 비용·배당 설정 → 엔진 옵션 */
+  function runCosts(data: DataResponse) {
+    // 미국 종목 비용은 서버가 미국 시세를 원화로 바꿔 준 경우(fx 있음)에만
+    const costs: CostSettings = {
+      commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100,
+      ...(data.fx ? { us: { commission: (Number(usCommission) || 0) / 100, fx: (Number(usFx) || 0) / 100 } } : {}),
+    };
+    const krTax = divTax.trim() === "" ? KR_DIVIDEND_TAX : Number(divTax) / 100;
+    if (useDiv && !(krTax >= 0 && krTax <= 1)) throw new Error("배당소득세는 0~100 사이 숫자(%)로 넣어 주세요. 비우면 15.4%.");
+    const div = useDiv ? { dividends: data.dividends, dividendTax: dividendTaxFn(krTax) } : {};
+    return { costs, div };
+  }
+
   async function run() {
     setError(null); setWarnings([]);
     if (restored) saveNow();
@@ -321,31 +356,10 @@ export default function Page() {
         warmup = customWarmup; label = customName.replace(/\s+/g, "_");
       }
       // 2) 데이터 (워밍업용으로 시작일보다 앞선 데이터까지)
-      const loadStart = minusDays(start, Math.max(400, Math.ceil(warmup * 1.5) + 30));
       const list = universeMode === "list" ? parseTickers(tickers) : undefined;
       if (list && !list.length) throw new Error("종목코드를 넣어 주세요. 한국은 6자리(005930), 미국은 티커(AAPL, SPY)입니다.");
-
-      const usePit = pit && !list && (source === "naver" || source === "kis");
-      const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit, dividends: useDiv };
-      const key = JSON.stringify(req);
-      let data = dataCache.current.get(key);
-      if (!data) {
-        setBusy(source === "naver" || source === "kis" ? "시세 데이터를 받는 중입니다 (처음 한 번은 몇 분 걸릴 수 있어요)" : "데이터 준비 중");
-        const r = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-        data = j as DataResponse;
-        dataCache.current.set(key, data);
-      }
-      setWarnings([...data.warnings, ...staleWarnings(data, end)]);
-      // 미국 종목 비용은 서버가 미국 시세를 원화로 바꿔 준 경우(fx 있음)에만
-      const costs: CostSettings = {
-        commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100,
-        ...(data.fx ? { us: { commission: (Number(usCommission) || 0) / 100, fx: (Number(usFx) || 0) / 100 } } : {}),
-      };
-      const krTax = divTax.trim() === "" ? KR_DIVIDEND_TAX : Number(divTax) / 100;
-      if (useDiv && !(krTax >= 0 && krTax <= 1)) throw new Error("배당소득세는 0~100 사이 숫자(%)로 넣어 주세요. 비우면 15.4%.");
-      const div = useDiv ? { dividends: data.dividends, dividendTax: dividendTaxFn(krTax) } : {};
+      const data = await loadData(warmup, list);
+      const { costs, div } = runCosts(data);
       // 3) 백테스트
       setBusy("백테스트 계산 중");
       await new Promise((r) => setTimeout(r, 30));
@@ -398,6 +412,70 @@ export default function Page() {
     }
     return summarizeSensitivity({ label: "지금 설정", cagr: out.s.cagr, mdd: out.s.mdd }, rows, out.s.target);
   };
+
+  // ---------- 전략 찾기 (종목 1~3개) ----------
+  const [objective, setObjective] = useState<Objective>("cagr");
+  const [testRatio, setTestRatio] = useState(0.3);
+  const [finder, setFinder] = useState<{ report: FinderReport; holdName: string } | null>(null);
+  /** 찾은 직후엔 찾기 결과를 위에, 전략을 열어 백테스트를 돌린 뒤엔 백테스트 결과를 위에 */
+  const [finderFirst, setFinderFirst] = useState(true);
+  /** 찾은 전략을 화면에 넣은 뒤 상태가 반영되면 바로 실행 */
+  const [runAfterApply, setRunAfterApply] = useState(false);
+  const finderList = universeMode === "list" ? parseTickers(tickers) : [];
+  const finderReady = finderList.length >= 1 && finderList.length <= 3;
+
+  async function findStrategy() {
+    setError(null); setWarnings([]);
+    if (restored) saveNow();
+    try {
+      if (!finderReady) throw new Error("전략 찾기는 '기간 · 종목'에서 '종목 직접 입력'으로 종목을 1~3개 넣어야 합니다.");
+      const list = finderList;
+      const data = await loadData(maxWarmup(buildCandidates(list)), list);
+      const all = buildCandidates(list, data.names);
+      const missing = list.filter((t) => !data.data[t]?.length);
+      if (missing.length) throw new Error(`시세를 받지 못한 종목이 있습니다: ${missing.join(", ")}`);
+      const { costs, div } = runCosts(data);
+      const runs: { c: Candidate; res: BacktestResult }[] = [];
+      for (const [k, c] of all.entries()) {
+        if (k % 4 === 0) { setBusy(`전략 찾는 중… ${k + 1}/${all.length}`); await new Promise((r) => setTimeout(r, 0)); }
+        const fn = compileStrategy(c.code);
+        try {
+          runs.push({ c, res: runBacktest({
+            data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
+            settings: { rebalance: c.rebalance, stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: c.warmup },
+            costs, strategy: (ctx) => fn(ctx, c.params),
+          }) });
+        } catch { /* 이 후보는 건너뜀 */ }
+      }
+      const hold = runBuyAndHold({ data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: list, ...div, costs });
+      const report = evaluate(runs, hold, { objective, testRatio, maxDrawdown: target.mdd / 100 });
+      setFinderFirst(true);
+      setFinder({ report, holdName: list.length === 1 ? (data.names[list[0]] ?? list[0]) : `${list.length}종목` });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const applyCandidate = (c: Candidate) => {
+    const name = `찾은 전략 · ${c.name.split(" · ")[0]}`;
+    setStopLoss(""); setTakeProfit("");
+    if (c.cycle) {
+      setSid("cycle"); setMode("cycle"); setCycleSpec(normalizeCycleSpec(c.cycle)); setRebalance("D");
+    } else {
+      setSid("custom"); setMode("code"); setCode(c.code); setCustomParams(JSON.stringify(c.params)); setCustomWarmup(c.warmup); setRebalance(c.rebalance);
+    }
+    setCustomName(name);
+    setFinderFirst(false);
+    setRunAfterApply(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+  useEffect(() => {
+    if (!runAfterApply) return;
+    setRunAfterApply(false);
+    run();
+  }, [runAfterApply]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const paramSpecs = builtin?.params ?? [];
   const hasUs = universeMode === "list" && parseTickers(tickers).some(isUsTicker);
@@ -593,6 +671,26 @@ export default function Page() {
           <button className="primary" onClick={run} disabled={!!busy}>
             {busy ? <><span className="spin" />실행 중</> : "백테스트 실행"}
           </button>
+
+          <div className="card">
+            <h2>전략 찾기 (종목 1~3개)</h2>
+            <p className="desc">위 &quot;종목 직접 입력&quot;에 넣은 종목 1~3개로, 몇 종목만 들고 운용하는 전략 6가지(이평선·교차·모멘텀 순환·RSI·비중 고정·적립 분할 매도)의 설정 약 100개를 시험해 가장 좋은 것을 찾습니다. 기간·자금·비용은 위 설정을 씁니다.</p>
+            <label className="f" style={{ marginTop: 10 }}>무엇을 기준으로 고를까요
+              <select value={objective} onChange={(e) => setObjective(e.target.value as Objective)}>
+                {OBJECTIVES.map((o) => <option key={o.id} value={o.id}>{o.id === "capped" ? `최대 낙폭 -${target.mdd}% 안에서 수익률이 가장 높은 것` : o.label}</option>)}
+              </select>
+            </label>
+            <p className="help">{OBJECTIVES.find((o) => o.id === objective)?.help}</p>
+            <label className="f" style={{ marginTop: 8 }}>확인 구간 (고를 때 보지 않을 마지막 기간)
+              <select value={testRatio} onChange={(e) => setTestRatio(Number(e.target.value))}>
+                <option value={0.2}>마지막 20%</option><option value={0.3}>마지막 30%</option><option value={0.4}>마지막 40%</option><option value={0.5}>마지막 50%</option>
+              </select>
+            </label>
+            <p className="help">앞 구간 성적으로만 1등을 고르고, 확인 구간에서도 통했는지 따로 보여 줍니다. 기간이 길수록(5년 이상 권장) 믿을 만합니다. 계산은 이 기기의 브라우저에서 하므로 NAS에 부담을 주지 않습니다.</p>
+            <button className="primary" style={{ marginTop: 10 }} onClick={findStrategy} disabled={!!busy || !finderReady}>
+              {busy ? <><span className="spin" />실행 중</> : finderReady ? `${finderList.length}종목으로 전략 찾기` : "종목을 1~3개 직접 입력하세요"}
+            </button>
+          </div>
         </section>
 
         <section className="stack">
@@ -602,12 +700,14 @@ export default function Page() {
             <div className="notice"><b>참고</b><ul>{warnings.slice(0, 8).map((w, k) => <li key={k}>{w}</li>)}</ul>
               {warnings.length > 8 && <span>외 {warnings.length - 8}건</span>}</div>
           )}
-          {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && (
+          {finder && finderFirst && <FinderResults report={finder.report} holdName={finder.holdName} onApply={applyCandidate} onClose={() => setFinder(null)} />}
+          {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && !finder && (
             <div className="card empty">
               <p><b>왼쪽에서 전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
               <p>결과로 연평균 수익률, 최대 낙폭, 지수(KOSPI, 미국 종목만이면 S&amp;P 500) 대비 성과, 연도별 목표 달성 여부, 매매 내역을 보여드립니다.</p>
             </div>
           )}
+          {finder && !finderFirst && <FinderResults report={finder.report} holdName={finder.holdName} onApply={applyCandidate} onClose={() => setFinder(null)} />}
         </section>
       </main>
     </>
