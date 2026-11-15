@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { createDiagToken, findDiagToken, listDiagTokens, revokeDiagToken, MAX_DIAG_TOKENS } from "@/lib/settings/diag";
 import { logoutAll, setPassword, issueSession, SESSION_COOKIE } from "@/lib/settings/auth";
+import { getUser, updateUser } from "@/lib/settings/users";
 import { loadSettings, updateSettings } from "@/lib/settings/store";
 import { middleware } from "@/middleware";
 import { GET as diagGet } from "@/app/api/diag/route";
@@ -96,12 +97,13 @@ describe("점검 내용", () => {
     const { token } = createDiagToken("c", 1, env);
     updateSettings((s) => {
       s.kis.real = { appKey: "REALKEY-SECRET-1234", appSecret: "REALSECRET-abcdef", account: "12345678-01" };
-      s.auth.totpSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
     }, env);
+    updateUser("owner", (u) => { u.totpSecret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"; }, env);
+    issueSession(env);
     const o = overview(env);
     const text = JSON.stringify(o);
     const st = loadSettings(env);
-    for (const secret of ["REALKEY-SECRET-1234", "REALSECRET-abcdef", "12345678", token, st.auth.passwordHash!, st.auth.sessionSecret!, st.auth.totpSecret!, st.auth.diagTokens![0].hash]) {
+    for (const secret of ["REALKEY-SECRET-1234", "REALSECRET-abcdef", "12345678", token, getUser("owner", env)!.passwordHash!, st.auth.sessionSecret!, getUser("owner", env)!.totpSecret!, st.auth.diagTokens![0].hash]) {
       expect(text).not.toContain(secret);
     }
     expect(o.settings.kis.real).toEqual({ appKey: true, appSecret: true, account: true });

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-export interface AuthState { setupNeeded: boolean; loggedIn: boolean; passwordFromEnv: boolean; minPassword: number; otpRequired?: boolean }
+export interface AuthUser { id: string; name: string; role: "admin" | "member"; owner: boolean }
+export interface AuthState { setupNeeded: boolean; loggedIn: boolean; passwordFromEnv: boolean; minPassword: number; otpRequired?: boolean; multiUser?: boolean; user?: AuthUser | null }
 
 export async function fetchAuth(): Promise<AuthState> {
   const r = await fetch("/api/auth", { cache: "no-store" });
@@ -11,6 +12,7 @@ export async function fetchAuth(): Promise<AuthState> {
 
 /** 로그인 / 처음 비밀번호 만들기. 성공하면 onDone */
 export default function Login({ auth, onDone, title = "관리자 로그인" }: { auth: AuthState; onDone: () => void; title?: string }) {
+  const [id, setId] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [code, setCode] = useState("");
@@ -28,7 +30,7 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
     }
     setBusy(true);
     try {
-      const body = auth.setupNeeded ? { action: "setup", code, password } : { action: "login", password, otp };
+      const body = auth.setupNeeded ? { action: "setup", code, password } : { action: "login", id: auth.multiUser ? id : "", password, otp };
       const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
@@ -59,12 +61,17 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
         </>
       ) : (
         <>
+          {auth.multiUser && (
+            <label className="f" style={{ marginBottom: 8 }}>아이디
+              <input value={id} onChange={(e) => setId(e.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="비우면 관리자(owner)" autoFocus />
+            </label>
+          )}
           <label className="f">비밀번호
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus required />
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus={!auth.multiUser} required />
           </label>
           {auth.otpRequired && (
-            <label className="f" style={{ marginTop: 8 }}>인증 앱 코드 (6자리)
-              <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={7} required />
+            <label className="f" style={{ marginTop: 8 }}>인증 앱 코드 (6자리){auth.multiUser ? " · 2단계 인증을 켠 사람만" : ""}
+              <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={7} required={!auth.multiUser} />
             </label>
           )}
         </>

@@ -1,10 +1,10 @@
-/** 점검 API 출입 확인: 로그인한 관리자 또는 유효한 점검 키 */
-import { clientIp, isLoggedIn } from "../settings/auth";
+/** 점검 API 출입 확인: 로그인한 owner 또는 유효한 점검 키 (owner 의 전략·설정 요약이 나오므로) */
+import { clientIp, requireOwner } from "../settings/auth";
 import { bearerToken, findDiagToken, touchDiagToken } from "../settings/diag";
 
 /** 통과하면 누가 들어왔는지, 아니면 null */
 export function diagAccess(req: Request): { via: "session" } | { via: "token"; id: string; name: string } | null {
-  if (isLoggedIn(req)) return { via: "session" };
+  if (requireOwner(req).user) return { via: "session" };
   const t = findDiagToken(bearerToken(req));
   if (!t) return null;
   touchDiagToken(t.id, clientIp(req));

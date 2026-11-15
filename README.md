@@ -89,4 +89,6 @@ Python 버전(pykrx/FinanceDataReader 기반 CLI)은 `python/` 폴더에 있습�
 ## 보안 · 밖에서 접속
 앱 전체가 관리자 로그인 뒤에 있습니다(`middleware.ts`). 처음 접속하면 컨테이너 로그의 설정 코드로 비밀번호를 만들고,
 설정 → 보안에서 2단계 인증(휴대폰 인증 앱), 최근 로그인 기록, 모든 기기 로그아웃을 관리합니다.
+
+**가족·지인 초대**: 설정 → 사용자에서 1회용 초대 링크(3일 유효)를 만들어 보내면 그 사람이 아이디·비밀번호를 정해 가입합니다. 사람마다 로그인·2단계 인증·전략 보관함·마지막 설정이 따로이고(`nas/cache/config/users.json`, `users/<아이디>/`), 한국투자증권 계좌·주문과 서버 설정은 처음 만든 관리자(owner) 계정만 쓸 수 있습니다.
 인터넷에서 `https://alphy.devsean.me` 로 여는 방법(DSM 역방향 프록시, 인증서, 공유기, 방화벽)은 [docs/external-access.md](docs/external-access.md).

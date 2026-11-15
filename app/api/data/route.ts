@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadData, type DataRequest } from "@/lib/data/server";
-import { requireAdmin } from "@/lib/settings/auth";
+import { requireOwner } from "@/lib/settings/auth";
 import { normalizeTicker } from "@/lib/data/market";
 
 export const runtime = "nodejs";
@@ -14,8 +14,8 @@ export async function POST(req: Request) {
     }
     // 한국투자증권 시세는 내 앱키의 호출 한도를 쓰므로 로그인한 사람만
     if (body.source === "kis") {
-      const denied = requireAdmin(req);
-      if (denied) return NextResponse.json({ error: `한국투자증권 시세는 로그인해야 쓸 수 있습니다. ${denied[1]}` }, { status: denied[0] });
+      const denied = requireOwner(req).denied;
+      if (denied) return NextResponse.json({ error: `한국투자증권 시세는 쓸 수 없습니다. ${denied[1]}` }, { status: denied[0] });
     }
     if (body.tickers) body.tickers = [...new Set(body.tickers.map((t) => normalizeTicker(String(t))).filter(Boolean))];
     body.pit = body.pit === true;
