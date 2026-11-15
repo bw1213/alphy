@@ -150,3 +150,10 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-si
 .schip b { font-weight: 500; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .schip.unknown { border-color: var(--bad); color: var(--bad); }
 .schip button { border: 0; background: none; color: var(--text-3); cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; min-height: 0; }
+
+/* 전략 찾기 */
+.finder .checks { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.finder .checks .help { display: block; margin: 2px 0 0 0; }
+.finder details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.finder tr.muted td { color: var(--text-3); }
+.finder .help.period { display: block; margin: 0; }
