@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Balance, OrderResult } from "@/lib/kis/trading";
+import { isUsTicker } from "@/lib/data/market";
 import { buildPlan, SIGNAL_KEY, type Plan, type SavedSignal } from "@/lib/trade/plan";
 
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
@@ -37,14 +38,16 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
       if (!r.ok) throw new Error(bal.error ?? `HTTP ${r.status}`);
       const b = bal as Balance;
       const prices: Record<string, number> = {};
-      for (const [k, p] of signal.picks.entries()) {
-        setBusy(`현재가 조회 중 (${k + 1}/${signal.picks.length})`);
+      // 미국 종목은 아직 해외주식 주문을 연결하지 않아 빼고, 그 몫은 현금으로 둠
+      const picks = signal.picks.filter((p) => !isUsTicker(p.ticker));
+      for (const [k, p] of picks.entries()) {
+        setBusy(`현재가 조회 중 (${k + 1}/${picks.length})`);
         const q = await fetch(`/api/kis/quote?code=${encodeURIComponent(p.ticker)}`).then((x) => (x.ok ? x.json() : null)).catch(() => null);
         prices[p.ticker] = q?.price > 0 ? q.price : p.close; // 현재가를 못 받으면 신호일 종가
       }
       let use = Number(budget);
       if (!(use > 0)) { use = Math.floor(b.totalValue * 0.98); setBudget(String(use)); } // 수수료·가격 변동 여유 2%
-      const pl = buildPlan({ picks: signal.picks, prices, holdings: b.holdings, budget: use, sellOthers: true });
+      const pl = buildPlan({ picks, prices, holdings: b.holdings, budget: use, sellOthers: true });
       setPlan(pl);
       setPicked(new Set(pl.orders.filter((o) => !o.other || sellOthers).map((o) => o.code)));
     } catch (e) { setError((e as Error).message); } finally { setBusy(""); }
@@ -89,6 +92,9 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
             <b>{signal.label}</b> · {signal.date} 종가 기준 · {signal.picks.length ? `${signal.picks.length}종목` : "전량 현금"}
             {signal.picks.length > 0 && <> ({signal.picks.slice(0, 5).map((p) => p.name || p.ticker).join(", ")}{signal.picks.length > 5 ? " 외" : ""})</>}
           </p>
+          {signal.picks.some((p) => isUsTicker(p.ticker)) && (
+            <p className="help">미국 종목({signal.picks.filter((p) => isUsTicker(p.ticker)).map((p) => p.ticker).join(", ")})은 아직 해외주식 주문이 연결되지 않아 주문 목록에서 빠지고, 그 비중만큼 현금으로 남습니다.</p>
+          )}
           {ageDays > 4 && <div className="error" style={{ margin: "8px 0" }}>{ageDays}일 전 신호입니다. 백테스트를 다시 실행해 최신 추천으로 바꾸세요.</div>}
           <div className="row" style={{ marginTop: 8 }}>
             <label className="f">투자금(원)

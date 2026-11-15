@@ -5,6 +5,9 @@ import type { Bar, PriceData, StockInfo, UniverseSnapshot } from "../engine/type
 import { buildPitUniverse, krxDaily, krxListings, type KrxListing } from "./krx";
 import { fetchDaily, fetchTopMarketCap } from "./naver";
 import { syntheticData } from "./synthetic";
+import { isUsTicker } from "./market";
+import { fetchUsMaster, type UsStock } from "./usMaster";
+import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
 import { quoteCredentials } from "../kis/config";
 import { getClient } from "../kis/client";
 import { kisDaily, kisIndexDaily } from "../kis/market";
@@ -33,6 +36,10 @@ export interface DataResponse {
   warnings: string[];
   /** 시점별 종목 목록 (pit 또는 CSV 의 universe.csv) */
   universe?: UniverseSnapshot[];
+  /** 비교 지수 이름. 기본 KOSPI, 미국 종목만 넣으면 S&P 500 (원화 환산) */
+  benchmarkName?: string;
+  /** 미국 종목이 있으면 원/달러 환율 (미국 종목 시세는 이 환율로 원화로 바꿔서 data 에 넣음) */
+  fx?: { date: string; close: number }[];
 }
 
 async function readJson<T>(p: string): Promise<T | null> {
@@ -69,7 +76,7 @@ export function sameHistory(oldBars: Bar[], fresh: Bar[]): boolean {
  * - 오늘 받은 캐시면 그대로, 예전 캐시면 마지막 날짜 근처부터만 받아 이어 붙인다.
  *   액면분할·배당 등으로 수정주가가 바뀌었으면(겹치는 날 종가가 다르면) 전체를 다시 받는다
  */
-export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "krx" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
+export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "krx" | "yahoo" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
   const p = path.join(cacheDir, src, `${symbol}.json`);
   const c = await readJson<DailyCache>(p);
   const covers = !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) <= start;
@@ -133,6 +140,18 @@ async function cachedUniverse(n: number): Promise<StockInfo[]> {
   const list = await fetchTopMarketCap(Math.max(n, 200));
   await writeJson(p, list);
   return list.slice(0, n);
+}
+
+/** 미국 종목 이름 (한국투자증권 해외 종목 마스터, 7일마다 새로 받음). 못 받으면 빈 목록 */
+export async function cachedUsMaster(): Promise<UsStock[]> {
+  const p = path.join(CACHE, "us-master.json");
+  const c = await readJson<{ fetched: string; list: UsStock[] }>(p);
+  if (c?.list?.length && Date.parse(today()) - Date.parse(c.fetched) < 7 * 864e5) return c.list;
+  try {
+    const list = await fetchUsMaster();
+    if (list.length) await writeJson(p, { fetched: today(), list });
+    return list;
+  } catch { return c?.list ?? []; }
 }
 
 async function pool<T, R>(items: T[], k: number, f: (x: T) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
@@ -228,7 +247,10 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
     return bars;
   };
   let fromKrx = 0;
+  // 미국 종목은 데이터 소스와 상관없이 야후 파이낸스 시세(달러) → 아래에서 원화로 환산
+  const usCodes = list.filter((s) => isUsTicker(s.code)).map((s) => s.code);
   const results = await pool(list, 6, async (s) => {
+    if (isUsTicker(s.code)) return await cachedDaily(s.code, req.start, "yahoo", fetchYahooDaily);
     try { return await cachedDaily(s.code, req.start, src, fetcher); }
     catch (e) {
       if (!isin.get(s.code)) throw e;
@@ -237,14 +259,42 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
       return bars;
     }
   });
+  let fx: { date: string; close: number }[] | undefined;
+  if (usCodes.length) {
+    try {
+      fx = (await cachedDaily(USDKRW, minusDays(req.start, 10), "yahoo", fetchYahooDaily)).map((b) => ({ date: b.date, close: b.close }));
+    } catch (e) {
+      throw new Error(`원/달러 환율을 받지 못해 미국 종목을 원화로 바꿀 수 없습니다 (${(e as Error).message}). 잠시 뒤 다시 실행하세요.`);
+    }
+  }
+  const usNames = usCodes.length ? new Map((await cachedUsMaster()).map((u) => [u.code, u.name])) : new Map<string, string>();
   const data: PriceData = {}, names: Record<string, string> = {};
   results.forEach((r, k) => {
     const s = list[k];
-    if (r.status === "fulfilled") { data[s.code] = clip(r.value, req.start, req.end); names[s.code] = s.name; }
+    if (r.status === "fulfilled") {
+      const us = isUsTicker(s.code);
+      data[s.code] = clip(us ? toKrw(r.value, fx!) : r.value, req.start, req.end);
+      names[s.code] = us ? usNames.get(s.code) ?? s.name : s.name;
+    }
     else warnings.push(`${s.code} 건너뜀: ${(r.reason as Error)?.message ?? r.reason}`);
   });
+  const usLoaded = usCodes.filter((t) => t in data);
+  if (usLoaded.length) {
+    warnings.push(`미국 종목 ${usLoaded.length}개(${usLoaded.slice(0, 5).join(", ")}${usLoaded.length > 5 ? " 등" : ""})는 야후 파이낸스 시세를 그날 원/달러 환율로 원화로 바꿔 계산했습니다. 환율 변동이 수익률에 들어가고, 미국 종목 비용은 '자금·비용'의 미국 수수료·환전 비용을 씁니다. 양도소득세(연 250만 원 넘는 차익의 22%)는 계산하지 않습니다.`);
+    if (isKis) warnings.push("한국투자증권 데이터를 골라도 미국 종목 시세는 야후 파이낸스에서 받습니다.");
+  }
   if (!Object.keys(data).length) throw new Error(`가격 데이터를 하나도 받지 못했습니다. 네트워크 상태를 확인하세요. (${warnings[0] ?? ""})`);
   let benchmark = null;
+  // 미국 종목만 넣었으면 S&P 500 (원화 환산)을 비교 지수로
+  const usOnly = list.length > 0 && list.every((x) => isUsTicker(x.code));
+  if (usOnly) {
+    try {
+      const idx = toKrw(await cachedDaily(SP500, req.start, "yahoo", fetchYahooDaily), fx!);
+      benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
+    } catch (e) { warnings.push(`S&P 500 지수 조회 실패: ${(e as Error).message}`); }
+    if (fromKrx) warnings.push(`${fromKrx}종목은 KRX 시세를 썼습니다.`);
+    return { data, names, benchmark, warnings, universe, benchmarkName: "S&P 500", fx };
+  }
   try {
     let idx: Bar[];
     try { idx = await cachedDaily("KOSPI", req.start, src, fetcher); }
@@ -256,5 +306,5 @@ export async function loadData(req: DataRequest): Promise<DataResponse> {
     benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
   } catch (e) { warnings.push(`KOSPI 지수 조회 실패: ${(e as Error).message}`); }
   if (fromKrx) warnings.push(`${fromKrx}종목은 ${isKis ? "한국투자증권" : "네이버"}에 시세가 없어(상장폐지 등) KRX 시세를 썼습니다.`);
-  return { data, names, benchmark, warnings, universe };
+  return { data, names, benchmark, warnings, universe, benchmarkName: "KOSPI", ...(fx ? { fx } : {}) };
 }

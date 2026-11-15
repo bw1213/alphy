@@ -58,11 +58,14 @@ function Tip({ active, payload, label, fmt }: any) {
   );
 }
 
-export default function Results({ res, s, names, label, title, hold, onSensitivity }: {
+export default function Results({ res, s, names, label, title, hold, onSensitivity, benchName = "KOSPI" }: {
   res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title?: string; hold?: HoldCompare | null;
+  /** 비교 지수 이름 (KOSPI, 미국 종목만이면 S&P 500) */
+  benchName?: string;
   onSensitivity?: (onProgress: (done: number, total: number) => void) => Promise<SensitivityResult>;
 }) {
   const c = useColors();
+  const B = benchName;
   const TARGET_CAGR = s.target;
   const T = `${+(s.target * 100).toFixed(1)}%`; // 목표 표시용
   const [tab, setTab] = useState<"signal" | "check" | "annual" | "trades" | "positions">("annual");
@@ -129,9 +132,9 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
         </div>
         <div className="kpi"><div className="k">최대 낙폭 (MDD)</div><div className="v">{pct(s.mdd)}</div>
           <div className={`badge ${s.withinDrawdown ? "ok" : "no"}`}>{s.withinDrawdown ? `✓ 기준 -${+(s.maxDrawdown * 100).toFixed(1)}% 이내` : `✕ 기준 -${+(s.maxDrawdown * 100).toFixed(1)}% 초과`}</div>
-          <div className="s">{hold && <>매수 후 보유 {pct(hold.s.mdd)} · </>}KOSPI {pct(s.bench?.mdd)}</div></div>
+          <div className="s">{hold && <>매수 후 보유 {pct(hold.s.mdd)} · </>}{B} {pct(s.bench?.mdd)}</div></div>
         <div className="kpi"><div className="k">누적 수익률</div><div className="v">{pct(s.totalReturn)}</div>
-          <div className="s">{hold && <>매수 후 보유 {pct(hold.s.totalReturn)} · </>}KOSPI {pct(s.bench?.totalReturn)}</div></div>
+          <div className="s">{hold && <>매수 후 보유 {pct(hold.s.totalReturn)} · </>}{B} {pct(s.bench?.totalReturn)}</div></div>
         <div className="kpi"><div className="k">샤프 / 소르티노</div><div className="v">{num(s.sharpe)}</div>
           <div className="s">소르티노 {num(s.sortino)}</div></div>
         <div className="kpi"><div className="k">승률 (청산 {s.nSells}건)</div><div className="v">{pct(s.winRate, 0)}</div>
@@ -147,7 +150,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
         </div>
       )}
 
-      {hold && <HoldCard s={s} hold={hold} names={names} />}
+      {hold && <HoldCard s={s} hold={hold} names={names} B={B} />}
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
@@ -160,7 +163,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
         <div className="legend">
           <span><i style={{ background: c.s1 }} />전략</span>
           {hold && <span><i style={{ background: c.s3 }} />매수 후 보유 ({holdName})</span>}
-          {hasBench && <span><i style={{ background: c.s2 }} />KOSPI 지수</span>}
+          {hasBench && <span><i style={{ background: c.s2 }} />{B} 지수</span>}
           <span><i className="dash" />연 {T} 목표</span>
         </div>
         <div style={{ height: 320 }}>
@@ -173,7 +176,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                 stroke={c.grid} width={48} allowDataOverflow tickFormatter={(v: number) => v.toFixed(0)} />
               <Tooltip content={<Tip fmt={(v: number) => v.toFixed(1)} />} />
               <Line dataKey="target" name={`연 ${T} 목표`} stroke={c.t3} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
-              {hasBench && <Line dataKey="kospi" name="KOSPI" stroke={c.s2} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
+              {hasBench && <Line dataKey="kospi" name={B} stroke={c.s2} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
               {hold && <Line dataKey="hold" name="매수 후 보유" stroke={c.s3} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
               <Line dataKey="strategy" name="전략" stroke={c.s1} dot={false} strokeWidth={2} isAnimationActive={false} />
             </LineChart>
@@ -253,7 +256,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
               <>
                 <div className="tablewrap">
                   <table>
-                    <thead><tr><th className="l">구간</th><th className="l">기간</th><th>CAGR</th><th>MDD</th><th>샤프</th>{hasBench && <th>KOSPI CAGR</th>}<th className="l">목표 {T}</th></tr></thead>
+                    <thead><tr><th className="l">구간</th><th className="l">기간</th><th>CAGR</th><th>MDD</th><th>샤프</th>{hasBench && <th>{B} CAGR</th>}<th className="l">목표 {T}</th></tr></thead>
                     <tbody>
                       {([["앞 70% (고르는 구간)", split.first], ["뒤 30% (확인 구간)", split.second]] as const).map(([name, x]) => (
                         <tr key={name}>
@@ -317,7 +320,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
             <div className="legend">
               <span><i style={{ background: c.s1, height: 8 }} />전략</span>
               {hold && <span><i style={{ background: c.s3, height: 8 }} />매수 후 보유</span>}
-              {hasBench && <span><i style={{ background: c.s2, height: 8 }} />KOSPI</span>}
+              {hasBench && <span><i style={{ background: c.s2, height: 8 }} />{B}</span>}
               <span><i className="dash" />{T} 목표</span>
             </div>
             <div style={{ height: 220 }}>
@@ -331,13 +334,13 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                   <ReferenceLine y={s.target * 100} stroke={c.t3} strokeDasharray="4 3" />
                   <Bar dataKey="strategy" name="전략" fill={c.s1} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                   {hold && <Bar dataKey="hold" name="매수 후 보유" fill={c.s3} radius={[4, 4, 0, 0]} isAnimationActive={false} />}
-                  {hasBench && <Bar dataKey="kospi" name="KOSPI" fill={c.s2} radius={[4, 4, 0, 0]} isAnimationActive={false} />}
+                  {hasBench && <Bar dataKey="kospi" name={B} fill={c.s2} radius={[4, 4, 0, 0]} isAnimationActive={false} />}
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div className="tablewrap">
               <table>
-                <thead><tr><th>연도</th><th>전략</th>{hold && <th>매수 후 보유</th>}<th>KOSPI</th><th>초과수익(KOSPI 대비)</th><th>{T} 달성</th></tr></thead>
+                <thead><tr><th>연도</th><th>전략</th>{hold && <th>매수 후 보유</th>}<th>{B}</th><th>초과수익({B} 대비)</th><th>{T} 달성</th></tr></thead>
                 <tbody>
                   {s.annual.map((a) => (
                     <tr key={a.year}>
@@ -411,8 +414,8 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
   );
 }
 
-/** 전략 vs 같은 종목을 사기만 하고 보유 vs KOSPI 지수 */
-function HoldCard({ s, hold, names }: { s: Summary; hold: HoldCompare; names: Record<string, string> }) {
+/** 전략 vs 같은 종목을 사기만 하고 보유 vs 비교 지수 */
+function HoldCard({ s, hold, names, B }: { s: Summary; hold: HoldCompare; names: Record<string, string>; B: string }) {
   const h = hold.s;
   const diff = (a: number, b: number) => (Number.isFinite(a) && Number.isFinite(b) ? `${a - b >= 0 ? "+" : ""}${((a - b) * 100).toFixed(1)}%p` : "–");
   const tone = (good: boolean) => ({ color: good ? "var(--good)" : "var(--bad)" });
@@ -436,7 +439,7 @@ function HoldCard({ s, hold, names }: { s: Summary; hold: HoldCompare; names: Re
       </p>
       <div className="tablewrap">
         <table>
-          <thead><tr><th className="l">지표</th><th>전략</th><th>매수 후 보유</th><th>차이 (전략 − 보유)</th>{s.bench && <th>KOSPI 지수</th>}</tr></thead>
+          <thead><tr><th className="l">지표</th><th>전략</th><th>매수 후 보유</th><th>차이 (전략 − 보유)</th>{s.bench && <th>{B} 지수</th>}</tr></thead>
           <tbody>
             {rows.map(([name, f, a, b, higherBetter]) => (
               <tr key={name}>
@@ -462,7 +465,7 @@ function HoldCard({ s, hold, names }: { s: Summary; hold: HoldCompare; names: Re
           ? <>전략이 매수 후 보유보다 연 <b>{(beat * 100).toFixed(1)}%p</b> 더 벌었습니다.</>
           : <>전략이 매수 후 보유보다 연 <b>{(-beat * 100).toFixed(1)}%p</b> 덜 벌었습니다. 사고파는 수고와 비용을 들일 만한지 따져 보세요.</>)}
         {" "}{Number.isFinite(s.mdd - h.mdd) && (s.mdd >= h.mdd ? `최대 낙폭은 ${((s.mdd - h.mdd) * 100).toFixed(1)}%p 작았습니다.` : `최대 낙폭은 ${((h.mdd - s.mdd) * 100).toFixed(1)}%p 컸습니다.`)}
-        {" "}KOSPI 지수는 수수료·입금 없이 지수만 본 값이라, 같은 돈으로 실제로 샀을 때와 비교하려면 매수 후 보유 열을 보세요.
+        {" "}{B} 지수는 수수료·입금 없이 지수만 본 값이라, 같은 돈으로 실제로 샀을 때와 비교하려면 매수 후 보유 열을 보세요.
       </p>
     </div>
   );

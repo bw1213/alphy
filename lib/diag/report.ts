@@ -10,6 +10,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { normalizeTicker } from "../data/market";
 import { loadData, type DataRequest, type DataResponse } from "../data/server";
 import { staleWarnings } from "../data/stale";
 import { holdTickers, runBuyAndHold } from "../engine/buyhold";
@@ -107,7 +108,7 @@ export const cleanSource = (v: unknown): DiagSource => (v === "csv" || v === "sy
 
 export function cleanTickers(v: unknown): string[] {
   const raw = Array.isArray(v) ? v.map(String) : String(v ?? "").split(/[\s,]+/);
-  return [...new Set(raw.map((t) => t.trim().toUpperCase()).filter((t) => /^[0-9A-Z]{6}$/.test(t)))].slice(0, 20);
+  return [...new Set(raw.map(normalizeTicker).filter(Boolean))].slice(0, 20);
 }
 
 /** 영업일 사이가 이만큼(달력일) 넘게 벌어진 곳 = 시세 빈 구간 의심 */
@@ -233,7 +234,7 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const res = runBacktest({
     data: d.data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly,
     settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup },
-    costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100 },
+    costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
     strategy: (ctx) => st.fn(ctx, st.p),
   });
   if (res.equity.length < 2) throw new Error("평가 구간 데이터가 부족합니다. 기간을 확인하세요.");
@@ -241,7 +242,7 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const pick = holdTickers(res, tickers.length ? tickers : null);
   const holdRes = pick ? runBuyAndHold({
     data: d.data, benchmark: d.benchmark, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers,
-    costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100 },
+    costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
   }) : null;
   const hs = holdRes && holdRes.equity.length >= 2 ? summarize(holdRes) : null;
   const dates = res.equity.map((x) => x.date);

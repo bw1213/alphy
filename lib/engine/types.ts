@@ -30,6 +30,8 @@ export interface CostSettings {
   commission: number; // 0.00015
   slippage: number; // 0.001
   sellTax: number | null; // null → 연도별 법정세율
+  /** 미국 종목 비용 (없으면 기본값). commission 0.0025 = 0.25%, fx = 원화↔달러 환전 비용 (살 때·팔 때 각각) */
+  us?: { commission: number; fx: number };
 }
 
 export interface Trade {

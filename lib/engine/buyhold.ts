@@ -11,7 +11,7 @@
  *  - 수익률은 엔진과 같이 추가 입금 효과를 뺀 시간가중(nav) 기준.
  */
 import { buildPanel } from "./context";
-import { DEFAULT_COSTS, sellTax } from "./costs";
+import { buyFeeRate, DEFAULT_COSTS, sellFeeRate } from "./costs";
 import { DELIST_AFTER_DAYS, type RunOptions } from "./engine";
 import type { BacktestResult, EquityPoint, Trade } from "./types";
 
@@ -73,9 +73,10 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
       const o = P.open[k][i], v = P.volume[k][i];
       if (!(Number.isFinite(o) && o > 0 && Number.isFinite(v) && v > 0)) continue;
       const px = o * (1 + costs.slippage);
-      const n = Math.floor(Math.min(budget[t] ?? 0, cash) / (px * (1 + costs.commission)));
+      const rate = buyFeeRate(costs, t);
+      const n = Math.floor(Math.min(budget[t] ?? 0, cash) / (px * (1 + rate)));
       if (n <= 0) continue;
-      const fee = n * px * costs.commission;
+      const fee = n * px * rate;
       const spent = n * px + fee;
       cash -= spent;
       budget[t] -= spent;
@@ -95,7 +96,7 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
         if (q > 0) {
           const px = P.closeFilled[col(t)][li];
           const gross = q * px;
-          const fee = gross * (costs.commission + sellTax(costs, Number(d.slice(0, 4))));
+          const fee = gross * sellFeeRate(costs, t, Number(d.slice(0, 4)));
           cash += gross - fee;
           got += gross - fee;
           trades.push({ date: d, ticker: t, side: "SELL", qty: q, price: px, fee, pnl: (px - avg[t]) * q - fee, ret: px / avg[t] - 1, reason: "delisted" });
