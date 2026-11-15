@@ -152,7 +152,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
 
       {s.hasDividendData && (
         <div className="notice">
-          <b>배당금·분배금 반영</b>: 기간 중 {s.nDividends}번, 세후 {won(s.dividendsNet)}을 받았습니다(세금 {won(s.dividendTax)}). 수익률·자산 그래프에 모두 들어가 있습니다.
+          <b>배당금·분배금 반영</b>: 기간 중 {s.nDividends}번, 세후 {won(s.dividendsNet)}을 받았습니다(세금 {won(s.dividendTax)}). 추가 입금처럼 현금으로 들어와 매수에 쓰이지만, 넣은 돈이 아니라 수익으로 계산해 수익률·자산 그래프에 들어가 있습니다.
           {s.nDividends === 0 && " 이 기간에 보유 중 배당락일이 없었거나 배당 이력을 못 받았습니다."}
         </div>
       )}
@@ -505,7 +505,7 @@ function HoldCard({ s, hold, names, B }: { s: Summary; hold: HoldCompare; names:
           ? <>전략이 매수 후 보유보다 연 <b>{(beat * 100).toFixed(1)}%p</b> 더 벌었습니다.</>
           : <>전략이 매수 후 보유보다 연 <b>{(-beat * 100).toFixed(1)}%p</b> 덜 벌었습니다. 사고파는 수고와 비용을 들일 만한지 따져 보세요.</>)}
         {" "}{Number.isFinite(s.mdd - h.mdd) && (s.mdd >= h.mdd ? `최대 낙폭은 ${((s.mdd - h.mdd) * 100).toFixed(1)}%p 작았습니다.` : `최대 낙폭은 ${((h.mdd - s.mdd) * 100).toFixed(1)}%p 컸습니다.`)}
-        {s.hasDividendData && " 매수 후 보유는 받은 배당을 같은 종목에 다시 삽니다."}
+        {s.hasDividendData && " 매수 후 보유는 받은 배당을 추가 입금처럼 종목별로 똑같이 나눠 다시 삽니다."}
         {" "}{B} 지수는 수수료·입금·배당 없이 지수만 본 값이라, 같은 돈으로 실제로 샀을 때와 비교하려면 매수 후 보유 열을 보세요.
       </p>
     </div>

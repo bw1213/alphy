@@ -116,6 +116,27 @@ describe("엔진 배당 반영", () => {
     expect(re).toHaveLength(1);
     expect(re[0]).toMatchObject({ date: dates[11], qty: 5 }); // 5000원 / 1000원
     expect(r.finalPositions[0].qty).toBe(105);
+    // 입금이 아니라 수익: 넣은 돈은 그대로, 수익률에 반영
+    const s = summarize(r);
+    expect(s.deposits).toBe(0);
+    expect(r.equity.at(-1)!.contributed).toBe(100_000);
+    expect(s.totalReturn).toBeCloseTo(0.05, 6);
+  });
+
+  it("매수 후 보유: 배당은 추가 입금처럼 보유 종목에 똑같이 나눠 산다", () => {
+    const two: PriceData = { A: flat(dates), B: flat(dates) };
+    const r = runBuyAndHold({ data: two, initialCash: 200_000, tickers: ["A", "B"], costs: free, dividends, dividendTax: 0 })!;
+    const re = r.trades.filter((t) => t.date > exDate);
+    expect(re.map((t) => [t.ticker, t.qty])).toEqual([["A", 2], ["B", 2]]); // A 100주 배당 5,000원 → 2,500원씩, 1주 1,000원
+    expect(r.equity.at(-1)!.contributed).toBe(200_000);
+  });
+
+  it("전략: 배당 현금은 입금과 같이 다음 매매에 쓰이지만 넣은 돈에는 안 더함", () => {
+    const r = runBacktest({ data, strategy: hold, settings: { ...settings, rebalanceBand: 0 }, costs: free, initialCash: 100_000, dividends, dividendTax: 0 });
+    const after = r.trades.filter((t) => t.date > exDate && t.side === "BUY");
+    expect(after.reduce((a, t) => a + t.qty, 0)).toBe(5);
+    expect(r.equity.at(-1)!.contributed).toBe(100_000);
+    expect(summarize(r).deposits).toBe(0);
   });
 });
 

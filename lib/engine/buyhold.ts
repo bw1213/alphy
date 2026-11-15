@@ -8,7 +8,8 @@
  *    그날 거래가 안 되는 종목(거래정지, 아직 상장 전)도 그 몫을 모아 두었다가 거래되는 날 산다.
  *  - 팔지 않는다. 단, 시세가 끊긴 종목(상장폐지)은 엔진과 같은 규칙으로 마지막 종가에 정리하고
  *    그 돈은 남은 종목에 똑같이 나눠 다시 산다.
- *  - 배당금·분배금(데이터가 있으면)은 세후 금액을 그 종목 몫으로 모아 두었다가 1주 이상 되면 다시 산다(재투자).
+ *  - 배당금·분배금(데이터가 있으면)은 추가 입금과 똑같이 세후 금액을 보유 종목에 똑같이 나눠 산다(1주가 안 되면 모아 둠).
+ *    단 입금이 아니라 수익이므로 넣은 돈(contributed)·좌수에는 더하지 않는다.
  *  - 수익률은 엔진과 같이 추가 입금 효과를 뺀 시간가중(nav) 기준.
  */
 import { buildPanel } from "./context";
@@ -71,7 +72,7 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
       if (alive.length) share(deposit, alive);
     }
 
-    // 배당락: 어제까지 들고 있던 수량만큼 받아 그 종목에 재투자할 몫으로 (그날 장 마감 때 들어온 것으로 보고 다음 날부터 삼)
+    // 배당락: 어제까지 들고 있던 수량만큼 받음 (그날 장 마감 때 들어온 것으로 보고 다음 날 시가부터 추가 입금처럼 나눠 삼)
     const divNet: Record<string, number> = {};
     if (divBook.has) for (const [t, q] of Object.entries(pos)) {
       const p = divBook.pay(t, i, q, d);
@@ -118,10 +119,9 @@ export function runBuyAndHold(opt: HoldOptions): BacktestResult | null {
       }
     }
 
-    for (const [t, v] of Object.entries(divNet)) {
+    for (const v of Object.values(divNet)) {
       cash += v;
-      if (alive.includes(t)) budget[t] = (budget[t] ?? 0) + v;
-      else share(v, alive);
+      share(v, alive);
     }
 
     let invested = 0;
