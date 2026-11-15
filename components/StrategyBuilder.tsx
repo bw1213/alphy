@@ -41,7 +41,7 @@ export default function StrategyBuilder({ spec, onChange, rebalance, onRebalance
       <h3>1. 시장이 나쁠 때</h3>
       <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, flexWrap: "wrap" }}>
         <input type="checkbox" style={chk} checked={spec.marketMa > 0} onChange={(e) => set({ marketMa: e.target.checked ? 120 : 0 })} />
-        KOSPI 지수가
+        시장 지수(KOSPI, 미국 종목만이면 S&amp;P 500)가
         {spec.marketMa > 0 && <input type="number" min={5} max={500} style={small} value={spec.marketMa} onChange={(e) => set({ marketMa: Number(e.target.value) })} />}
         {spec.marketMa > 0 ? "일 이동평균선 아래면 모두 팔고 현금" : "이동평균선 아래면 모두 팔고 현금 (꺼짐)"}
       </label>

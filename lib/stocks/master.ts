@@ -14,6 +14,7 @@ import path from "path";
 import zlib from "zlib";
 import iconv from "iconv-lite";
 import { configDir } from "../settings/store";
+import { fetchUsMarket } from "../data/usMaster";
 
 export interface StockEntry {
   code: string;
@@ -103,6 +104,11 @@ export type Provider = { label: string; load: (f: typeof fetch) => Promise<Stock
 export const PROVIDERS: Provider[] = [
   { label: "KOSPI", load: (f) => fetchMaster("kospi_code.mst.zip", "KOSPI", 227, f) },
   { label: "KOSDAQ", load: (f) => fetchMaster("kosdaq_code.mst.zip", "KOSDAQ", 221, f) },
+  // 미국: 한국투자증권 해외 종목 마스터 (한글 이름). 거래소별로 나눠 하나가 실패해도 나머지 예전 목록 유지
+  ...(["NASDAQ", "NYSE", "AMEX"] as const).map((m): Provider => ({
+    label: m,
+    load: async (f) => (await fetchUsMarket(m, f)).map((u) => ({ code: u.code, name: u.name, market: m, type: u.type === "etf" ? "ETF" : "주식" })),
+  })),
 ];
 
 /** 받기 전에도 검색되도록 넣어 둔 기본 목록 (자주 쓰는 종목·ETF) */
@@ -120,7 +126,12 @@ export const SEED: StockEntry[] = ([
   ["069500", "KODEX 200"], ["102110", "TIGER 200"], ["114800", "KODEX 인버스"], ["122630", "KODEX 레버리지"], ["133690", "TIGER 미국나스닥100"],
   ["148070", "KIWOOM 국고채10년"], ["153130", "KODEX 단기채권"], ["229200", "KODEX 코스닥150"], ["252670", "KODEX 200선물인버스2X"], ["305720", "KODEX 2차전지산업"],
   ["360750", "TIGER 미국S&P500"], ["379800", "KODEX 미국S&P500"], ["381170", "TIGER 미국테크TOP10 INDXX"], ["458730", "TIGER 미국배당다우존스"],
-].map(([code, name]) => ({ code, name, market: "KOSPI", type: "ETF" }))));
+].map(([code, name]) => ({ code, name, market: "KOSPI", type: "ETF" }))), ([
+  ["AAPL", "애플", "NASDAQ"], ["MSFT", "마이크로소프트", "NASDAQ"], ["NVDA", "엔비디아", "NASDAQ"], ["AMZN", "아마존닷컴", "NASDAQ"],
+  ["GOOGL", "알파벳 A", "NASDAQ"], ["META", "메타 플랫폼스", "NASDAQ"], ["TSLA", "테슬라", "NASDAQ"], ["BRK.B", "버크셔 해서웨이 B", "NYSE"],
+].map(([code, name, market]) => ({ code, name, market, type: "주식" }))), ([
+  ["SPY", "SPDR S&P 500", "AMEX"], ["VOO", "뱅가드 S&P 500", "AMEX"], ["QQQ", "인베스코 QQQ (나스닥100)", "NASDAQ"], ["SCHD", "슈왑 미국 배당", "AMEX"],
+].map(([code, name, market]) => ({ code, name, market, type: "ETF" }))));
 
 // ───────── 검색 ─────────
 

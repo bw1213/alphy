@@ -39,6 +39,9 @@ export interface LastState {
   commission: string;
   slippage: string;
   sellTax: string;
+  /** 미국 종목 수수료·환전 비용 % (예전 저장본엔 없음 → 기본값) */
+  usCommission?: string;
+  usFx?: string;
   /** 배당금·분배금 반영 (없으면 켬) */
   dividends?: boolean;
   /** 한국 종목 배당소득세 % 문자열 */
@@ -99,6 +102,8 @@ export function cleanLastState(x: any): LastState {
     commission: str(x.commission, 20, "0.015"),
     slippage: str(x.slippage, 20, "0.1"),
     sellTax: str(x.sellTax, 20),
+    usCommission: str(x.usCommission, 20, "0.25"),
+    usFx: str(x.usFx, 20, "0.1"),
     dividends: x.dividends !== false,
     divTax: str(x.divTax, 20, "15.4"),
     savedAt: typeof x.savedAt === "string" ? x.savedAt.slice(0, 30) : undefined,

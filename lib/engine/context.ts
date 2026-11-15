@@ -158,9 +158,17 @@ export function buildPanel(data: Record<string, { date: string; open: number; hi
       p.open[k][j] = b.open; p.high[k][j] = b.high; p.low[k][j] = b.low;
       p.close[k][j] = b.close; p.volume[k][j] = b.volume;
     }
+    // 첫 시세와 마지막 시세 사이에 빠진 날(그 시장의 휴장일 — 한국·미국 종목을 섞으면 서로 휴일이 다름)은
+    // 직전 종가로 채우고 거래량 0 (그날은 매매 안 됨). 이동평균·수익률이 NaN 이 되지 않게.
+    // 첫 시세 전(상장 전)과 마지막 시세 뒤(상장폐지)는 그대로 NaN
+    const first = di.get(data[t][0].date)!, lastJ = di.get(data[t][data[t].length - 1].date)!;
     let last = NaN;
     for (let j = 0; j < dates.length; j++) {
       if (!Number.isNaN(p.close[k][j])) last = p.close[k][j];
+      else if (j > first && j < lastJ && !Number.isNaN(last)) {
+        p.open[k][j] = p.high[k][j] = p.low[k][j] = p.close[k][j] = last;
+        p.volume[k][j] = 0;
+      }
       p.closeFilled[k][j] = last;
     }
   });

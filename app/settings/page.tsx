@@ -22,7 +22,7 @@ export default function SettingsPage() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [view, setView] = useState<SettingsView | null>(null);
   const [keys, setKeys] = useState<Record<Env, KeyForm>>({ real: emptyKeys(), mock: emptyKeys() });
-  const [bt, setBt] = useState({ source: "naver" as DataSource, cash: "", commission: "", slippage: "", sellTax: "", universeSize: "", targetCagr: "", maxDrawdown: "" });
+  const [bt, setBt] = useState({ source: "naver" as DataSource, cash: "", commission: "", slippage: "", sellTax: "", usCommission: "", usFx: "", universeSize: "", targetCagr: "", maxDrawdown: "" });
   const [limit, setLimit] = useState({ perOrder: "", perDay: "" });
   const [realConfirm, setRealConfirm] = useState(false);
   const [pw, setPw] = useState({ current: "", next: "", next2: "" });
@@ -33,7 +33,7 @@ export default function SettingsPage() {
     setView(v);
     const b = v.backtest;
     setLimit({ perOrder: String(v.orderLimit.perOrder), perDay: String(v.orderLimit.perDay) });
-    setBt({ source: b.source, cash: String(b.cash), commission: String(b.commission), slippage: String(b.slippage), sellTax: b.sellTax == null ? "" : String(b.sellTax), universeSize: String(b.universeSize), targetCagr: String(b.targetCagr), maxDrawdown: String(b.maxDrawdown) });
+    setBt({ source: b.source, cash: String(b.cash), commission: String(b.commission), slippage: String(b.slippage), sellTax: b.sellTax == null ? "" : String(b.sellTax), usCommission: String(b.usCommission ?? 0.25), usFx: String(b.usFx ?? 0.1), universeSize: String(b.universeSize), targetCagr: String(b.targetCagr), maxDrawdown: String(b.maxDrawdown) });
   };
 
   const refresh = useCallback(async () => {
@@ -189,13 +189,15 @@ export default function SettingsPage() {
             <label className="f">수수료 %<input value={bt.commission} onChange={(e) => setBt({ ...bt, commission: e.target.value })} /></label>
             <label className="f">슬리피지 %<input value={bt.slippage} onChange={(e) => setBt({ ...bt, slippage: e.target.value })} /></label>
             <label className="f">매도세 %<input placeholder="연도별 자동" value={bt.sellTax} onChange={(e) => setBt({ ...bt, sellTax: e.target.value })} /></label>
+            <label className="f">미국 수수료 %<input value={bt.usCommission} onChange={(e) => setBt({ ...bt, usCommission: e.target.value })} /></label>
+            <label className="f">미국 환전 비용 %<input value={bt.usFx} onChange={(e) => setBt({ ...bt, usFx: e.target.value })} /></label>
             <label className="f">목표 연 수익률 %<input type="number" value={bt.targetCagr} onChange={(e) => setBt({ ...bt, targetCagr: e.target.value })} /></label>
             <label className="f">감당할 최대 낙폭 %<input type="number" value={bt.maxDrawdown} onChange={(e) => setBt({ ...bt, maxDrawdown: e.target.value })} /></label>
           </div>
           <p className="help">목표 수익률과 최대 낙폭은 결과 화면의 달성 표시와 목표선에 쓰입니다. 장기 평균으로는 연 12~15%가 현실적인 범위이고 20%는 도전적인 목표입니다.</p>
-          <p className="help">수수료는 내 계좌의 실제 온라인 수수료율을 넣으세요. 매도세를 비우면 연도별 법정세율을 씁니다.</p>
+          <p className="help">수수료는 내 계좌의 실제 온라인 수수료율을 넣으세요. 매도세를 비우면 연도별 법정세율을 씁니다. 미국 종목은 거래세가 없고, 수수료(한국투자증권 기본 0.25%)와 환전 비용(살 때·팔 때 각각, 환율 우대에 따라 다름)을 씁니다.</p>
           <button style={{ marginTop: 10 }} onClick={() => save({
-            backtest: { source: bt.source, cash: Number(bt.cash), commission: Number(bt.commission), slippage: Number(bt.slippage), sellTax: bt.sellTax.trim() === "" ? null : Number(bt.sellTax), universeSize: Number(bt.universeSize), targetCagr: Number(bt.targetCagr), maxDrawdown: Number(bt.maxDrawdown) },
+            backtest: { source: bt.source, cash: Number(bt.cash), commission: Number(bt.commission), slippage: Number(bt.slippage), sellTax: bt.sellTax.trim() === "" ? null : Number(bt.sellTax), usCommission: Number(bt.usCommission), usFx: Number(bt.usFx), universeSize: Number(bt.universeSize), targetCagr: Number(bt.targetCagr), maxDrawdown: Number(bt.maxDrawdown) },
           }, "백테스트 기본값을 저장했습니다")}>저장</button>
         </div>
 

@@ -29,6 +29,10 @@ export interface BacktestDefaults {
   slippage: number;
   /** % 단위, null 이면 연도별 법정세율 */
   sellTax: number | null;
+  /** 미국 종목 수수료 % (0.25 = 0.25%) */
+  usCommission: number;
+  /** 미국 종목 환전 비용 % (살 때·팔 때 각각) */
+  usFx: number;
   universeSize: number;
   /** 목표 연평균 수익률 % (15 = 연 15%) */
   targetCagr: number;
@@ -59,7 +63,7 @@ export interface Settings {
 }
 
 export const DEFAULT_BACKTEST: BacktestDefaults = {
-  source: "naver", cash: 10_000_000, commission: 0.015, slippage: 0.1, sellTax: null, universeSize: 100, targetCagr: 15, maxDrawdown: 25,
+  source: "naver", cash: 10_000_000, commission: 0.015, slippage: 0.1, sellTax: null, usCommission: 0.25, usFx: 0.1, universeSize: 100, targetCagr: 15, maxDrawdown: 25,
 };
 
 export const defaultSettings = (): Settings => ({

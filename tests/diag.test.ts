@@ -148,8 +148,8 @@ describe("점검 내용", () => {
     const r = barsReport(bars);
     expect(r).toMatchObject({ count: 3, first: "2025-11-17", last: "2025-12-01", zeroVolume: 1 });
     expect(r.gaps).toEqual([{ from: "2025-11-18", to: "2025-12-01", days: 13 }]);
-    const d = await dataReport({ tickers: "069500, bad", start: "2024-01-01", end: "2024-06-30", source: "synthetic" }, fakeLoad);
-    expect(d.request.tickers).toEqual(["069500"]);
+    const d = await dataReport({ tickers: "069500, 12ab!, aapl", start: "2024-01-01", end: "2024-06-30", source: "synthetic" }, fakeLoad);
+    expect(d.request.tickers).toEqual(["069500", "AAPL"]);
     expect(d.tickers["069500"]).toMatchObject({ first: expect.any(String) });
     await expect(dataReport({ tickers: "" }, fakeLoad)).rejects.toThrow();
   });

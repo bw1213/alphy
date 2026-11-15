@@ -12,7 +12,8 @@ import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
 import { StockChips, StockSearch, appendCode, splitCodes } from "@/components/StockSearch";
 import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type Summary } from "@/lib/engine/metrics";
-import type { BacktestResult, Rebalance } from "@/lib/engine/types";
+import type { BacktestResult, CostSettings, Rebalance } from "@/lib/engine/types";
+import { isUsTicker, parseTickers } from "@/lib/data/market";
 import type { DataResponse, Source } from "@/lib/data/server";
 import { paramVariants, summarizeSensitivity, type SensitivityResult, type SensitivityRow } from "@/lib/engine/validate";
 import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Params } from "@/lib/strategies";
@@ -79,6 +80,8 @@ export default function Page() {
   const [commission, setCommission] = useState("0.015");
   const [slippage, setSlippage] = useState("0.1");
   const [sellTax, setSellTax] = useState("");
+  const [usCommission, setUsCommission] = useState("0.25");
+  const [usFx, setUsFx] = useState("0.1");
   const [useDiv, setUseDiv] = useState(true);
   const [divTax, setDivTax] = useState("15.4");
 
@@ -86,7 +89,7 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string; hold: HoldCompare | null } | null>(null);
+  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string; hold: HoldCompare | null; benchName: string } | null>(null);
   const dataCache = useRef<Map<string, DataResponse>>(new Map());
   /** 마지막 실행을 파라미터만 바꿔 다시 돌리는 함수 (민감도 검사용) */
   const rerun = useRef<{ p: Params; run: (p: Params) => SensitivityRow } | null>(null);
@@ -143,6 +146,8 @@ export default function Page() {
       if (d) {
         setSource(d.source); setCash(d.cash); setUniverseSize(d.universeSize);
         setCommission(String(d.commission)); setSlippage(String(d.slippage)); setSellTax(d.sellTax == null ? "" : String(d.sellTax));
+        if (d.usCommission != null) setUsCommission(String(d.usCommission));
+        if (d.usFx != null) setUsFx(String(d.usFx));
         if (d.targetCagr > 0 && d.maxDrawdown > 0) setTarget({ cagr: d.targetCagr, mdd: d.maxDrawdown });
       }
       // 서버 저장이 실패했던 경우를 위해 이 브라우저에 남은 것과 비교해 더 최근 것을 씀
@@ -171,6 +176,8 @@ export default function Page() {
     setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? "");
     setCash(s.cash); setMonthly(s.monthly ?? 0);
     setCommission(s.commission); setSlippage(s.slippage); setSellTax(s.sellTax ?? "");
+    if (s.usCommission) setUsCommission(s.usCommission);
+    if (s.usFx) setUsFx(s.usFx);
     setUseDiv(s.dividends !== false); setDivTax(s.divTax ?? "15.4");
     setLastMsg(s.savedAt ? `마지막 설정을 불러왔습니다 (${new Date(s.savedAt).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })} 저장).` : "마지막 설정을 불러왔습니다.");
   };
@@ -179,9 +186,9 @@ export default function Page() {
   const snapshot = useMemo<LastState>(() => ({
     version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
     rebalance, stopLoss, takeProfit, source, start, end: end === today() ? "" : end,
-    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax,
+    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax, usCommission, usFx,
   }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit,
-    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax]);
+    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax, usCommission, usFx]);
   const snapRef = useRef(snapshot);
   snapRef.current = snapshot;
   const saveNow = (keepalive = false) => {
@@ -315,7 +322,9 @@ export default function Page() {
       }
       // 2) 데이터 (워밍업용으로 시작일보다 앞선 데이터까지)
       const loadStart = minusDays(start, Math.max(400, Math.ceil(warmup * 1.5) + 30));
-      const list = universeMode === "list" ? tickers.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean) : undefined;
+      const list = universeMode === "list" ? parseTickers(tickers) : undefined;
+      if (list && !list.length) throw new Error("종목코드를 넣어 주세요. 한국은 6자리(005930), 미국은 티커(AAPL, SPY)입니다.");
+
       const usePit = pit && !list && (source === "naver" || source === "kis");
       const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit, dividends: useDiv };
       const key = JSON.stringify(req);
@@ -329,6 +338,11 @@ export default function Page() {
         dataCache.current.set(key, data);
       }
       setWarnings([...data.warnings, ...staleWarnings(data, end)]);
+      // 미국 종목 비용은 서버가 미국 시세를 원화로 바꿔 준 경우(fx 있음)에만
+      const costs: CostSettings = {
+        commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100,
+        ...(data.fx ? { us: { commission: (Number(usCommission) || 0) / 100, fx: (Number(usFx) || 0) / 100 } } : {}),
+      };
       const krTax = divTax.trim() === "" ? KR_DIVIDEND_TAX : Number(divTax) / 100;
       if (useDiv && !(krTax >= 0 && krTax <= 1)) throw new Error("배당소득세는 0~100 사이 숫자(%)로 넣어 주세요. 비우면 15.4%.");
       const div = useDiv ? { dividends: data.dividends, dividendTax: dividendTaxFn(krTax) } : {};
@@ -339,7 +353,7 @@ export default function Page() {
       const exec = (pp: Params, w: number) => runBacktest({
         data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
         settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w },
-        costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
+        costs,
         strategy: (ctx) => {
           try { return fn(ctx, pp); }
           catch (e) { errInStrategy = new Error(`${ctx.date} 전략 실행 오류: ${(e as Error).message}`); throw errInStrategy; }
@@ -358,11 +372,11 @@ export default function Page() {
       if (pick) {
         const h = runBuyAndHold({
           data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers, ...div,
-          costs: { commission: Number(commission) / 100, slippage: Number(slippage) / 100, sellTax: sellTax.trim() === "" ? null : Number(sellTax) / 100 },
+          costs,
         });
         if (h && h.equity.length >= 2) hold = { res: h, s: summarize(h, target.cagr / 100, target.mdd / 100), basis: pick.basis, tickers: pick.tickers.filter((t) => t in data!.data) };
       }
-      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략"), hold });
+      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략"), hold, benchName: data.benchmarkName ?? "KOSPI" });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -386,6 +400,7 @@ export default function Page() {
   };
 
   const paramSpecs = builtin?.params ?? [];
+  const hasUs = universeMode === "list" && parseTickers(tickers).some(isUsTicker);
   const sourceHelp = useMemo(() => ({
     naver: "네이버 증권 일봉(수정주가). 서버가 받아 .cache/ 에 저장하고 새 날짜만 이어 받습니다.",
     kis: "한국투자증권 Open API 일봉(수정주가). 설정 화면에서 앱키를 넣어야 합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요.",
@@ -396,7 +411,7 @@ export default function Page() {
   return (
     <>
       <header className="top">
-        <h1>KOSPI 백테스트</h1>
+        <h1>백테스트 (한국·미국)</h1>
         <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 {target.cagr}%, 최대 낙폭 -{target.mdd}% 이내 (<a href="/settings">설정</a>에서 변경)</p>
         <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/settings">설정</a></span>
       </header>
@@ -543,6 +558,7 @@ export default function Page() {
                   <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
                 </label>
                 <StockChips value={tickers} onChange={setTickers} />
+                <p className="help">한국 종목은 6자리 코드(005930), 미국 주식·ETF는 티커(AAPL, SPY, BRK.B)를 넣으세요. 섞어서 넣어도 됩니다. 미국 종목만 넣으면 비교 지수는 S&amp;P 500입니다.</p>
               </>
             )}
           </div>
@@ -556,6 +572,12 @@ export default function Page() {
               <label className="f">슬리피지 %<input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></label>
               <label className="f">매도세 %<input placeholder="연도별 자동" value={sellTax} onChange={(e) => setSellTax(e.target.value)} /></label>
             </div>
+            {hasUs && (
+              <div className="row" style={{ marginTop: 8 }}>
+                <label className="f">미국 수수료 % (매수·매도)<input value={usCommission} onChange={(e) => setUsCommission(e.target.value)} /></label>
+                <label className="f">미국 환전 비용 % (살 때·팔 때)<input value={usFx} onChange={(e) => setUsFx(e.target.value)} /></label>
+              </div>
+            )}
             <div className="row" style={{ marginTop: 8, alignItems: "flex-end" }}>
               <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, paddingBottom: 8 }}>
                 <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={useDiv} onChange={(e) => setUseDiv(e.target.checked)} />
@@ -564,7 +586,8 @@ export default function Page() {
               {useDiv && <label className="f">배당소득세 %<input placeholder="15.4" value={divTax} onChange={(e) => setDivTax(e.target.value)} /></label>}
             </div>
             <p className="help">추가 입금은 시작 다음 달부터 매월 첫 거래일 장 시작 전에 현금으로 들어오고, 전략이 다음 매매 때 씁니다. 수익률은 입금 효과를 뺀 값으로 계산합니다. 매도세 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%) 적용. 신호는 당일 종가, 체결은 다음 날 시가.
-              {useDiv && " 배당금·분배금은 배당락일 장 시작 전에 들고 있던 수량만큼 세금을 뗀 금액이 현금으로 들어옵니다(실제 입금은 몇 주 뒤지만 배당락일로 계산). 전략은 그 현금을 다음 매매 때 쓰고, 매수 후 보유 비교는 같은 종목을 다시 삽니다. 배당소득세 기본 15.4%(ISA·연금계좌면 0으로), 미국 종목은 현지 원천징수 15%."}</p>
+              {useDiv && " 배당금·분배금은 배당락일 장 시작 전에 들고 있던 수량만큼 세금을 뗀 금액이 현금으로 들어옵니다(실제 입금은 몇 주 뒤지만 배당락일로 계산). 전략은 그 현금을 다음 매매 때 쓰고, 매수 후 보유 비교는 같은 종목을 다시 삽니다. 배당소득세 기본 15.4%(ISA·연금계좌면 0으로), 미국 종목은 현지 원천징수 15%."}
+              {hasUs && " 미국 종목은 거래세가 없고, 시세를 그날 원/달러 환율로 원화로 바꿔 계산합니다(환율 변동 포함). 한국투자증권 기본 수수료는 0.25%, 환전 비용은 환율 우대에 따라 다릅니다. 양도소득세는 계산하지 않습니다."}</p>
           </div>
 
           <button className="primary" onClick={run} disabled={!!busy}>
@@ -582,7 +605,7 @@ export default function Page() {
           {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && (
             <div className="card empty">
               <p><b>왼쪽에서 전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
-              <p>결과로 연평균 수익률, 최대 낙폭, KOSPI 대비 성과, 연도별 목표 달성 여부, 매매 내역을 보여드립니다.</p>
+              <p>결과로 연평균 수익률, 최대 낙폭, 지수(KOSPI, 미국 종목만이면 S&amp;P 500) 대비 성과, 연도별 목표 달성 여부, 매매 내역을 보여드립니다.</p>
             </div>
           )}
         </section>

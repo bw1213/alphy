@@ -7,7 +7,7 @@
  *  - 거래정지(거래량 0)·가격 없음 종목은 그날 매매하지 않음
  */
 import { buildPanel, StrategyContext, type Panel } from "./context";
-import { DEFAULT_COSTS, sellTax } from "./costs";
+import { buyFeeRate, DEFAULT_COSTS, sellFeeRate } from "./costs";
 import { HOLD } from "./types";
 import { dividendBook, type DividendTax } from "./dividends";
 import type { BacktestResult, DividendData, DividendPayment, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Signal, Trade, UniverseSnapshot, Weights } from "./types";
@@ -163,14 +163,14 @@ export function runBacktest(opt: RunOptions): BacktestResult {
             target[t] = pos[t];
             continue;
           }
-          const px = o * (1 + costs.slippage) * (1 + costs.commission);
+          const px = o * (1 + costs.slippage) * (1 + buyFeeRate(costs, t));
           target[t] = Math.floor((eqOpen * w) / px);
         }
         for (const t of Object.keys(pos)) if (!tradable(t)) target[t] = pos[t];
       }
       for (const t of forced.keys()) if (tradable(t)) target[t] = 0;
 
-      const tax = sellTax(costs, Number(d.slice(0, 4)));
+      const year = Number(d.slice(0, 4));
       // 매도
       for (const t of Object.keys(pos)) {
         const q = pos[t], tgt = target[t] ?? 0;
@@ -178,7 +178,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
           const n = q - tgt;
           const px = P.open[col(t)][i] * (1 - costs.slippage);
           const gross = n * px;
-          const fee = gross * (costs.commission + tax);
+          const fee = gross * sellFeeRate(costs, t, year);
           cash += gross - fee;
           trades.push({ date: d, ticker: t, side: "SELL", qty: n, price: px, fee,
             pnl: (px - avg[t]) * n - fee, ret: px / avg[t] - 1, reason: forced.get(t) ?? "rebalance",
@@ -191,9 +191,10 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         const q = pos[t] ?? 0;
         if (tgt > q && tradable(t)) {
           const px = P.open[col(t)][i] * (1 + costs.slippage);
-          const n = Math.min(tgt - q, Math.floor(cash / (px * (1 + costs.commission))));
+          const rate = buyFeeRate(costs, t);
+          const n = Math.min(tgt - q, Math.floor(cash / (px * (1 + rate))));
           if (n <= 0) continue;
-          const fee = n * px * costs.commission;
+          const fee = n * px * rate;
           cash -= n * px + fee;
           avg[t] = ((avg[t] ?? 0) * q + px * n) / (q + n);
           pos[t] = q + n;
@@ -214,7 +215,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       if (li < N - 1 - DELIST_AFTER_DAYS && i === li + 1) {
         const q = pos[t], px = P.closeFilled[col(t)][li];
         const gross = q * px;
-        const fee = gross * (costs.commission + sellTax(costs, Number(d.slice(0, 4))));
+        const fee = gross * sellFeeRate(costs, t, Number(d.slice(0, 4)));
         cash += gross - fee;
         trades.push({ date: d, ticker: t, side: "SELL", qty: q, price: px, fee, pnl: (px - avg[t]) * q - fee, ret: px / avg[t] - 1, reason: "delisted" });
         delete pos[t]; delete avg[t];
