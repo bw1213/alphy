@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Balance, OrderResult, OrderType, Side } from "@/lib/kis/trading";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import RebalancePlan from "@/components/RebalancePlan";
+import { StockSearch } from "@/components/StockSearch";
 
 interface Status {
   quotes: "real" | "mock" | null;
@@ -42,9 +43,9 @@ export default function TradePage() {
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   }, []);
 
-  const loadQuote = async () => {
+  const loadQuote = async (code: string = order.code) => {
     setQuote(null);
-    const r = await fetch(`/api/kis/quote?code=${encodeURIComponent(order.code)}`);
+    const r = await fetch(`/api/kis/quote?code=${encodeURIComponent(code)}`);
     const j = await r.json();
     if (r.ok) setQuote(j); else setError(j.error ?? `HTTP ${r.status}`);
   };
@@ -97,9 +98,12 @@ export default function TradePage() {
               <button className={order.side === "buy" ? "on" : ""} onClick={() => setOrder({ ...order, side: "buy" })}>매수</button>
               <button className={order.side === "sell" ? "on" : ""} onClick={() => setOrder({ ...order, side: "sell" })}>매도</button>
             </div>
+            <label className="f" style={{ marginTop: 10 }}>종목 이름으로 찾기
+              <StockSearch placeholder="예: 삼성전자, KODEX 200" onPick={(s) => { setOrder((o) => ({ ...o, code: s.code })); setQuote(null); loadQuote(s.code); }} />
+            </label>
             <div className="row" style={{ marginTop: 10 }}>
               <label className="f">종목코드
-                <input value={order.code} maxLength={6} onChange={(e) => { setOrder({ ...order, code: e.target.value.trim() }); setQuote(null); }} onBlur={loadQuote} />
+                <input value={order.code} maxLength={6} onChange={(e) => { setOrder({ ...order, code: e.target.value.trim() }); setQuote(null); }} onBlur={() => loadQuote()} />
               </label>
               <label className="f">수량(주)
                 <input type="number" min={1} value={order.qty} onChange={(e) => setOrder({ ...order, qty: Math.max(1, Math.floor(Number(e.target.value))) })} />
