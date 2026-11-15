@@ -209,7 +209,7 @@ describe("내 전략 보관함", () => {
     const list = upsertStrategy({ ...item, code: "return null;" }, env);
     expect(list.map((s) => s.name).sort()).toEqual(["내 모멘텀", "둘째"]);
     expect(loadStrategies(env).find((s) => s.name === "내 모멘텀")!.code).toBe("return null;");
-    expect(statSync(path.join(dir, "strategies.json")).mode & 0o777).toBe(0o600);
+    expect(statSync(path.join(dir, "users", "owner", "strategies.json")).mode & 0o777).toBe(0o600);
     expect(deleteStrategy("둘째", env).map((s) => s.name)).toEqual(["내 모멘텀"]);
   });
   it("잘못된 값은 거부하거나 안전한 값으로", () => {

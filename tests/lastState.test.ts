@@ -29,7 +29,7 @@ describe("마지막 설정", () => {
     expect(s.params.momentum.lookback).toBe(120);
     expect(s.cycleSpec).toBeDefined();
     expect(s.savedAt).toBeTruthy();
-    expect(statSync(path.join(dir, "last-state.json")).mode & 0o777).toBe(0o600);
+    expect(statSync(path.join(dir, "users", "owner", "last-state.json")).mode & 0o777).toBe(0o600);
     clearLastState(env);
     expect(loadLastState(env)).toBeNull();
   });
