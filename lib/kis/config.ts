@@ -68,7 +68,7 @@ export function realOrdersAllowed(e: Env = runtimeEnv()): boolean {
 export function tradeCredentials(e: Env = runtimeEnv()): KisCredentials {
   const env = tradeEnv(e);
   if (env === "real" && !realOrdersAllowed(e)) {
-    throw new Error("실전 주문이 잠겨 있습니다. 실전으로 주문하려면 NAS 의 .env 에 KIS_ALLOW_REAL_ORDERS=yes 를 넣고 컨테이너를 다시 시작해야 합니다 (안전장치).");
+    throw new Error(e.ALPHY_REAL_LOCK_REASON ?? "실전 주문이 잠겨 있습니다. 실전으로 주문하려면 NAS 의 .env 에 KIS_ALLOW_REAL_ORDERS=yes 를 넣고 컨테이너를 다시 시작해야 합니다 (안전장치).");
   }
   const c = credentialsFor(env, e);
   const label = env === "real" ? "실전" : "모의투자";

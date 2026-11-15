@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { clientIp, logoutAll, requireAdminUser, issueSession, cookieHeader } from "@/lib/settings/auth";
 import { recordLogin, type LoginEvent } from "@/lib/settings/loginlog";
-import { createInvite, deleteUser, INVITE_DAYS, listInvites, listUsers, resetTotp, revokeInvite, setDisabled, userView } from "@/lib/settings/users";
+import { createInvite, deleteUser, INVITE_DAYS, listInvites, listUsers, resetTotp, revokeInvite, setDisabled, setRealOrders, userView } from "@/lib/settings/users";
+
+import { deleteUserKis } from "@/lib/kis/userkeys";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +21,7 @@ export async function GET(req: Request) {
  * { action: "invite-revoke", id }     초대 취소
  * { action: "disable" | "enable", id } 계정 정지·해제 (정지하면 바로 로그아웃됨)
  * { action: "delete", id }            계정 삭제 (저장한 전략 파일은 NAS 에 남음)
+ * { action: "allow-real" | "deny-real", id } 그 사람의 실전 주문 허용·취소 (owner 만)
  * { action: "reset-2fa", id }         그 사람의 2단계 인증 끄기 (휴대폰 분실)
  * { action: "logout-everyone" }       모든 사람 모든 기기 로그아웃 (이 기기만 유지)
  */
@@ -42,7 +45,11 @@ export async function POST(req: Request) {
     if (b.action === "invite-revoke") { revokeInvite(id); log("invite-revoke"); }
     else if (b.action === "disable") { setDisabled(id, true, user.id); log("user-disable", id); }
     else if (b.action === "enable") { setDisabled(id, false, user.id); log("user-enable", id); }
-    else if (b.action === "delete") { deleteUser(id, user.id); log("user-delete", id); }
+    else if (b.action === "delete") { deleteUser(id, user.id); deleteUserKis(id); log("user-delete", id); }
+    else if (b.action === "allow-real" || b.action === "deny-real") {
+      if (user.id !== "owner") return NextResponse.json({ error: "실전 주문 허용은 owner 계정만 할 수 있습니다." }, { status: 403 });
+      setRealOrders(id, b.action === "allow-real"); log(b.action === "allow-real" ? "real-allow" : "real-deny", id);
+    }
     else if (b.action === "reset-2fa") {
       if (id === "owner" && user.id !== "owner") return NextResponse.json({ error: "owner 계정의 2단계 인증은 본인만 끌 수 있습니다." }, { status: 403 });
       resetTotp(id); log("user-2fa-reset", id);

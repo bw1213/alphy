@@ -9,7 +9,7 @@ import { configDir } from "./store";
 type Env = Record<string, string | undefined>;
 
 export type LoginEvent = "login" | "fail" | "otp-fail" | "setup" | "change" | "locked" | "logout-all" | "2fa-on" | "2fa-off" | "diag-create" | "diag-revoke"
-  | "join" | "invite-create" | "invite-revoke" | "user-disable" | "user-enable" | "user-delete" | "user-2fa-reset" | "logout-everyone";
+  | "join" | "invite-create" | "invite-revoke" | "user-disable" | "user-enable" | "user-delete" | "user-2fa-reset" | "logout-everyone" | "real-allow" | "real-deny";
 /** user: 누구 계정으로 (틀린 시도는 입력한 아이디) */
 export interface LoginRecord { t: number; ip: string; event: LoginEvent; ua?: string; user?: string }
 

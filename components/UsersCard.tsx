@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-interface UserRow { id: string; name: string; role: "admin" | "member"; totpEnabled: boolean; disabled: boolean; createdAt: number; owner: boolean }
+interface UserRow { id: string; name: string; role: "admin" | "member"; totpEnabled: boolean; disabled: boolean; createdAt: number; owner: boolean; realOrders: boolean }
 interface InviteRow { id: string; name: string; role: "admin" | "member"; expiresAt: number; createdBy: string }
 interface State { me: string; users: UserRow[]; invites: InviteRow[]; inviteDays: number }
 
@@ -35,6 +35,8 @@ export default function UsersCard() {
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }); return null; }
   };
 
+  const isOwner = st?.me === "owner";
+
   const invite = async () => {
     const j = await post({ action: "invite", name, role }, "초대 링크를 만들었습니다. 아래 링크를 그 사람에게만 보내세요");
     if (j?.code) { setLink(`${window.location.origin}/join?code=${j.code}`); setCopied(false); setName(""); }
@@ -42,7 +44,6 @@ export default function UsersCard() {
   const copy = async () => { try { await navigator.clipboard.writeText(link); setCopied(true); } catch { /* 직접 복사 */ } };
 
   if (!st) return null;
-  const isOwner = st.me === "owner";
 
   return (
     <div className="card wide">
@@ -50,12 +51,14 @@ export default function UsersCard() {
       {msg && (msg.ok ? <span className="saved">✓ {msg.text}</span> : <div className="error">{msg.text}</div>)}
       <p className="help">
         초대 링크를 받은 사람만 가입할 수 있습니다. 가입한 사람은 백테스트와 본인 전략 보관함·마지막 설정을 따로 씁니다.
-        <b> 한국투자증권 계좌·주문과 서버 설정은 아직 owner 계정만</b> 쓸 수 있습니다(사람마다 본인 계좌를 넣는 기능은 다음 단계).
+
+        한국투자증권은 각자 본인 앱키·계좌를 본인 설정 화면에서 넣어 쓰고(암호화 저장, 서로 볼 수 없음), 처음에는 <b>모의투자만</b> 됩니다.
+        실전 주문은 서버 잠금 해제(KIS_ALLOW_REAL_ORDERS) + 여기서 &apos;실전 허용&apos; + 그 사람의 2단계 인증이 모두 있어야 나갑니다.
       </p>
 
       <div style={{ overflowX: "auto" }}>
         <table>
-          <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>2단계 인증</th><th>가입</th><th></th></tr></thead>
+          <thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>2단계 인증</th><th>실전 주문</th><th>가입</th><th></th></tr></thead>
           <tbody>
             {st.users.map((u) => (
               <tr key={u.id}>
@@ -63,11 +66,15 @@ export default function UsersCard() {
                 <td>{u.name}</td>
                 <td>{u.owner ? "owner" : u.role === "admin" ? "관리자" : "일반"}{u.disabled && <> <span className="badge no">정지</span></>}</td>
                 <td>{u.totpEnabled ? <span className="badge ok">켜짐</span> : <span className="badge no">꺼짐</span>}</td>
+                <td>{u.owner ? "서버 잠금만" : u.realOrders ? <span className="badge ok">허용{u.totpEnabled ? "" : " (2단계 인증 필요)"}</span> : "모의투자만"}</td>
                 <td style={{ whiteSpace: "nowrap" }}>{when(u.createdAt)}</td>
                 <td>
                   {!u.owner && u.id !== st.me && (
                     <span className="btns">
                       <button onClick={() => post({ action: u.disabled ? "enable" : "disable", id: u.id }, u.disabled ? "정지를 풀었습니다" : "정지했습니다. 그 사람은 바로 로그아웃됩니다")}>{u.disabled ? "정지 해제" : "정지"}</button>
+                      {isOwner && (u.realOrders
+                        ? <button onClick={() => post({ action: "deny-real", id: u.id }, "실전 주문 허용을 취소했습니다")}>실전 허용 취소</button>
+                        : <button onClick={() => window.confirm(`${u.name}(${u.id})에게 실전 주문을 허용할까요? 그 사람 본인 계좌에서 실제 돈으로 주문이 나갈 수 있습니다.`) && post({ action: "allow-real", id: u.id }, "실전 주문을 허용했습니다")}>실전 허용</button>)}
                       {u.totpEnabled && <button onClick={() => window.confirm(`${u.name}(${u.id})의 2단계 인증을 끌까요? 휴대폰을 잃어버렸을 때만 쓰세요.`) && post({ action: "reset-2fa", id: u.id }, "2단계 인증을 껐습니다")}>2단계 인증 초기화</button>}
                       <button onClick={() => window.confirm(`${u.name}(${u.id}) 계정을 지울까요? 되돌릴 수 없습니다.`) && post({ action: "delete", id: u.id }, "계정을 지웠습니다")}>삭제</button>
                     </span>

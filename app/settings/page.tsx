@@ -6,7 +6,9 @@ import SecurityCard from "@/components/SecurityCard";
 import DiagTokenCard from "@/components/DiagTokenCard";
 import UsersCard from "@/components/UsersCard";
 import StockListCard from "@/components/StockListCard";
-import type { FieldView, SettingsPatch, SettingsView } from "@/lib/settings/view";
+import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
+
+type SettingsView = BaseView & { scope?: "owner" | "member"; realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean }; secretFromEnv?: boolean };
 import type { DataSource } from "@/lib/settings/store";
 
 type Env = "real" | "mock";
@@ -42,7 +44,6 @@ export default function SettingsPage() {
     const a = await fetchAuth().catch(() => null);
     setAuth(a);
     if (!a?.loggedIn) { setView(null); return; }
-    if (a.user && !a.user.owner) return; // 서버·증권 설정은 owner 만
     const r = await fetch("/api/settings", { cache: "no-store" });
     const j = await r.json();
     if (r.ok) applyView(j); else setError(j.error ?? `HTTP ${r.status}`);
@@ -114,28 +115,11 @@ export default function SettingsPage() {
     </div>
   );
 
-  // owner 가 아닌 사람: 내 계정 설정만
-  if (auth.user && !auth.user.owner) return (
-    <>
-      {header}
-      <main className="settings">
-        {(error || saved) && <div className="wide">{error ? <div className="error">{error}</div> : <span className="saved">✓ {saved}</span>}</div>}
-        <div className="card">
-          <h2>내 계정</h2>
-          <p className="desc"><b>{auth.user.name}</b> (<code>{auth.user.id}</code>) · {auth.user.role === "admin" ? "관리자" : "일반 사용자"}</p>
-          <p className="help">백테스트와 전략 보관함·마지막 설정은 내 계정에 따로 저장됩니다. 한국투자증권 계좌 연결과 주문은 아직 관리자(owner)만 쓸 수 있고, 사람마다 본인 계좌를 넣는 기능은 준비 중입니다.</p>
-          <p className="help">백테스트 결과와 추천은 과거 자료를 바탕으로 한 참고용이며, 투자 판단과 책임은 본인에게 있습니다.</p>
-        </div>
-        {pwCard(false)}
-        <SecurityCard />
-        {auth.user.role === "admin" && <UsersCard />}
-      </main>
-    </>
-  );
-
   if (!view) return <>{header}<main className="settings">{error ? <div className="error">{error}</div> : <p className="help">불러오는 중…</p>}</main></>;
 
   const trade = view.kis.tradeEnv;
+  const isOwner = view.scope !== "member";
+  const lock = view.realLock;
   const keyCard = (env: Env) => {
     const v = view.kis[env];
     const label = env === "real" ? "실전투자" : "모의투자";
@@ -169,6 +153,80 @@ export default function SettingsPage() {
     );
   };
 
+  const tradeCard = (
+    <div className="card">
+      <h2>주문 대상</h2>
+      {trade.fromEnv ? <div className="lock">.env 의 KIS_TRADE_ENV={trade.value} 로 고정돼 있습니다</div> : (
+        <div className="seg">
+          <button className={trade.value === "mock" ? "on" : ""} onClick={() => { setRealConfirm(false); save({ kis: { tradeEnv: "mock" } }, "모의투자로 바꿨습니다"); }}>모의투자</button>
+          <button className={trade.value === "real" ? "on" : ""} onClick={() => setRealConfirm(true)}>실전</button>
+        </div>
+      )}
+      {realConfirm && trade.value !== "real" && (
+        <div className="error" style={{ marginTop: 10 }}>
+          실전으로 바꾸면 주문 화면의 주문이 <b>실제 돈으로 체결</b>됩니다.
+          <div className="btns" style={{ marginTop: 8 }}>
+            <button onClick={async () => { if (await save({ kis: { tradeEnv: "real" } }, "실전으로 바꿨습니다")) setRealConfirm(false); }}>실전으로 바꾸기</button>
+            <button onClick={() => setRealConfirm(false)}>취소</button>
+          </div>
+        </div>
+      )}
+      {isOwner ? (<>
+      <p className="help" style={{ marginTop: 10 }}>
+        실전 주문 잠금: {view.realOrdersAllowed ? <span className="badge ok">해제됨 (KIS_ALLOW_REAL_ORDERS=yes)</span> : <span className="badge no">잠김</span>}
+      </p>
+      <p className="help">
+        실전 주문은 여기서 &apos;실전&apos;을 고르고, <b>NAS의 .env 에 KIS_ALLOW_REAL_ORDERS=yes</b> 까지 넣어야 나갑니다.
+        비밀번호가 새더라도 실제 돈이 나가지 않도록 이 잠금만은 화면에서 풀 수 없게 했습니다.
+      </p>
+      </>) : (
+        <>
+          <p className="help" style={{ marginTop: 10 }}>
+            실전 주문 잠금: {lock?.open ? <span className="badge ok">해제됨</span> : <span className="badge no">잠김</span>}
+          </p>
+          <ul className="help" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+            <li>서버의 실전 주문 잠금 해제 (관리자가 NAS 에서 설정): {lock?.server ? "됨" : "안 됨"}</li>
+            <li>관리자(owner)의 실전 허용: {lock?.granted ? "받음" : "아직 — 관리자에게 요청하세요"}</li>
+            <li>내 계정의 2단계 인증: {lock?.totp ? "켜짐" : "꺼짐 — 아래 보안 칸에서 켜세요"}</li>
+          </ul>
+          <p className="help">세 가지가 모두 되어 있고 여기서 &apos;실전&apos;을 골라야 실제 돈으로 주문이 나갑니다. 처음에는 모의투자로 충분히 써 보세요.</p>
+        </>
+      )}
+      <h2 style={{ marginTop: 16 }}>실전 주문 금액 상한</h2>
+      <div className="row">
+        <label className="f">1회 주문 상한(원)<input type="number" min={0} value={limit.perOrder} onChange={(e) => setLimit({ ...limit, perOrder: e.target.value })} /></label>
+        <label className="f">하루 합계 상한(원)<input type="number" min={0} value={limit.perDay} onChange={(e) => setLimit({ ...limit, perDay: e.target.value })} /></label>
+      </div>
+      <p className="help">실전 주문에만 적용됩니다(모의투자는 제한 없음). 실수로 큰 주문이 나가는 걸 막는 장치이고, 0 을 넣으면 제한이 없습니다. 하루 합계는 매수·매도 주문 금액을 모두 더합니다.</p>
+      <button style={{ marginTop: 10 }} onClick={() => {
+        if (limit.perOrder.trim() === "" || limit.perDay.trim() === "") return setError("상한 금액을 넣으세요. 제한을 없애려면 0 을 넣습니다.");
+        save({ kis: { orderLimit: { perOrder: Number(limit.perOrder), perDay: Number(limit.perDay) } } }, "주문 금액 상한을 저장했습니다");
+      }}>저장</button>
+    </div>
+  );
+
+  // owner 가 아닌 사람: 내 계정 설정만
+  if (auth.user && !auth.user.owner) return (
+    <>
+      {header}
+      <main className="settings">
+        {(error || saved) && <div className="wide">{error ? <div className="error">{error}</div> : <span className="saved">✓ {saved}</span>}</div>}
+        <div className="card">
+          <h2>내 계정</h2>
+          <p className="desc"><b>{auth.user.name}</b> (<code>{auth.user.id}</code>) · {auth.user.role === "admin" ? "관리자" : "일반 사용자"}</p>
+          <p className="help">백테스트와 전략 보관함·마지막 설정은 내 계정에 따로 저장됩니다. 아래에 넣는 한국투자증권 앱키·계좌는 암호화해서 저장되고 본인만 쓸 수 있습니다(관리자도 볼 수 없음). 주문은 본인이 직접 누를 때만 나갑니다.</p>
+          <p className="help">백테스트 결과와 추천은 과거 자료를 바탕으로 한 참고용이며, 투자 판단과 책임은 본인에게 있습니다.</p>
+        </div>
+        {keyCard("mock")}
+        {keyCard("real")}
+        {tradeCard}
+        {pwCard(false)}
+        <SecurityCard />
+        {auth.user.role === "admin" && <UsersCard />}
+      </main>
+    </>
+  );
+
   return (
     <>
       {header}
@@ -178,41 +236,7 @@ export default function SettingsPage() {
         {keyCard("mock")}
         {keyCard("real")}
 
-        <div className="card">
-          <h2>주문 대상</h2>
-          {trade.fromEnv ? <div className="lock">.env 의 KIS_TRADE_ENV={trade.value} 로 고정돼 있습니다</div> : (
-            <div className="seg">
-              <button className={trade.value === "mock" ? "on" : ""} onClick={() => { setRealConfirm(false); save({ kis: { tradeEnv: "mock" } }, "모의투자로 바꿨습니다"); }}>모의투자</button>
-              <button className={trade.value === "real" ? "on" : ""} onClick={() => setRealConfirm(true)}>실전</button>
-            </div>
-          )}
-          {realConfirm && trade.value !== "real" && (
-            <div className="error" style={{ marginTop: 10 }}>
-              실전으로 바꾸면 주문 화면의 주문이 <b>실제 돈으로 체결</b>됩니다.
-              <div className="btns" style={{ marginTop: 8 }}>
-                <button onClick={async () => { if (await save({ kis: { tradeEnv: "real" } }, "실전으로 바꿨습니다")) setRealConfirm(false); }}>실전으로 바꾸기</button>
-                <button onClick={() => setRealConfirm(false)}>취소</button>
-              </div>
-            </div>
-          )}
-          <p className="help" style={{ marginTop: 10 }}>
-            실전 주문 잠금: {view.realOrdersAllowed ? <span className="badge ok">해제됨 (KIS_ALLOW_REAL_ORDERS=yes)</span> : <span className="badge no">잠김</span>}
-          </p>
-          <p className="help">
-            실전 주문은 여기서 &apos;실전&apos;을 고르고, <b>NAS의 .env 에 KIS_ALLOW_REAL_ORDERS=yes</b> 까지 넣어야 나갑니다.
-            비밀번호가 새더라도 실제 돈이 나가지 않도록 이 잠금만은 화면에서 풀 수 없게 했습니다.
-          </p>
-          <h2 style={{ marginTop: 16 }}>실전 주문 금액 상한</h2>
-          <div className="row">
-            <label className="f">1회 주문 상한(원)<input type="number" min={0} value={limit.perOrder} onChange={(e) => setLimit({ ...limit, perOrder: e.target.value })} /></label>
-            <label className="f">하루 합계 상한(원)<input type="number" min={0} value={limit.perDay} onChange={(e) => setLimit({ ...limit, perDay: e.target.value })} /></label>
-          </div>
-          <p className="help">실전 주문에만 적용됩니다(모의투자는 제한 없음). 실수로 큰 주문이 나가는 걸 막는 장치이고, 0 을 넣으면 제한이 없습니다. 하루 합계는 매수·매도 주문 금액을 모두 더합니다.</p>
-          <button style={{ marginTop: 10 }} onClick={() => {
-            if (limit.perOrder.trim() === "" || limit.perDay.trim() === "") return setError("상한 금액을 넣으세요. 제한을 없애려면 0 을 넣습니다.");
-            save({ kis: { orderLimit: { perOrder: Number(limit.perOrder), perDay: Number(limit.perDay) } } }, "주문 금액 상한을 저장했습니다");
-          }}>저장</button>
-        </div>
+        {tradeCard}
 
         <div className="card">
           <h2>백테스트 기본값</h2>
