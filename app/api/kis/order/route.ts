@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/settings/auth";
+import { requireOwner } from "@/lib/settings/auth";
 import { quoteCredentials, tradeCredentials } from "@/lib/kis/config";
 import { kisQuote } from "@/lib/kis/market";
 import { addUsage, checkOrderLimit, usedToday } from "@/lib/kis/limits";
@@ -11,7 +11,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const denied = requireAdmin(req);
+  const denied = requireOwner(req).denied;
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   let order;
   try { order = validateOrder(await req.json()); }

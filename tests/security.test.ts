@@ -7,6 +7,7 @@ import { base32Decode, base32Encode, hotp, newTotpSecret, otpauthUri, totpNow, v
 import { checkTotp, issueSession, logoutAll, setPassword, totpEnabled, verifySession, SESSION_COOKIE } from "@/lib/settings/auth";
 import { loadSettings, updateSettings } from "@/lib/settings/store";
 import { readLoginLog, recordLogin } from "@/lib/settings/loginlog";
+import { getUser, updateUser } from "@/lib/settings/users";
 import { middleware } from "@/middleware";
 
 let dir: string;
@@ -45,8 +46,9 @@ describe("TOTP (RFC 6238)", () => {
 describe("2단계 인증 로그인", () => {
   it("꺼져 있으면 통과, 켜면 코드 필요, 같은 코드 두 번은 안 됨", () => {
     expect(checkTotp(undefined, env)).toBe(true);
+    setPassword("long-password", env);
     const secret = newTotpSecret();
-    updateSettings((s) => { s.auth.totpSecret = secret; }, env);
+    updateUser("owner", (u) => { u.totpSecret = secret; }, env);
     const now = Date.now();
     expect(checkTotp("000000", env, now) && totpNow(secret, now) !== "000000").toBe(false);
     const code = totpNow(secret, now);
@@ -54,12 +56,13 @@ describe("2단계 인증 로그인", () => {
     expect(checkTotp(code, env, now)).toBe(false);
   });
   it("disable-2fa.txt 를 올리면 꺼지고 파일은 지워짐", () => {
-    updateSettings((s) => { s.auth.totpSecret = newTotpSecret(); }, env);
+    setPassword("long-password", env);
+    updateUser("owner", (u) => { u.totpSecret = newTotpSecret(); }, env);
     expect(totpEnabled(env)).toBe(true);
     writeFileSync(path.join(dir, "disable-2fa.txt"), "");
     expect(totpEnabled(env)).toBe(false);
     expect(existsSync(path.join(dir, "disable-2fa.txt"))).toBe(false);
-    expect(loadSettings(env).auth.totpSecret).toBeUndefined();
+    expect(getUser("owner", env)?.totpSecret).toBeUndefined();
   });
   it("모든 기기 로그아웃이면 기존 쿠키 무효", () => {
     setPassword("long-password", env);
@@ -68,12 +71,12 @@ describe("2단계 인증 로그인", () => {
     logoutAll(env);
     expect(verifySession(s.value, env)).toBe(false);
   });
-  it("로그인 기록은 최근 것부터, 100건까지", () => {
+  it("로그인 기록은 최근 것부터, 200건까지", () => {
     const req = new Request("http://x/", { headers: { "user-agent": "UA" } });
-    for (let k = 0; k < 105; k++) recordLogin(req, `1.1.1.${k}`, k % 2 ? "fail" : "login", env, 1000 + k);
+    for (let k = 0; k < 205; k++) recordLogin(req, `1.1.1.${k}`, k % 2 ? "fail" : "login", env, 1000 + k);
     const log = readLoginLog(env);
-    expect(log.length).toBe(100);
-    expect(log[0].ip).toBe("1.1.1.104");
+    expect(log.length).toBe(200);
+    expect(log[0].ip).toBe("1.1.1.204");
   });
 });
 

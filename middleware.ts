@@ -1,6 +1,6 @@
 /**
  * 앱 전체 로그인 잠금. 밖(인터넷)에서 접속해도 로그인하기 전에는 아무 화면·API 도 열리지 않습니다.
- * 로그인 없이 열리는 것: /login, /api/auth(로그인 처리), /api/health(상태 확인), 정적 파일, robots.txt
+ * 로그인 없이 열리는 것: /login, /join(초대 링크로 가입), /api/auth(로그인 처리), /api/health(상태 확인), 정적 파일, robots.txt
  * 점검 키(설정 화면에서 발급)로 열리는 것: /api/diag/* (읽기 전용 점검 API) 만
  *
  * Node.js 런타임에서 돌려서 설정 파일(쿠키 서명 키)을 그대로 읽습니다 (Next.js 15.5+).
@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isLoggedIn } from "@/lib/settings/auth";
 import { bearerToken, findDiagToken } from "@/lib/settings/diag";
 
-const PUBLIC = [/^\/login\/?$/, /^\/api\/auth\/?$/, /^\/api\/health\/?$/, /^\/robots\.txt$/];
+const PUBLIC = [/^\/login\/?$/, /^\/join\/?$/, /^\/api\/auth\/?$/, /^\/api\/health\/?$/, /^\/robots\.txt$/];
 const DIAG = /^\/api\/diag(\/|$)/;
 
 export function middleware(req: NextRequest) {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import SecurityCard from "@/components/SecurityCard";
 import DiagTokenCard from "@/components/DiagTokenCard";
+import UsersCard from "@/components/UsersCard";
 import StockListCard from "@/components/StockListCard";
 import type { FieldView, SettingsPatch, SettingsView } from "@/lib/settings/view";
 import type { DataSource } from "@/lib/settings/store";
@@ -41,6 +42,7 @@ export default function SettingsPage() {
     const a = await fetchAuth().catch(() => null);
     setAuth(a);
     if (!a?.loggedIn) { setView(null); return; }
+    if (a.user && !a.user.owner) return; // 서버·증권 설정은 owner 만
     const r = await fetch("/api/settings", { cache: "no-store" });
     const j = await r.json();
     if (r.ok) applyView(j); else setError(j.error ?? `HTTP ${r.status}`);
@@ -83,7 +85,7 @@ export default function SettingsPage() {
   const header = (
     <header className="top">
       <h1>알피 설정</h1>
-      <p>여기서 바꾼 값은 NAS에 저장되어 업데이트 후에도 유지됩니다.</p>
+      <p>여기서 바꾼 값은 NAS에 저장되어 업데이트 후에도 유지됩니다.{auth?.user && auth.multiUser ? ` · ${auth.user.name}(${auth.user.id})` : ""}</p>
       <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}>
         <a href="/">백테스트</a><a href="/trade">주문·잔고</a>
         {auth?.loggedIn && <button className="link" onClick={logout}>로그아웃</button>}
@@ -93,6 +95,44 @@ export default function SettingsPage() {
 
   if (!auth) return <>{header}<main className="settings"><p className="help">확인 중…</p></main></>;
   if (!auth.loggedIn) return <>{header}<main className="settings"><Login auth={auth} onDone={refresh} /></main></>;
+  const pwCard = (fromEnv: boolean) => (
+    <div className="card">
+      <h2>{auth.user?.owner === false ? "내 비밀번호" : "관리자 비밀번호"}</h2>
+      {fromEnv ? <div className="lock">.env 의 ADMIN_PASSWORD 로 고정돼 있습니다. 화면에서 관리하려면 .env 에서 지우세요.</div> : (
+        <>
+          <label className="f">현재 비밀번호<input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" /></label>
+          <div className="row" style={{ marginTop: 8 }}>
+            <label className="f">새 비밀번호<input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" /></label>
+            <label className="f">새 비밀번호 확인<input type="password" value={pw.next2} onChange={(e) => setPw({ ...pw, next2: e.target.value })} autoComplete="new-password" /></label>
+          </div>
+          <button style={{ marginTop: 10 }} onClick={changePassword}>비밀번호 바꾸기</button>
+          {auth.user?.owner === false
+            ? <p className="help">잊어버렸으면 관리자에게 계정을 지우고 새 초대 링크를 달라고 하세요.</p>
+            : <p className="help">잊어버렸으면 NAS의 <code>nas/cache/config/users.json</code> 에서 owner 의 <code>passwordHash</code> 줄을 지우고 컨테이너를 다시 시작하세요. 새 설정 코드가 로그에 나옵니다.</p>}
+        </>
+      )}
+    </div>
+  );
+
+  // owner 가 아닌 사람: 내 계정 설정만
+  if (auth.user && !auth.user.owner) return (
+    <>
+      {header}
+      <main className="settings">
+        {(error || saved) && <div className="wide">{error ? <div className="error">{error}</div> : <span className="saved">✓ {saved}</span>}</div>}
+        <div className="card">
+          <h2>내 계정</h2>
+          <p className="desc"><b>{auth.user.name}</b> (<code>{auth.user.id}</code>) · {auth.user.role === "admin" ? "관리자" : "일반 사용자"}</p>
+          <p className="help">백테스트와 전략 보관함·마지막 설정은 내 계정에 따로 저장됩니다. 한국투자증권 계좌 연결과 주문은 아직 관리자(owner)만 쓸 수 있고, 사람마다 본인 계좌를 넣는 기능은 준비 중입니다.</p>
+          <p className="help">백테스트 결과와 추천은 과거 자료를 바탕으로 한 참고용이며, 투자 판단과 책임은 본인에게 있습니다.</p>
+        </div>
+        {pwCard(false)}
+        <SecurityCard />
+        {auth.user.role === "admin" && <UsersCard />}
+      </main>
+    </>
+  );
+
   if (!view) return <>{header}<main className="settings">{error ? <div className="error">{error}</div> : <p className="help">불러오는 중…</p>}</main></>;
 
   const trade = view.kis.tradeEnv;
@@ -203,22 +243,11 @@ export default function SettingsPage() {
 
         <StockListCard />
 
-        <div className="card">
-          <h2>관리자 비밀번호</h2>
-          {view.passwordFromEnv ? <div className="lock">.env 의 ADMIN_PASSWORD 로 고정돼 있습니다. 화면에서 관리하려면 .env 에서 지우세요.</div> : (
-            <>
-              <label className="f">현재 비밀번호<input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" /></label>
-              <div className="row" style={{ marginTop: 8 }}>
-                <label className="f">새 비밀번호<input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" /></label>
-                <label className="f">새 비밀번호 확인<input type="password" value={pw.next2} onChange={(e) => setPw({ ...pw, next2: e.target.value })} autoComplete="new-password" /></label>
-              </div>
-              <button style={{ marginTop: 10 }} onClick={changePassword}>비밀번호 바꾸기</button>
-              <p className="help">잊어버렸으면 NAS의 <code>nas/cache/config/settings.json</code> 에서 <code>passwordHash</code> 줄을 지우고 컨테이너를 다시 시작하세요. 새 설정 코드가 로그에 나옵니다.</p>
-            </>
-          )}
-        </div>
+        {pwCard(view.passwordFromEnv)}
 
         <SecurityCard />
+
+        <UsersCard />
 
         <DiagTokenCard />
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/settings/auth";
+import { requireOwner } from "@/lib/settings/auth";
 import { loadSettings, saveSettings } from "@/lib/settings/store";
 import { applyPatch, settingsView, type SettingsPatch } from "@/lib/settings/view";
 
@@ -8,14 +8,14 @@ export const dynamic = "force-dynamic";
 
 /** 설정 보기 (비밀값은 "설정됨" 여부와 끝 4자리만) */
 export async function GET(req: Request) {
-  const denied = requireAdmin(req);
+  const denied = requireOwner(req).denied;
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   return NextResponse.json(settingsView(loadSettings()));
 }
 
 /** 설정 바꾸기. 보낸 항목만 바뀜, "" 는 지우기 */
 export async function PUT(req: Request) {
-  const denied = requireAdmin(req);
+  const denied = requireOwner(req).denied;
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   let patch: SettingsPatch;
   try { patch = await req.json(); } catch { return NextResponse.json({ error: "요청 형식 오류" }, { status: 400 }); }

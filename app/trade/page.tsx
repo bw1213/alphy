@@ -90,6 +90,7 @@ export default function TradePage() {
             {status && !acctOk && <p className="help">앱키·계좌번호는 <a href="/settings">설정</a> 화면에서 넣습니다.</p>}
           </div>
           {auth && !auth.loggedIn && <Login auth={auth} title="로그인 (관리자 비밀번호)" onDone={() => fetchAuth().then(setAuth)} />}
+          {auth?.user && !auth.user.owner && <div className="card"><h2>아직 쓸 수 없습니다</h2><p className="help">한국투자증권 잔고·주문은 지금은 관리자(owner) 계정만 쓸 수 있습니다. 사람마다 본인 계좌를 연결하는 기능은 준비 중입니다.</p></div>}
 
           <div className="card">
             <h2>주문</h2>
