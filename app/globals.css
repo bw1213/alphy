@@ -133,3 +133,20 @@ td.l, th.l { text-align: left; }
 .why { font-size: 13px; color: var(--text-2); }
 .why table td, .why table th { text-align: left; white-space: normal; vertical-align: top; }
 code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; background: var(--bg); padding: 1px 4px; border-radius: 4px; }
+
+/* 종목 이름 검색 */
+.ssearch { position: relative; }
+.ssearch-list { position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.12); max-height: 300px; overflow-y: auto; }
+.ssearch-list li { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text); font-size: 13px; }
+.ssearch-list li.on { background: var(--bg); outline: 1px solid var(--accent); outline-offset: -1px; }
+.ssearch-list li.dim { opacity: .55; }
+.ssearch-list li.empty { display: block; cursor: default; color: var(--text-3); }
+.ssearch-list .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssearch-list .cd { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.ssearch-list .mk { grid-column: 1 / -1; font-size: 11px; color: var(--text-3); }
+.schips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.schip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 4px 2px 8px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--text); }
+.schip b { font-weight: 500; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.schip.unknown { border-color: var(--bad); color: var(--bad); }
+.schip button { border: 0; background: none; color: var(--text-3); cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; min-height: 0; }
