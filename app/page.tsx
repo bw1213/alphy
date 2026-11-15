@@ -115,12 +115,25 @@ export default function Page() {
   };
   useEffect(() => selectStrategy(STRATEGIES[0].id), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 1) 설정 화면(/settings)에서 정한 기본값 → 2) 마지막으로 쓴 설정(NAS, 없으면 이 브라우저) 순서로 덮어씀
+  // 1) 설정 화면(/settings)에서 정한 기본값 → 2) 마지막으로 쓴 설정(NAS 와 이 브라우저 중 더 최근 것) 순서로 덮어씀
   /** 복원이 끝나기 전에는 저장하지 않음 (기본값으로 마지막 설정을 덮어쓰지 않게) */
   const [restored, setRestored] = useState(false);
   const [lastMsg, setLastMsg] = useState("");
+  /** 이 화면이 마지막으로 불러오거나 저장한 시각 (다른 기기에서 더 최근에 저장했는지 비교) */
+  const lastSavedAt = useRef("");
+  /** 마지막으로 저장(또는 불러온) 내용. 같으면 다시 저장하지 않음 */
+  const lastBody = useRef("");
+  /** 불러온 직후 한 번은 저장하지 않음 (불러온 값을 그대로 다시 쓰지 않게) */
+  const skipSave = useRef(false);
+  const getJson = (url: string) => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const readLocal = (): LastState | null => { try { return JSON.parse(localStorage.getItem(LAST_KEY) ?? "null"); } catch { return null; } };
+  const newer = (a: LastState | null, b: LastState | null) => {
+    const ok = (x: LastState | null) => (x && typeof x === "object" && x.sid ? x : null);
+    const x = ok(a), y = ok(b);
+    if (!x || !y) return x ?? y;
+    return (y.savedAt ?? "") > (x.savedAt ?? "") ? y : x;
+  };
   useEffect(() => {
-    const getJson = (url: string) => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     (async () => {
       const d = await getJson("/api/settings/defaults");
       if (d) {
@@ -128,14 +141,16 @@ export default function Page() {
         setCommission(String(d.commission)); setSlippage(String(d.slippage)); setSellTax(d.sellTax == null ? "" : String(d.sellTax));
         if (d.targetCagr > 0 && d.maxDrawdown > 0) setTarget({ cagr: d.targetCagr, mdd: d.maxDrawdown });
       }
-      let s: LastState | null = await getJson("/api/last-state");
-      if (!s) { try { s = JSON.parse(localStorage.getItem(LAST_KEY) ?? "null"); } catch { s = null; } }
-      if (s && typeof s === "object" && s.sid) applyLast(s);
+      // 서버 저장이 실패했던 경우를 위해 이 브라우저에 남은 것과 비교해 더 최근 것을 씀
+      const s = newer(await getJson("/api/last-state"), readLocal());
+      if (s) applyLast(s);
       setRestored(true);
     })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyLast = (s: LastState) => {
+    skipSave.current = true;
+    lastSavedAt.current = s.savedAt ?? "";
     setSid(s.sid);
     setMode(s.mode);
     setParams((cur) => {
@@ -152,25 +167,56 @@ export default function Page() {
     setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? "");
     setCash(s.cash); setMonthly(s.monthly ?? 0);
     setCommission(s.commission); setSlippage(s.slippage); setSellTax(s.sellTax ?? "");
-    setLastMsg(s.savedAt ? `마지막 설정을 불러왔습니다 (${s.savedAt.slice(0, 16).replace("T", " ")} 저장).` : "마지막 설정을 불러왔습니다.");
+    setLastMsg(s.savedAt ? `마지막 설정을 불러왔습니다 (${new Date(s.savedAt).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })} 저장).` : "마지막 설정을 불러왔습니다.");
   };
 
-  // 바뀔 때마다(1초 쉬었다가) NAS 와 이 브라우저에 저장
+  // 바뀔 때마다(1초 쉬었다가) NAS 와 이 브라우저에 저장. 실행·화면 전환 때는 바로 저장
   const snapshot = useMemo<LastState>(() => ({
     version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
     rebalance, stopLoss, takeProfit, source, start, end: end === today() ? "" : end,
     universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax,
   }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit,
     source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax]);
+  const snapRef = useRef(snapshot);
+  snapRef.current = snapshot;
+  const saveNow = (keepalive = false) => {
+    const plain = JSON.stringify(snapRef.current);
+    if (plain === lastBody.current) return;
+    lastBody.current = plain;
+    const savedAt = new Date().toISOString();
+    lastSavedAt.current = savedAt;
+    const body = JSON.stringify({ ...snapRef.current, savedAt });
+    try { localStorage.setItem(LAST_KEY, body); } catch { /* 저장 불가 환경 */ }
+    fetch("/api/last-state", { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: keepalive && body.length < 60_000 })
+      .then((r) => (r.ok ? r.json() : null)).then((j) => {
+        // 서버 시각으로 맞춰 둠 (기기마다 시계가 조금씩 달라도 비교가 맞게)
+        if (!j?.savedAt || lastSavedAt.current !== savedAt) return;
+        lastSavedAt.current = j.savedAt;
+        try { localStorage.setItem(LAST_KEY, JSON.stringify({ ...JSON.parse(body), savedAt: j.savedAt })); } catch { /* 무시 */ }
+      })
+      .catch(() => { lastBody.current = ""; /* 다음 변경 때 다시 */ });
+  };
   useEffect(() => {
     if (!restored) return;
-    const t = setTimeout(() => {
-      const body = JSON.stringify(snapshot);
-      try { localStorage.setItem(LAST_KEY, body); } catch { /* 저장 불가 환경 */ }
-      fetch("/api/last-state", { method: "PUT", headers: { "Content-Type": "application/json" }, body }).catch(() => { /* 다음 변경 때 다시 */ });
-    }, 1000);
+    if (skipSave.current) { skipSave.current = false; lastBody.current = JSON.stringify(snapshot); return; }
+    const t = setTimeout(() => saveNow(), 1000);
     return () => clearTimeout(t);
-  }, [snapshot, restored]);
+  }, [snapshot, restored]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 휴대폰에서 앱을 바꾸거나 탭을 오래 열어 둔 경우:
+  // 화면을 떠날 때 바로 저장하고, 돌아오면 다른 기기에서 더 최근에 저장한 설정이 있는지 확인해 불러옴
+  useEffect(() => {
+    if (!restored) return;
+    const onVis = async () => {
+      if (document.visibilityState === "hidden") { saveNow(true); return; }
+      const s: LastState | null = await getJson("/api/last-state");
+      if (s?.sid && s.savedAt && s.savedAt > lastSavedAt.current && JSON.stringify(snapRef.current) === lastBody.current) applyLast(s);
+    };
+    const onHide = () => saveNow(true);
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", onHide);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", onHide); };
+  }, [restored]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetLast = async () => {
     try { localStorage.removeItem(LAST_KEY); } catch { /* 무시 */ }
@@ -245,6 +291,7 @@ export default function Page() {
 
   async function run() {
     setError(null); setWarnings([]);
+    if (restored) saveNow();
     try {
       // 1) 전략 준비
       let fn: (ctx: any, p: Params) => any, p: Params, warmup: number, label: string;
