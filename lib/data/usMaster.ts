@@ -47,9 +47,9 @@ export function parseUsMaster(text: string, market: UsStock["market"]): UsStock[
 }
 
 /** 거래소 하나의 종목 목록 */
-export async function fetchUsMarket(market: UsStock["market"]): Promise<UsStock[]> {
+export async function fetchUsMarket(market: UsStock["market"], fetchFn: typeof fetch = fetch): Promise<UsStock[]> {
   const f = FILES.find((x) => x.market === market)!;
-  const res = await fetch(f.url, { cache: "no-store" });
+  const res = await fetchFn(f.url, { cache: "no-store" });
   if (!res.ok) throw new Error(`미국 종목 목록(${market}) HTTP ${res.status}`);
   const txt = iconv.decode(firstFileInZip(Buffer.from(await res.arrayBuffer())), "cp949");
   return parseUsMaster(txt, market);

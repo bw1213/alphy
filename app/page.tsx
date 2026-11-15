@@ -8,6 +8,7 @@ import { CYCLE_CODE, cycleParams, cycleWarmup, defaultCycleSpec, normalizeCycleS
 import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/strategies/builder";
 import { runBacktest } from "@/lib/engine/engine";
 import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
+import { StockChips, StockSearch, appendCode, splitCodes } from "@/components/StockSearch";
 import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, CostSettings, Rebalance } from "@/lib/engine/types";
@@ -543,9 +544,13 @@ export default function Page() {
               </>
             ) : (
               <>
+                <label className="f" style={{ marginTop: 8 }}>종목 이름으로 찾아 넣기
+                  <StockSearch keepOpen exclude={splitCodes(tickers)} onPick={(s) => setTickers((t) => appendCode(t, s.code))} />
+                </label>
                 <label className="f" style={{ marginTop: 8 }}>종목코드 (쉼표 구분)
                   <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
                 </label>
+                <StockChips value={tickers} onChange={setTickers} />
                 <p className="help">한국 종목은 6자리 코드(005930), 미국 주식·ETF는 티커(AAPL, SPY, BRK.B)를 넣으세요. 섞어서 넣어도 됩니다. 미국 종목만 넣으면 비교 지수는 S&amp;P 500입니다.</p>
               </>
             )}

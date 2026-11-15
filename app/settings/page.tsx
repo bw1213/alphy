@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import SecurityCard from "@/components/SecurityCard";
 import DiagTokenCard from "@/components/DiagTokenCard";
+import StockListCard from "@/components/StockListCard";
 import type { FieldView, SettingsPatch, SettingsView } from "@/lib/settings/view";
 import type { DataSource } from "@/lib/settings/store";
 
@@ -199,6 +200,8 @@ export default function SettingsPage() {
             backtest: { source: bt.source, cash: Number(bt.cash), commission: Number(bt.commission), slippage: Number(bt.slippage), sellTax: bt.sellTax.trim() === "" ? null : Number(bt.sellTax), usCommission: Number(bt.usCommission), usFx: Number(bt.usFx), universeSize: Number(bt.universeSize), targetCagr: Number(bt.targetCagr), maxDrawdown: Number(bt.maxDrawdown) },
           }, "백테스트 기본값을 저장했습니다")}>저장</button>
         </div>
+
+        <StockListCard />
 
         <div className="card">
           <h2>관리자 비밀번호</h2>
