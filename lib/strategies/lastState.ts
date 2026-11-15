@@ -1,11 +1,10 @@
 /**
  * 백테스트 화면의 마지막 설정 (서버 전용 저장 + 검증).
  * 화면을 다시 열면 마지막에 고른 전략·파라미터·종목·기간·자금 설정이 그대로 복원됩니다.
- * 저장 위치: {설정 폴더}/last-state.json (NAS 에 보관 → 휴대폰·PC 어디서 열어도 같은 상태).
+ * 저장 위치: {설정 폴더}/users/<사용자>/last-state.json (NAS 에 보관 → 휴대폰·PC 어디서 열어도 같은 상태).
  */
 import fs from "fs";
-import path from "path";
-import { configDir } from "../settings/store";
+import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { Rebalance } from "../engine/types";
 import { normalizeSpec, type BuilderSpec } from "./builder";
 import { normalizeCycleSpec, type CycleSpec } from "./cycle";
@@ -50,7 +49,6 @@ export interface LastState {
 }
 
 type Env = Record<string, string | undefined>;
-const file = (e: Env) => path.join(configDir(e), "last-state.json");
 
 const str = (v: unknown, max: number, dflt = "") => (typeof v === "string" ? v.slice(0, max) : dflt);
 const num = (v: unknown, min: number, max: number, dflt: number) => {
@@ -110,19 +108,16 @@ export function cleanLastState(x: any): LastState {
   };
 }
 
-export function loadLastState(e: Env = process.env): LastState | null {
-  try { return cleanLastState(JSON.parse(fs.readFileSync(file(e), "utf8"))); } catch { return null; }
+export function loadLastState(e: Env = process.env, user: string = OWNER_ID): LastState | null {
+  try { return cleanLastState(JSON.parse(fs.readFileSync(userFile("last-state.json", user, e), "utf8"))); } catch { return null; }
 }
 
-export function saveLastState(x: unknown, e: Env = process.env, now = new Date()): LastState {
+export function saveLastState(x: unknown, e: Env = process.env, now = new Date(), user: string = OWNER_ID): LastState {
   const s = { ...cleanLastState(x), savedAt: now.toISOString() };
-  fs.mkdirSync(configDir(e), { recursive: true, mode: 0o700 });
-  const tmp = `${file(e)}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(s), { mode: 0o600 });
-  fs.renameSync(tmp, file(e));
+  writeUserFile("last-state.json", JSON.stringify(s), user, e);
   return s;
 }
 
-export function clearLastState(e: Env = process.env) {
-  try { fs.unlinkSync(file(e)); } catch { /* 없으면 그만 */ }
+export function clearLastState(e: Env = process.env, user: string = OWNER_ID) {
+  try { fs.unlinkSync(userFile("last-state.json", user, e)); } catch { /* 없으면 그만 */ }
 }

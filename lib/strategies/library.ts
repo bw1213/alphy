@@ -1,10 +1,9 @@
 /**
  * 내 전략 보관함 (서버 전용). 화면에서 만든 전략을 NAS 에 저장해 어느 기기에서나 같은 목록을 씁니다.
- * 저장 위치: {설정 폴더}/strategies.json. 읽기는 누구나, 저장은 관리자 로그인 필요(코드가 브라우저에서 실행되므로).
+ * 저장 위치: {설정 폴더}/users/<사용자>/strategies.json (lib/settings/userdir.ts). 읽기는 누구나, 저장은 관리자 로그인 필요(코드가 브라우저에서 실행되므로).
  */
 import fs from "fs";
-import path from "path";
-import { configDir } from "../settings/store";
+import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { Rebalance } from "../engine/types";
 import { normalizeSpec, type BuilderSpec } from "./builder";
 import { normalizeCycleSpec, type CycleSpec } from "./cycle";
@@ -29,7 +28,6 @@ export interface SavedStrategy {
 
 type Env = Record<string, string | undefined>;
 export const MAX_STRATEGIES = 100;
-const file = (e: Env) => path.join(configDir(e), "strategies.json");
 
 /** 화면에서 온 값을 검증해 깨끗한 항목으로. 잘못되면 에러 */
 export function cleanStrategy(x: any): SavedStrategy {
@@ -53,9 +51,9 @@ export function cleanStrategy(x: any): SavedStrategy {
     updatedAt: typeof x?.updatedAt === "string" ? x.updatedAt.slice(0, 30) : undefined };
 }
 
-export function loadStrategies(e: Env = process.env): SavedStrategy[] {
+export function loadStrategies(e: Env = process.env, user: string = OWNER_ID): SavedStrategy[] {
   try {
-    const j = JSON.parse(fs.readFileSync(file(e), "utf8"));
+    const j = JSON.parse(fs.readFileSync(userFile("strategies.json", user, e), "utf8"));
     if (!Array.isArray(j)) return [];
     const out: SavedStrategy[] = [];
     for (const x of j) { try { out.push(cleanStrategy(x)); } catch { /* 깨진 항목은 건너뜀 */ } }
@@ -63,25 +61,22 @@ export function loadStrategies(e: Env = process.env): SavedStrategy[] {
   } catch { return []; }
 }
 
-function save(list: SavedStrategy[], e: Env) {
-  fs.mkdirSync(configDir(e), { recursive: true, mode: 0o700 });
-  const tmp = `${file(e)}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(list, null, 1), { mode: 0o600 });
-  fs.renameSync(tmp, file(e));
+function save(list: SavedStrategy[], e: Env, user: string) {
+  writeUserFile("strategies.json", JSON.stringify(list, null, 1), user, e);
 }
 
 /** 같은 이름이 있으면 덮어쓰고, 없으면 추가 */
-export function upsertStrategy(x: unknown, e: Env = process.env, now = new Date()): SavedStrategy[] {
+export function upsertStrategy(x: unknown, e: Env = process.env, now = new Date(), user: string = OWNER_ID): SavedStrategy[] {
   const item = { ...cleanStrategy(x), updatedAt: now.toISOString() };
-  const list = loadStrategies(e).filter((s) => s.name !== item.name);
+  const list = loadStrategies(e, user).filter((s) => s.name !== item.name);
   if (list.length >= MAX_STRATEGIES) throw new Error(`전략은 ${MAX_STRATEGIES}개까지 저장할 수 있습니다.`);
   list.push(item);
-  save(list, e);
+  save(list, e, user);
   return list;
 }
 
-export function deleteStrategy(name: string, e: Env = process.env): SavedStrategy[] {
-  const list = loadStrategies(e).filter((s) => s.name !== name);
-  save(list, e);
+export function deleteStrategy(name: string, e: Env = process.env, user: string = OWNER_ID): SavedStrategy[] {
+  const list = loadStrategies(e, user).filter((s) => s.name !== name);
+  save(list, e, user);
   return list;
 }
