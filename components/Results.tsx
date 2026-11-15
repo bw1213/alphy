@@ -68,7 +68,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
   const B = benchName;
   const TARGET_CAGR = s.target;
   const T = `${+(s.target * 100).toFixed(1)}%`; // 목표 표시용
-  const [tab, setTab] = useState<"signal" | "check" | "annual" | "trades" | "positions">("annual");
+  const [tab, setTab] = useState<"signal" | "check" | "annual" | "trades" | "dividends" | "positions">("annual");
   const [log, setLog] = useState(true);
 
   const series = useMemo(() => {
@@ -150,6 +150,13 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
         </div>
       )}
 
+      {s.hasDividendData && (
+        <div className="notice">
+          <b>배당금·분배금 반영</b>: 기간 중 {s.nDividends}번, 세후 {won(s.dividendsNet)}을 받았습니다(세금 {won(s.dividendTax)}). 수익률·자산 그래프에 모두 들어가 있습니다.
+          {s.nDividends === 0 && " 이 기간에 보유 중 배당락일이 없었거나 배당 이력을 못 받았습니다."}
+        </div>
+      )}
+
       {hold && <HoldCard s={s} hold={hold} names={names} B={B} />}
 
       <div className="card">
@@ -203,6 +210,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
           <button className={tab === "check" ? "on" : ""} onClick={() => setTab("check")}>검증</button>
           <button className={tab === "annual" ? "on" : ""} onClick={() => setTab("annual")}>연도별 수익률</button>
           <button className={tab === "trades" ? "on" : ""} onClick={() => setTab("trades")}>매매 내역 ({res.trades.length})</button>
+          {res.dividends && <button className={tab === "dividends" ? "on" : ""} onClick={() => setTab("dividends")}>배당 ({res.dividends.length})</button>}
           <button className={tab === "positions" ? "on" : ""} onClick={() => setTab("positions")}>현재 보유 ({res.finalPositions.length})</button>
         </div>
 
@@ -356,6 +364,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
               기간 {s.start} ~ {s.end} · 최종자산 {won(s.final)} ({s.deposits > 0
                 ? <>넣은 돈 {won(s.contributed)} = 시작 {won(s.initial)} + 추가 입금 {won(s.deposits)}, 손익 {won(s.final - s.contributed)}</>
                 : <>시작 {won(s.initial)}</>}) · 매매 {s.nTrades}건 · 비용(수수료+세금) {won(s.totalFees)}
+              {s.hasDividendData && <> · 배당(세후) {won(s.dividendsNet)}</>}
             </p>
           </>
         )}
@@ -386,6 +395,32 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                 </tbody>
               </table>
             </div>
+          </>
+        )}
+
+        {tab === "dividends" && res.dividends && (
+          <>
+            <p className="help" style={{ marginBottom: 8 }}>배당락일 전날 종가 기준으로 들고 있던 수량만큼 받습니다. 금액은 1주당 세전 배당 × 수량, 세금을 뗀 금액이 현금으로 들어옵니다. 최근 300건 표시.</p>
+            {res.dividends.length === 0 ? <p className="help">기간 중 받은 배당이 없습니다.</p> : (
+              <div className="tablewrap">
+                <table>
+                  <thead><tr><th>배당락일</th><th className="l">종목</th><th>수량</th><th>1주당</th><th>세전</th><th>세금</th><th>세후 입금</th></tr></thead>
+                  <tbody>
+                    {res.dividends.slice(-300).reverse().map((x, k) => (
+                      <tr key={k}>
+                        <td>{x.date}</td>
+                        <td className="l">{names[x.ticker] ?? x.ticker} <span className="help">{x.ticker}</span></td>
+                        <td>{x.qty.toLocaleString()}</td>
+                        <td>{x.perShare.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}</td>
+                        <td>{Math.round(x.gross).toLocaleString()}</td>
+                        <td>{Math.round(x.tax).toLocaleString()}</td>
+                        <td>{Math.round(x.net).toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
         )}
 
@@ -454,6 +489,11 @@ function HoldCard({ s, hold, names, B }: { s: Summary; hold: HoldCompare; names:
               <td className="l">최종자산</td><td>{won(s.final)}</td><td>{won(h.final)}</td>
               <td style={tone(s.final >= h.final)}>{s.final - h.final >= 0 ? "+" : ""}{won(s.final - h.final)}</td>{s.bench && <td>–</td>}
             </tr>
+            {s.hasDividendData && (
+              <tr>
+                <td className="l">배당(세후)</td><td>{won(s.dividendsNet)}</td><td>{won(h.dividendsNet)}</td><td></td>{s.bench && <td>–</td>}
+              </tr>
+            )}
             <tr>
               <td className="l">매매 / 비용</td><td>{s.nTrades}건 · {won(s.totalFees)}</td><td>{h.nTrades}건 · {won(h.totalFees)}</td><td></td>{s.bench && <td>–</td>}
             </tr>
@@ -465,7 +505,8 @@ function HoldCard({ s, hold, names, B }: { s: Summary; hold: HoldCompare; names:
           ? <>전략이 매수 후 보유보다 연 <b>{(beat * 100).toFixed(1)}%p</b> 더 벌었습니다.</>
           : <>전략이 매수 후 보유보다 연 <b>{(-beat * 100).toFixed(1)}%p</b> 덜 벌었습니다. 사고파는 수고와 비용을 들일 만한지 따져 보세요.</>)}
         {" "}{Number.isFinite(s.mdd - h.mdd) && (s.mdd >= h.mdd ? `최대 낙폭은 ${((s.mdd - h.mdd) * 100).toFixed(1)}%p 작았습니다.` : `최대 낙폭은 ${((h.mdd - s.mdd) * 100).toFixed(1)}%p 컸습니다.`)}
-        {" "}{B} 지수는 수수료·입금 없이 지수만 본 값이라, 같은 돈으로 실제로 샀을 때와 비교하려면 매수 후 보유 열을 보세요.
+        {s.hasDividendData && " 매수 후 보유는 받은 배당을 같은 종목에 다시 삽니다."}
+        {" "}{B} 지수는 수수료·입금·배당 없이 지수만 본 값이라, 같은 돈으로 실제로 샀을 때와 비교하려면 매수 후 보유 열을 보세요.
       </p>
     </div>
   );

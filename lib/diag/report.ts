@@ -15,6 +15,7 @@ import { loadData, type DataRequest, type DataResponse } from "../data/server";
 import { staleWarnings } from "../data/stale";
 import { holdTickers, runBuyAndHold } from "../engine/buyhold";
 import { runBacktest } from "../engine/engine";
+import { dividendTaxFn, KR_DIVIDEND_TAX } from "../engine/dividends";
 import { summarize } from "../engine/metrics";
 import type { Bar, Rebalance } from "../engine/types";
 import { generate, normalizeSpec } from "../strategies/builder";
@@ -176,6 +177,10 @@ export interface DiagBacktestRequest {
   end?: string;
   cash?: number;
   monthly?: number;
+  /** 배당금·분배금 반영 (기본 true) */
+  dividends?: boolean;
+  /** 한국 종목 배당소득세 % (기본 15.4) */
+  dividendTax?: number;
   /** 기본 전략의 파라미터 덮어쓰기 */
   params?: Record<string, number>;
   /** 거래 내역 몇 건까지 돌려줄지 (최근부터, 기본 50, 최대 500) */
@@ -229,10 +234,13 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const universeSize = Math.min(Math.max(Math.round(Number(r.universeSize) || def.universeSize), 1), 100);
   const cash = Number(r.cash) > 0 ? Number(r.cash) : def.cash;
   const monthly = Number(r.monthly) > 0 ? Number(r.monthly) : 0;
+  const useDiv = r.dividends !== false;
+  const divTax = dividendTaxFn(Number.isFinite(Number(r.dividendTax)) && r.dividendTax != null ? Number(r.dividendTax) / 100 : KR_DIVIDEND_TAX);
   const loadStart = minusDays(start, Math.max(400, Math.ceil(st.warmup * 1.5) + 30));
-  const d = await load({ source, start: loadStart, end, tickers: tickers.length ? tickers : undefined, universeSize });
+  const d = await load({ source, start: loadStart, end, tickers: tickers.length ? tickers : undefined, universeSize, dividends: useDiv });
+  const div = useDiv ? { dividends: d.dividends, dividendTax: divTax } : {};
   const res = runBacktest({
-    data: d.data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly,
+    data: d.data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
     settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup },
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
     strategy: (ctx) => st.fn(ctx, st.p),
@@ -241,7 +249,7 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const s = summarize(res, def.targetCagr / 100, def.maxDrawdown / 100);
   const pick = holdTickers(res, tickers.length ? tickers : null);
   const holdRes = pick ? runBuyAndHold({
-    data: d.data, benchmark: d.benchmark, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers,
+    data: d.data, benchmark: d.benchmark, startDate: start, initialCash: cash, monthlyDeposit: monthly, tickers: pick.tickers, ...div,
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
   }) : null;
   const hs = holdRes && holdRes.equity.length >= 2 ? summarize(holdRes) : null;
@@ -251,13 +259,15 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const monthlyEquity = res.equity.filter((x, i) => i === res.equity.length - 1 || x.date.slice(0, 7) !== res.equity[i + 1].date.slice(0, 7))
     .map((x) => ({ date: x.date, equity: Math.round(x.equity), cash: Math.round(x.cash), invested: Math.round(x.invested) }));
   return {
-    request: { strategy: st.label, kind: st.kind, params: st.p, source, tickers, universeSize: tickers.length ? undefined : universeSize, start, end, cash, monthly, rebalance: st.rebalance },
+    request: { strategy: st.label, kind: st.kind, params: st.p, source, tickers, universeSize: tickers.length ? undefined : universeSize, start, end, cash, monthly, rebalance: st.rebalance, dividends: useDiv },
     data: Object.fromEntries(Object.entries(d.data).slice(0, 20).map(([t, b]) => [t, { first: b[0]?.date ?? null, last: b.at(-1)?.date ?? null, count: b.length }])),
     summary: {
       start: s.start, end: s.end, initial: s.initial, final: s.final, deposits: s.deposits, contributed: s.contributed,
       cagr: s.cagr, mdd: s.mdd, sharpe: s.sharpe, nTrades: s.nTrades, nSells: s.nSells, winRate: s.winRate,
+      dividendsNet: s.dividendsNet, dividendTax: s.dividendTax, nDividends: s.nDividends,
     },
-    buyAndHold: hs && pick ? { basis: pick.basis, tickers: pick.tickers, final: hs.final, totalReturn: hs.totalReturn, cagr: hs.cagr, mdd: hs.mdd, sharpe: hs.sharpe, nTrades: hs.nTrades } : null,
+    dividendData: d.dividends ? Object.fromEntries(Object.entries(d.dividends).slice(0, 20).map(([t, x]) => [t, { count: x.length, first: x[0]?.date ?? null, last: x.at(-1)?.date ?? null }])) : null,
+    buyAndHold: hs && pick ? { basis: pick.basis, tickers: pick.tickers, final: hs.final, dividendsNet: hs.dividendsNet, totalReturn: hs.totalReturn, cagr: hs.cagr, mdd: hs.mdd, sharpe: hs.sharpe, nTrades: hs.nTrades } : null,
     lastTrade: res.trades.at(-1)?.date ?? null,
     trades: nTrades ? res.trades.slice(-nTrades) : [],
     finalPositions: res.finalPositions,
