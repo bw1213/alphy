@@ -9,6 +9,7 @@ import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/st
 import { runBacktest } from "@/lib/engine/engine";
 import { dividendTaxFn, KR_DIVIDEND_TAX } from "@/lib/engine/dividends";
 import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
+import { StockChips, StockSearch, appendCode, splitCodes } from "@/components/StockSearch";
 import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, Rebalance } from "@/lib/engine/types";
@@ -534,9 +535,15 @@ export default function Page() {
                 )}
               </>
             ) : (
-              <label className="f" style={{ marginTop: 8 }}>종목코드 (쉼표 구분)
-                <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
-              </label>
+              <>
+                <label className="f" style={{ marginTop: 8 }}>종목 이름으로 찾아 넣기
+                  <StockSearch keepOpen exclude={splitCodes(tickers)} onPick={(s) => setTickers((t) => appendCode(t, s.code))} />
+                </label>
+                <label className="f" style={{ marginTop: 8 }}>종목코드 (쉼표 구분)
+                  <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
+                </label>
+                <StockChips value={tickers} onChange={setTickers} />
+              </>
             )}
           </div>
 
