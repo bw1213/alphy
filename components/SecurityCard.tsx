@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useShowMore } from "@/components/ShowMore";
 
 interface LogRow { t: number; ip: string; event: string; ua?: string; user?: string }
 interface SecState { totpEnabled: boolean; log: LogRow[]; you: string; admin?: boolean; owner?: boolean }
@@ -46,6 +47,8 @@ export default function SecurityCard() {
     try { setMsg({ ok: true, text: await fn() }); } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
     load();
   };
+
+  const logRows = useShowMore(st?.log ?? []);
 
   if (!st) return <div className="card"><h2>보안</h2><p className="help">불러오는 중…</p></div>;
 
@@ -100,7 +103,7 @@ export default function SecurityCard() {
           <table>
             <thead><tr><th>시각</th>{st.admin && <th>누구</th>}<th>내용</th><th>주소</th><th>기기</th></tr></thead>
             <tbody>
-              {st.log.map((r, i) => (
+              {logRows.shown.map((r, i) => (
                 <tr key={i}>
                   <td style={{ whiteSpace: "nowrap" }}>{new Date(r.t).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</td>
                   {st.admin && <td>{r.user ? <code>{r.user}</code> : ""}</td>}
@@ -111,6 +114,7 @@ export default function SecurityCard() {
               ))}
             </tbody>
           </table>
+          {logRows.more}
         </div>
       )}
     </div>
