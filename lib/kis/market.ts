@@ -132,6 +132,8 @@ export function parseOverseasDaily(rows: any[] | undefined): Bar[] {
 
 /**
  * 미국 주식·ETF 일봉 (달러, 수정주가). 한 번에 100일씩, 기준일을 과거로 당기며 받는다.
+ * 수정주가는 액면분할뿐 아니라 배당까지 반영된 값이다 (2026-11-16 실서버 확인: AAPL 2010-01-04 종가 6.39,
+ * 분할만 반영하면 7.64). 그래서 이 시세를 쓰는 종목은 배당을 현금으로 따로 넣지 않는다 (DataResponse.dividendAdjusted)
  * 거래소를 모르면 exchanges 를 순서대로 시도한다
  */
 export async function kisUsDaily(client: KisClient, ticker: string, start: string, end: string, exchanges: KisExchange[] = ["NAS", "NYS", "AMS"]): Promise<Bar[]> {
