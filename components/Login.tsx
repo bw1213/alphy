@@ -82,7 +82,7 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
         </>
       )}
       <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{auth.setupNeeded ? "만들고 로그인" : otpStep ? "확인" : "로그인"}</button>
-      {otpStep && <button type="button" style={{ marginTop: 12, marginLeft: 8 }} disabled={busy} onClick={() => { setOtpStep(false); setOtp(""); setPassword(""); setError(""); }}>처음으로</button>}
+      {otpStep && <button type="button" style={{ marginTop: 8 }} disabled={busy} onClick={() => { setOtpStep(false); setOtp(""); setPassword(""); setError(""); }}>처음으로</button>}
       {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
     </form>
   );
