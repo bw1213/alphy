@@ -17,7 +17,7 @@ import { generate, normalizeSpec } from "../strategies/builder";
 import { cycle, cycleParams, cycleStatus, cycleWarmup, normalizeCycleSpec } from "../strategies/cycle";
 import { compileStrategy, STRATEGIES, type Params } from "../strategies";
 import { loadSettings } from "../settings/store";
-import { planKind, type AutoPlan } from "./store";
+import { intradayOn, planKind, type AutoPlan } from "./store";
 import { kst, minusDays } from "./time";
 
 type Env = Record<string, string | undefined>;
@@ -46,6 +46,8 @@ export interface SellLevel {
   gap: number;
   kind: "drop" | "stop_loss" | "take_profit";
   label: string;
+  /** 장중 실시간 매도에서 팔 수량 (손절·익절은 그때 계좌의 전부). 없으면 알림용 기준 가격 */
+  qty?: number;
 }
 
 export interface EveningReport {
@@ -65,6 +67,8 @@ export interface EveningReport {
   kept?: boolean;
   orders: AutoOrder[];
   sellLevels: SellLevel[];
+  /** 장중 실시간 매도: sellLevels 를 다음 거래일 장중에 감시해 닿으면 판다 */
+  intraday?: boolean;
   /** 보유 수량을 어디서 가져왔는지: 실제 계좌 / 계좌를 못 읽어 백테스트상 보유 */
   holdingsFrom?: "account" | "backtest";
   account?: "real" | "mock";
@@ -142,7 +146,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const res = runBacktest({
     data: d.data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate, initialCash: plan.budget, monthlyDeposit: 0,
     dividends: d.dividends, dividendTax: dividendTaxFn(KR_DIVIDEND_TAX),
-    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup },
+    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup, intraday: intradayOn(plan) },
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
     strategy: (ctx) => st.fn(ctx, st.p),
   });
@@ -197,9 +201,22 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   }
 
   // 2) 장중 매도 가격
+  r.intraday = intradayOn(plan);
   const dates = res.equity.map((x) => x.date);
-  for (const c of cycleStatus(res.state, dates)) {
-    if (!((btQty.get(c.ticker) ?? 0) > 0 || (real?.get(c.ticker) ?? 0) > 0)) continue;
+  const held = (t: string) => (btQty.get(t) ?? 0) > 0 || (real?.get(t) ?? 0) > 0;
+  if (r.intraday) {
+    // 전략이 걸어 둔 매도 가격 (백테스트와 같은 가격·수량)
+    for (const [t, list] of Object.entries(sig?.stops ?? {})) {
+      if (!held(t)) continue;
+      const c = close(t);
+      for (const so of list) {
+        const price = Math.floor(so.below);
+        if (!(price > 0) || !(so.qty > 0)) continue;
+        r.sellLevels.push({ ticker: t, name: name(t), price, close: c, gap: (price / c - 1) * 100, kind: "drop", label: so.note, qty: so.qty });
+      }
+    }
+  } else for (const c of cycleStatus(res.state, dates)) {
+    if (!held(c.ticker)) continue;
     const price = c.dropUnit === "won" ? c.peak - c.sellAt : c.peak * (1 - c.sellAt / 100);
     if (!(price > 0)) continue;
     r.sellLevels.push({ ticker: c.ticker, name: name(c.ticker), price: Math.floor(price), close: c.close, gap: (price / c.close - 1) * 100, kind: "drop",
@@ -237,11 +254,11 @@ export function formatReport(r: EveningReport): string {
   }
   if (r.sellLevels.length) {
     lines.push("장중 매도 기준:");
-    for (const s of r.sellLevels) lines.push(`- ${s.name} ${won(s.price)} ${s.kind === "take_profit" ? "이상" : "이하"} (오늘 ${won(s.close)}, ${s.gap >= 0 ? "+" : ""}${s.gap.toFixed(1)}%) · ${s.label}`);
+    for (const s of r.sellLevels) lines.push(`- ${s.name} ${won(s.price)} ${s.kind === "take_profit" ? "이상" : "이하"}${r.intraday ? ` → ${s.qty ? `${s.qty}주` : "전부"} 매도` : ""} (오늘 ${won(s.close)}, ${s.gap >= 0 ? "+" : ""}${s.gap.toFixed(1)}%) · ${s.label}`);
   }
   if (r.holdingsFrom === "backtest") lines.push("※ 계좌를 읽지 못해 전략상 보유로 계산했습니다.");
   for (const w of r.warnings.slice(0, 3)) lines.push(`※ ${w}`);
   if (r.orders.length) lines.push("이 주문은 다음 거래일 아침에 자동으로 냅니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요.");
-  if (r.sellLevels.length) lines.push("장중 매도 기준 가격 자동 매도는 아직 없습니다(다음 단계).");
+  if (r.sellLevels.length) lines.push(r.intraday ? "다음 거래일 장중(09:00~15:20)에 이 가격에 닿으면 바로 시장가로 팝니다." : "장중 실시간 매도가 꺼져 있어 이 가격은 알림용입니다 (종가로 확인해 다음 날 아침에 팝니다).");
   return lines.join("\n");
 }

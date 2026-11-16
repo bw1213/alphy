@@ -7,6 +7,7 @@ import { cleanPlan, loadLog, loadPlan, planKind, savePlan } from "@/lib/auto/sto
 import { eveningFor, eveningTime, loadState, morningTimes } from "@/lib/auto/scheduler";
 import { formatDay, loadDay, loadDays, saveDay, stopDay } from "@/lib/auto/morning";
 import { brokerFor } from "@/lib/auto/broker";
+import { loadIntradayDays } from "@/lib/auto/intraday";
 import { notify } from "@/lib/auto/telegram";
 import { cleanHm, kst } from "@/lib/auto/time";
 import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
@@ -29,6 +30,7 @@ export async function GET(req: Request) {
     limit: autoLimitFor(user.id),
     times: morningTimes(),
     days: Object.values(loadDays(user.id)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
+    intradayDays: Object.values(loadIntradayDays(user.id)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
     account: tradeEnv(kisEnvFor(user)),
     owner: user.id === OWNER_ID,
     today: kst().date,
@@ -36,7 +38,7 @@ export async function GET(req: Request) {
 }
 
 /**
- * { action: "save", strategy: "saved:이름" | "builtin:id", tickers, budget, startDate, enabled }
+ * { action: "save", strategy: "saved:이름" | "builtin:id", tickers, budget, startDate, enabled, intraday }
  * { action: "delete" }
  * { action: "run", notify?: boolean }   지금 저녁 계산 해 보기
  * { action: "time", eveningTime: "18:00" } (owner)

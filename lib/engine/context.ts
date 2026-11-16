@@ -1,4 +1,5 @@
 import { rsi, sma, stdev } from "./indicators";
+import type { StopOrder } from "./types";
 
 export type Field = "open" | "high" | "low" | "close" | "volume";
 
@@ -39,6 +40,12 @@ export class StrategyContext {
   exact = false;
   /** 종목별 매매 이유를 남기면 거래 내역에 그대로 표시됨: ctx.notes[t] = "적립 매수" */
   notes: Record<string, string> = {};
+  /** 장중 매도 모드인지 (설정의 intraday). 이 모드에서만 stops 가 쓰임 */
+  intraday = false;
+  /** 장중 매도 모드: 다음 날 장중에 가격이 below 이하로 내려오면 qty 주를 팔도록 걸어 둠 (높은 가격 먼저). 전략을 부를 때마다 새로 정함 */
+  stops: Record<string, StopOrder[]> = {};
+  /** 장중 매도 모드: 오늘 장중에 걸어 둔 매도 중 체결된 것 (종목별 체결 건수·수량·마지막 가격) */
+  filled: Readonly<Record<string, { n: number; qty: number; price: number }>> = {};
 
   /** 오늘 날짜 YYYY-MM-DD */
   get date(): string { return this.panel.dates[this.i]; }

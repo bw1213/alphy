@@ -125,6 +125,15 @@ describe("저녁 계산", () => {
     expect(lv.price).toBeLessThan(lv.close);
     expect(lv.gap).toBeLessThan(0);
     expect(r.warnings.join(" ")).toContain("보유 수량이 다릅니다");
+    // 장중 실시간 매도(기본 켬): 팔 수량까지, 추가 매도 단계 가격도 같이
+    expect(r.intraday).toBe(true);
+    expect(lv.qty).toBeGreaterThan(0);
+    expect(formatReport(r)).toContain("바로 시장가로");
+    // 끄면 알림용 가격 하나만 (수량 없음)
+    const off = await runEvening({ ...plan("2026-10-01"), intraday: false }, "schedule", { load: loader(data), now: at(today, "18:00"), env });
+    expect(off.intraday).toBe(false);
+    expect(off.sellLevels.filter((s) => s.kind === "drop")).toHaveLength(1);
+    expect(off.sellLevels[0].qty).toBeUndefined();
   });
 
   it("오늘 시세가 없으면 휴장으로 건너뜀", async () => {

@@ -7,17 +7,19 @@ import { STRATEGIES } from "@/lib/strategies";
 import type { SavedStrategy } from "@/lib/strategies/library";
 import type { EveningReport } from "@/lib/auto/evening";
 import type { MorningDay } from "@/lib/auto/morning";
+import type { IntradayDay } from "@/lib/auto/intraday";
 
 interface PlanView {
   label: string; kind: "builtin" | "cycle" | "builder" | "custom"; strategyName: string | null; builtin: string | null;
-  tickers: string[]; budget: number; startDate: string; enabled: boolean; updatedAt: string;
+  tickers: string[]; budget: number; startDate: string; enabled: boolean; intraday?: boolean; updatedAt: string;
 }
 interface AutoState {
   plan: PlanView | null; log: EveningReport[]; eveningTime: string; owner: boolean; today: string;
   lastEvening: { date: string; attempts: number; done: boolean } | null;
   limit: { realBudget: number; maxLoss: number }; account: "real" | "mock";
-  times: { morning: string; cutoff: string }; days: MorningDay[];
+  times: { morning: string; cutoff: string }; days: MorningDay[]; intradayDays?: IntradayDay[];
 }
+const ST = { waiting: "대기", placed: "주문됨", partial: "일부 체결", filled: "체결", cancelled: "취소", failed: "실패", skipped: "건너뜀" } as const;
 interface TgState { botSet: boolean; bot: string | null; owner: boolean; linked: boolean; chatName: string | null; code: string | null }
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
@@ -54,12 +56,14 @@ function Report({ r }: { r: EveningReport }) {
         <>
           <b style={{ fontSize: 13 }}>장중 매도 기준 가격</b>
           <div className="tablewrap"><table>
-            <thead><tr><th>종목</th><th>기준 가격</th><th>오늘 종가</th><th>차이</th><th>규칙</th></tr></thead>
+            <thead><tr><th>종목</th><th>기준 가격</th>{r.intraday && <th>매도 수량</th>}<th>오늘 종가</th><th>차이</th><th>규칙</th></tr></thead>
             <tbody>{r.sellLevels.map((s, i) => (
-              <tr key={i}><td>{s.name}</td><td>{won(s.price)} {s.kind === "take_profit" ? "이상" : "이하"}</td><td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
+              <tr key={i}><td>{s.name}</td><td>{won(s.price)} {s.kind === "take_profit" ? "이상" : "이하"}</td>{r.intraday && <td>{s.qty ? `${s.qty.toLocaleString("ko-KR")}주` : "전부"}</td>}<td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
             ))}</tbody>
           </table></div>
-          <p className="help">장중에 이 가격에 닿으면 바로 파는 기능은 다음 단계에서 붙습니다. 지금은 알림으로만 알려 드립니다. 위 주문 목록은 다음 거래일 아침에 자동으로 냅니다.</p>
+          <p className="help">{r.intraday
+            ? "다음 거래일 장중(09:00~15:20)에 현재가가 이 가격에 닿으면 바로 시장가로 팝니다 (계좌에 있는 만큼). 같은 가격으로는 하루 한 번만 팝니다."
+            : "장중 실시간 매도가 꺼져 있어 알림용 가격입니다. 종가로 확인해 다음 날 아침 주문으로 팝니다."} 위 주문 목록은 다음 거래일 아침에 자동으로 냅니다.</p>
         </>
       )}
       <p className="help">보유 수량 기준: {r.holdingsFrom === "account" ? `실제 계좌 (${r.account === "real" ? "실전" : "모의투자"})` : "전략상 보유 (계좌를 읽지 못함)"}</p>
@@ -73,7 +77,7 @@ export default function AutoPage() {
   const [st, setSt] = useState<AutoState | null>(null);
   const [tg, setTg] = useState<TgState | null>(null);
   const [lib, setLib] = useState<SavedStrategy[]>([]);
-  const [form, setForm] = useState({ strategy: "", tickers: "", budget: "1000000", startDate: "", enabled: true });
+  const [form, setForm] = useState({ strategy: "", tickers: "", budget: "1000000", startDate: "", enabled: true, intraday: true });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
@@ -93,7 +97,7 @@ export default function AutoPage() {
     if (a) {
       setSt(a); setTime(a.eveningTime); setMt(a.times);
       const p: PlanView | null = a.plan;
-      if (p) setForm({ strategy: p.builtin ? `builtin:${p.builtin}` : `saved:${p.strategyName}`, tickers: p.tickers.join(", "), budget: String(p.budget), startDate: p.startDate, enabled: p.enabled });
+      if (p) setForm({ strategy: p.builtin ? `builtin:${p.builtin}` : `saved:${p.strategyName}`, tickers: p.tickers.join(", "), budget: String(p.budget), startDate: p.startDate, enabled: p.enabled, intraday: p.intraday !== false });
       else setForm((f) => ({ ...f, startDate: f.startDate || a.today }));
     }
     if (t) setTg(t);
@@ -147,12 +151,16 @@ export default function AutoPage() {
             <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 8 }}>
               <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> 매일 저녁 자동 계산·알림 켜기
             </label>
+            <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 4 }}>
+              <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={form.intraday} onChange={(e) => setForm({ ...form, intraday: e.target.checked })} /> 장중 실시간 매도 (손절·익절·하락 매도 가격에 장중에 닿으면 바로 팖)
+            </label>
+            <p className="help">끄면 종가로 확인해 다음 날 아침에 팝니다. 켜든 끄든 저녁 계산의 백테스트도 같은 규칙으로 계산합니다.</p>
             <div className="btns" style={{ marginTop: 12 }}>
               <button className="primary" disabled={!!busy || !form.strategy} onClick={() => act("save", () => post("/api/auto", { action: "save", ...form, budget: Number(form.budget) }), "저장했습니다. 보관함에서 전략을 고쳐도 여기서 다시 저장해야 운용에 반영됩니다.")}>{busy === "save" ? "저장 중…" : "저장"}</button>
               {st?.plan && <button disabled={!!busy} onClick={() => act("del", () => post("/api/auto", { action: "delete" }), "운용 전략을 지웠습니다.")}>운용 그만두기</button>}
             </div>
             {st && <p className="help">주문 계좌: {st.account === "real" ? "실전" : "모의투자"} · 손실 한도 {st.limit.maxLoss ? `-${st.limit.maxLoss}%` : "없음"}{st.account === "real" ? ` · 실전 운용 금액 상한 ${st.limit.realBudget ? won(st.limit.realBudget) : "없음"}` : ""} (<a href="/settings">설정</a>에서 계정별로 변경)</p>}
-            {st?.plan && <p className="help">지금 운용: <b>{st.plan.label}</b> · {won(st.plan.budget)} · {st.plan.startDate}부터 · {st.plan.enabled ? "켜짐" : "꺼짐"}</p>}
+            {st?.plan && <p className="help">지금 운용: <b>{st.plan.label}</b> · {won(st.plan.budget)} · {st.plan.startDate}부터 · {st.plan.enabled ? "켜짐" : "꺼짐"} · 장중 매도 {st.plan.intraday !== false ? "켜짐" : "꺼짐"}</p>}
           </div>
 
           <div className="card">
@@ -257,7 +265,7 @@ export default function AutoPage() {
                         <td style={{ color: it.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{it.side === "buy" ? "매수" : "매도"}</td>
                         <td>{it.name} <span className="help">{it.ticker}</span>{it.note ? <div className="help">{it.note}</div> : null}</td>
                         <td>{it.qty}주</td>
-                        <td>{({ waiting: "대기", placed: "주문됨", partial: "일부 체결", filled: "체결", cancelled: "취소", failed: "실패", skipped: "건너뜀" } as const)[it.status]}{it.error ? <div className="help">{it.error}</div> : null}</td>
+                        <td>{ST[it.status]}{it.error ? <div className="help">{it.error}</div> : null}</td>
                         <td>{it.filledQty > 0 ? `${it.filledQty}주 · ${won(it.avgPrice)}` : ""}</td>
                       </tr>
                     ))}</tbody>
@@ -268,10 +276,37 @@ export default function AutoPage() {
             ))}
           </div>
           <div className="card">
+            <h2>장중 실시간 매도</h2>
+            <p className="help" style={{ marginTop: 0 }}>평일 09:00~15:20 동안 15초마다 현재가를 보고, 어제 저녁 계산의 매도 가격에 닿으면 바로 시장가로 팝니다. 손절·익절은 그 종목 전부, 하락 매도는 정한 수량만 팝니다. 긴급 정지를 누르면 감시도 멈춥니다.</p>
+            {!st?.intradayDays?.length ? <p className="help">아직 장중 감시 기록이 없습니다.</p> : st.intradayDays.slice(0, 5).map((d) => (
+              <details key={d.date} open={d.date === st.today} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
+                <summary style={{ cursor: "pointer", fontSize: 13 }}><b>{d.date}</b> · {d.env === "real" ? "실전" : "모의"} · {d.done ? (d.reason ?? "끝남") : `감시 중 (가격 ${d.levels.length}개, 매도 ${d.sells.length}건)`}</summary>
+                {d.levels.length > 0 && (
+                  <div className="tablewrap" style={{ marginTop: 6 }}><table>
+                    <thead><tr><th>종목</th><th>매도 가격</th><th>수량</th><th>마지막 현재가</th><th>규칙</th></tr></thead>
+                    <tbody>{d.levels.map((l, i) => (
+                      <tr key={i}><td>{l.name}</td><td>{won(l.price)} {l.kind === "take_profit" ? "이상" : "이하"}</td><td>{l.qty ? `${l.qty}주` : "전부"}</td>
+                        <td>{d.last?.[l.ticker] ? `${won(d.last[l.ticker].price)} (${d.last[l.ticker].at})` : ""}</td><td>{l.label}</td></tr>
+                    ))}</tbody>
+                  </table></div>
+                )}
+                {d.sells.length > 0 && (
+                  <div className="tablewrap" style={{ marginTop: 6 }}><table>
+                    <thead><tr><th>시각</th><th>종목</th><th>닿은 가격</th><th>수량</th><th>상태</th><th>체결</th></tr></thead>
+                    <tbody>{d.sells.map((s, i) => (
+                      <tr key={i}><td>{s.at}</td><td>{s.name}<div className="help">{s.label}</div></td><td>{won(s.level)} (현재가 {won(s.seen)})</td><td>{s.qty}주</td>
+                        <td>{ST[s.status]}{s.error ? <div className="help">{s.error}</div> : null}</td><td>{s.filledQty > 0 ? `${s.filledQty}주 · ${won(s.avgPrice)}` : ""}</td></tr>
+                    ))}</tbody>
+                  </table></div>
+                )}
+                {d.log.length > 0 && <ul className="help" style={{ margin: "6px 0 0", paddingLeft: 18 }}>{d.log.slice(-8).map((l, i) => <li key={i}>{l}</li>)}</ul>}
+              </details>
+            ))}
+          </div>
+          <div className="card">
             <h2>지금 되는 것과 다음 단계</h2>
             <ul style={{ fontSize: 13, paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
-              <li>지금: 저녁 계산·알림, 아침 자동 주문(매도 먼저, 현금이 모자라면 매도 체결 뒤 매수), 체결 확인, 미체결 취소, 긴급 정지</li>
-              <li>다음: 장중 실시간 매도 (매도 기준 가격에 닿으면 바로 매도), 백테스트에도 같은 규칙</li>
+              <li>지금: 저녁 계산·알림, 아침 자동 주문(매도 먼저, 현금이 모자라면 매도 체결 뒤 매수), 체결 확인, 미체결 취소, 긴급 정지, 장중 실시간 매도(백테스트도 같은 규칙)</li>
               <li>그다음: 매일 계좌 기록·성과 비교, 실전 전환</li>
             </ul>
           </div>

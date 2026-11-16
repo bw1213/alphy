@@ -10,9 +10,11 @@
  *
  * 숫자는 모두 파라미터(p.xxx)라서 민감도 검사도 된다. 'Mode' 로 끝나는 파라미터는 선택지 번호라 민감도 검사에서 뺀다.
  * 신호는 매일 종가에 확인하고, 체결은 다음 거래일 시가(엔진 규칙).
+ * 장중 매도 모드(ctx.intraday)에서는 매도만 다르다: 장 마감 때 다음 날 매도 가격(최고가 × (1 − 하락%))을
+ * ctx.stops 에 걸어 두고, 장중에 그 가격에 닿으면 바로 판다. 다음 날 종가에 체결을 보고 단계를 넘긴다.
  */
 import type { StrategyContext } from "../engine/context";
-import { HOLD, type Weights } from "../engine/types";
+import { HOLD, type StopOrder, type Weights } from "../engine/types";
 
 export type Unit = "pct" | "won";
 export type BuyPeriod = "W" | "M" | "Q" | "days";
@@ -163,6 +165,8 @@ interface TickerState {
   pendingBuy?: { date: string; qty: number; cash: number; need: number; spent?: number };
   /** 1주 값이 안 돼서 아직 못 쓴 적립 금액 (다음 적립에 더해 1주 이상이 되면 삼) */
   carry?: number;
+  /** 장중 매도 모드: 걸어 둔 매도 가격의 기준 최고가 */
+  stopPeak?: number;
 }
 
 /** 결과 화면에서 "왜 거래가 없는지" 보여 주는 마지막 날 상태 */
@@ -269,19 +273,56 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     acted = true;
   };
 
+  /** 장중 매도 모드: 다음 날 장중 매도 가격을 걸어 둠 (첫 매도·추가 매도 단계들, 최대 5개) */
+  const sellAmount = amt(p.sellUnitMode, p.sellValue);
+  const levelAt = (peak: number, drop: number) => (p.dropUnitMode === 1 ? peak - drop : peak * (1 - drop / 100));
+  const setStops = (t: string, s: TickerState) => {
+    if (!ctx.intraday) return;
+    let left = ctx.positions[t] ?? 0;
+    // 오늘 종가로 팔기로 한 수량은 내일 시가에 이미 빠짐
+    if (t in out && out[t] !== HOLD && ctx.weight(t) > 0) left = Math.floor(left * Math.min(1, out[t] / ctx.weight(t)));
+    if (!(left > 0) || !(sellAmount > 0)) return;
+    const peak = s.phase === "buy" ? s.peakNow ?? ctx.close(t) : s.peak;
+    s.stopPeak = peak;
+    const list: StopOrder[] = [];
+    for (let k = s.phase === "buy" ? 0 : s.steps; list.length < 5 && left > 0; k++) {
+      if (k > 0 && (!(p.dropStep > 0) || (p.maxSteps && k > p.maxSteps))) break;
+      const below = levelAt(peak, p.dropValue + k * p.dropStep);
+      if (!(below > 0)) break;
+      const qty = Math.min(left, Math.ceil(sellAmount / below));
+      list.push({ below, qty, note: k === 0 ? `하락 매도 (장중, 최고가 대비 ${p.dropUnitMode === 1 ? `${Math.round(p.dropValue).toLocaleString("ko-KR")}원` : `${p.dropValue}%`})` : `추가 매도 ${k}단계 (장중)` });
+      left -= qty;
+    }
+    if (list.length) ctx.stops[t] = list;
+  };
+
   for (const t of ctx.tickers) {
     const c = ctx.close(t);
     if (!Number.isFinite(c) || c <= 0) continue;
     const s = (st[t] ??= { phase: "buy", start: ctx.i, peak: c, steps: 0, trough: c, troughAt: ctx.i, lastBuyKey: "", lastBuyAt: -1e9 });
     s.closeNow = c;
+    const fill = ctx.intraday ? ctx.filled[t] : undefined;
     // 어제 매수 신호를 냈는데 수량이 그대로면 (현금이 시가·비용에 모자라) 체결되지 않은 것 → 건너뛴 매수로 기록
     if (s.pendingBuy) {
       const pb = s.pendingBuy;
       s.pendingBuy = undefined;
-      if ((ctx.positions[t] ?? 0) <= pb.qty) {
+      if ((ctx.positions[t] ?? 0) + (fill?.qty ?? 0) <= pb.qty) {
         s.carry = Math.min((s.carry ?? 0) + (pb.spent ?? 0), Math.max(pb.need, c * 1.05)); // 못 쓴 돈은 다음 적립으로
         s.skipped = { count: (s.skipped?.reason === "cash" ? s.skipped.count : 0) + 1, since: s.skipped?.reason === "cash" ? s.skipped.since : pb.date, reason: "cash", cash: ctx.cash, need: pb.need };
       } else s.skipped = undefined;
+    }
+
+    // 장중 매도 모드: 오늘 장중에 걸어 둔 매도가 체결됐으면 단계만 넘김 (매도는 이미 됨)
+    if (fill && fill.n > 0) {
+      if (s.phase === "buy") {
+        s.skipped = undefined;
+        Object.assign(s, { phase: "sell", peak: s.stopPeak ?? s.peakNow ?? c, steps: fill.n, trough: c, troughAt: ctx.i });
+      } else {
+        s.steps += fill.n;
+        if (c < s.trough) { s.trough = c; s.troughAt = ctx.i; }
+      }
+      setStops(t, s);
+      continue;
     }
 
     if (s.phase === "buy") {
@@ -293,12 +334,14 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
         s.skipped = undefined;
         Object.assign(s, { phase: "sell", peak, steps: 1, trough: c, troughAt: ctx.i });
         sell(t, 1, `하락 매도 (최고가 대비 ${p.dropUnitMode === 1 ? `${Math.round(peak - c).toLocaleString("ko-KR")}원` : `${((1 - c / peak) * 100).toFixed(1)}%`})`);
+        setStops(t, s);
         continue;
       }
       const due = period === "days"
         ? ctx.i - s.lastBuyAt >= Math.max(1, p.buyDays)
         : periodKey(ctx.date, period) !== s.lastBuyKey;
       if (due) buy(t, c, s);
+      setStops(t, s);
       continue;
     }
 
@@ -308,7 +351,7 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
     while (p.dropStep > 0 && more < 100 && (!p.maxSteps || s.steps - 1 < p.maxSteps) && dropOf(s.peak, c) >= p.dropValue + s.steps * p.dropStep) {
       s.steps++; more++;
     }
-    if (more) { sell(t, more, `추가 매도 ${s.steps - 1}단계`); continue; }
+    if (more) { sell(t, more, `추가 매도 ${s.steps - 1}단계`); setStops(t, s); continue; }
     const okRebound = !p.rebound || (c / s.trough - 1) * 100 >= p.rebound;
     const okCalm = !p.calmDays || ctx.i - s.troughAt >= p.calmDays;
     const okMa = !p.stableMa || c > ctx.sma(t, p.stableMa);
@@ -316,6 +359,7 @@ export function cycle(ctx: StrategyContext, p: Record<string, number>): Weights 
       Object.assign(s, { phase: "buy", start: ctx.i, peak: c, steps: 0 });
       buy(t, c, s, "안정화 후 다시 적립");
     }
+    setStops(t, s);
   }
 
   // 리밸런싱: 정한 주기의 첫 거래일에 주식 비중이 상한을 넘었으면 종목별로 같은 비율만큼 줄임
