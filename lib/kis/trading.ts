@@ -128,3 +128,61 @@ export async function getBalance(client: KisClient): Promise<Balance> {
   }
   return parseBalance(client.env, rows, summary);
 }
+
+/** 매수가능조회 (주문은 내지 않음). 계좌 권한·주문 경로가 살아 있는지 확인용 */
+export async function getBuyable(client: KisClient, code: string, price = 0): Promise<{ cash: number; maxQty: number }> {
+  const { cano, acntPrdtCd } = client.cred;
+  if (!cano || !acntPrdtCd) throw new Error("계좌번호가 설정되지 않았습니다");
+  const { body } = await client.call({
+    method: "GET",
+    path: "/uapi/domestic-stock/v1/trading/inquire-psbl-order",
+    trId: client.env === "mock" ? "VTTC8908R" : "TTTC8908R",
+    query: {
+      CANO: cano, ACNT_PRDT_CD: acntPrdtCd, PDNO: code,
+      ORD_UNPR: price > 0 ? String(price) : "0", ORD_DVSN: price > 0 ? "00" : "01",
+      CMA_EVLU_AMT_ICLD_YN: "N", OVRS_ICLD_YN: "N",
+    },
+  });
+  const o = (body.output ?? {}) as Record<string, string>;
+  return { cash: num(o.ord_psbl_cash), maxQty: num(o.max_buy_qty || o.nrcvb_buy_qty) };
+}
+
+export interface OrderRecord {
+  date: string; time: string; orderNo: string; side: string; code: string; name: string;
+  qty: number; filledQty: number; price: number; avgPrice: number; remaining: number; cancelled: boolean;
+}
+
+/** 일별 주문·체결 내역 (기간은 YYYYMMDD, 최근 3개월 안) */
+export async function getOrders(client: KisClient, from: string, to: string): Promise<OrderRecord[]> {
+  const { cano, acntPrdtCd } = client.cred;
+  if (!cano || !acntPrdtCd) throw new Error("계좌번호가 설정되지 않았습니다");
+  const out: OrderRecord[] = [];
+  let fk = "", nk = "", trCont = "";
+  for (let page = 0; page < 10; page++) {
+    const r = await client.call({
+      method: "GET",
+      path: "/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+      trId: client.env === "mock" ? "VTTC0081R" : "TTTC0081R",
+      trCont,
+      query: {
+        CANO: cano, ACNT_PRDT_CD: acntPrdtCd, INQR_STRT_DT: from, INQR_END_DT: to,
+        SLL_BUY_DVSN_CD: "00", INQR_DVSN: "00", PDNO: "", CCLD_DVSN: "00", ORD_GNO_BRNO: "", ODNO: "",
+        INQR_DVSN_3: "00", INQR_DVSN_1: "", CTX_AREA_FK100: fk, CTX_AREA_NK100: nk,
+      },
+    });
+    for (const x of ((r.body.output1 as any[]) ?? [])) {
+      if (!x?.odno) continue;
+      out.push({
+        date: String(x.ord_dt ?? ""), time: String(x.ord_tmd ?? ""), orderNo: String(x.odno),
+        side: String(x.sll_buy_dvsn_cd_name ?? x.sll_buy_dvsn_cd ?? "").trim(), code: String(x.pdno ?? ""),
+        name: String(x.prdt_name ?? "").trim(), qty: num(x.ord_qty), filledQty: num(x.tot_ccld_qty),
+        price: num(x.ord_unpr), avgPrice: num(x.avg_prvs), remaining: num(x.rmn_qty), cancelled: x.cncl_yn === "Y",
+      });
+    }
+    if (r.trCont !== "M" && r.trCont !== "F") break;
+    fk = String(r.body.ctx_area_fk100 ?? "");
+    nk = String(r.body.ctx_area_nk100 ?? "");
+    trCont = "N";
+  }
+  return out;
+}
