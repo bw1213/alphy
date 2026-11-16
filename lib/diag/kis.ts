@@ -10,6 +10,7 @@ import { getClient, type KisClient } from "../kis/client";
 import { kisDaily, kisIndexDaily, kisQuote } from "../kis/market";
 import { getBalance, getBuyable, getOrders } from "../kis/trading";
 import { runtimeEnv } from "../settings/store";
+import { lookupCodes } from "../stocks/master";
 
 type Env = Record<string, string | undefined>;
 
@@ -52,7 +53,9 @@ export async function checkEnv(client: KisClient, cred: KisCredentials, opts: { 
     checks.push(await step("현재가 조회", "quote", async () => {
       const q = await kisQuote(client, code);
       if (!(q.price > 0)) throw new Error("현재가가 0 입니다 (응답 모양이 다를 수 있음)");
-      return { code, name: q.name ?? null, price: q.price, changeRate: q.changeRate };
+      let name = q.name ?? null;
+      if (!name) { try { name = lookupCodes([code])[0]?.name ?? null; } catch { /* 목록 없음 */ } }
+      return { code, name, price: q.price, changeRate: q.changeRate };
     }, now));
     checks.push(await step("일봉(기간별 시세) 조회", "daily", async () => {
       const bars = await kisDaily(client, code, monthAgo, today);
