@@ -5,6 +5,7 @@ import type { Balance, OrderResult, OrderType, Side } from "@/lib/kis/trading";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import RebalancePlan from "@/components/RebalancePlan";
 import { StockSearch } from "@/components/StockSearch";
+import { useShowMore } from "@/components/ShowMore";
 
 interface Status {
   quotes: "real" | "mock" | null;
@@ -27,6 +28,7 @@ export default function TradePage() {
   const [quote, setQuote] = useState<{ name?: string; price: number; changeRate: number } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const logRows = useShowMore(log);
 
   useEffect(() => {
     try { localStorage.removeItem("kbt.trade-token"); } catch { /* 예전 버전이 저장한 비밀번호 정리 */ }
@@ -174,7 +176,8 @@ export default function TradePage() {
           {log.length > 0 && (
             <div className="card">
               <h2>이번 세션 주문 기록</h2>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>{log.map((l, i) => <li key={i}>{l}</li>)}</ul>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13 }}>{logRows.shown.map((l, i) => <li key={i}>{l}</li>)}</ul>
+              {logRows.more}
             </div>
           )}
         </section>
