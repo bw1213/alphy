@@ -62,7 +62,13 @@ export interface EveningReport {
   equity?: number;
   cash?: number;
   /** 손실 한도에 닿음 → 자동 매매를 멈춤 */
-  lossStop?: { loss: number; limit: number };
+  lossStop?: { loss: number; limit: number; basis?: "account" | "backtest" };
+  /** 실제 계좌 총평가액·예수금·주식 평가액 (계좌를 읽었을 때) */
+  accountTotal?: number;
+  accountCash?: number;
+  accountStock?: number;
+  /** 실제 계좌 기준 자동 매매 손익 (총평가액 − 운용 시작 때 평가액) */
+  accountPnl?: number;
   /** 전략이 오늘 아무것도 안 하기로 함 */
   kept?: boolean;
   orders: AutoOrder[];
@@ -106,7 +112,9 @@ export function preparePlan(plan: AutoPlan): Prepared {
 export interface EveningDeps {
   load?: (q: DataRequest) => Promise<DataResponse>;
   /** 실제 계좌 보유 (못 읽으면 throw) */
-  holdings?: () => Promise<{ env: "real" | "mock"; holdings: Holding[] }>;
+  holdings?: () => Promise<{ env: "real" | "mock"; holdings: Holding[]; total?: number; cash?: number; stock?: number }>;
+  /** 운용을 시작한 날의 계좌 총평가액. 주면 손실 한도를 실제 계좌 손익으로 봄 (없거나 계좌를 못 읽으면 백테스트 평가액으로) */
+  accountBase?: number;
   now?: number;
   env?: Env;
   /** 손실 한도 % (운용 금액 대비). 0 이면 안 봄 */
@@ -155,11 +163,6 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const E = last?.equity ?? plan.budget;
   r.equity = Math.round(E);
   r.cash = Math.round(last?.cash ?? plan.budget);
-  const loss = (1 - E / plan.budget) * 100;
-  if (deps.maxLoss && deps.maxLoss > 0 && loss >= deps.maxLoss) {
-    r.lossStop = { loss, limit: deps.maxLoss };
-    r.warnings.unshift(`운용 금액 대비 ${loss.toFixed(1)}% 손실로 손실 한도(${deps.maxLoss}%)에 닿아 자동 매매를 멈춥니다. 다시 켜려면 자동 매매 화면에서 켜고 저장하세요.`);
-  }
   const name = (t: string) => d.names[t] ?? t;
   const close = (t: string) => { const b = d.data[t]; return b?.length ? b[b.length - 1].close : NaN; };
   const btQty = new Map(res.finalPositions.map((x) => [x.ticker, x.qty]));
@@ -171,11 +174,22 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const h = await deps.holdings();
       real = new Map(h.holdings.map((x) => [x.code, x.qty]));
       r.holdingsFrom = "account"; r.account = h.env;
+      if (h.total != null) {
+        r.accountTotal = Math.round(h.total); r.accountCash = Math.round(h.cash ?? 0); r.accountStock = Math.round(h.stock ?? 0);
+        if (deps.accountBase != null) r.accountPnl = Math.round(h.total - deps.accountBase);
+      }
     } catch (e) {
       r.warnings.push(`계좌 잔고를 읽지 못해 백테스트상 보유 수량으로 계산했습니다: ${(e as Error).message}`);
     }
   }
   if (!real) r.holdingsFrom = "backtest";
+  // 손실 한도: 실제 계좌 손익이 있으면 그걸로, 없으면 백테스트 평가액으로
+  const basis = r.accountPnl != null ? "account" as const : "backtest" as const;
+  const loss = basis === "account" ? (-r.accountPnl! / plan.budget) * 100 : (1 - E / plan.budget) * 100;
+  if (deps.maxLoss && deps.maxLoss > 0 && loss >= deps.maxLoss) {
+    r.lossStop = { loss, limit: deps.maxLoss, basis };
+    r.warnings.unshift(`운용 금액 대비 ${loss.toFixed(1)}% 손실(${basis === "account" ? "실제 계좌" : "전략 계산"} 기준)로 손실 한도(${deps.maxLoss}%)에 닿아 자동 매매를 멈춥니다. 다시 켜려면 자동 매매 화면에서 켜고 저장하세요.`);
+  }
   const curQty = (t: string) => (real ? real.get(t) ?? 0 : btQty.get(t) ?? 0);
 
   // 1) 내일 주문: 전략이 비중을 바꾸기로 한 종목만 (그대로 두는 종목은 건드리지 않음)
@@ -247,6 +261,7 @@ export function formatReport(r: EveningReport): string {
   const lines = [head];
   if (r.lossStop) lines.push(`!! 손실 한도 도달: 운용 금액 대비 -${r.lossStop.loss.toFixed(1)}% (한도 -${r.lossStop.limit}%). 자동 매매를 멈췄습니다.`);
   if (r.equity != null) lines.push(`전략 평가액 ${won(r.equity)} (현금 ${won(r.cash ?? 0)})`);
+  if (r.accountPnl != null) lines.push(`실제 계좌 손익 ${r.accountPnl >= 0 ? "+" : "-"}${won(Math.abs(r.accountPnl))} (계좌 총평가액 ${won(r.accountTotal ?? 0)})`);
   if (!r.orders.length) lines.push(r.kept ? "내일 주문: 없음 (보유 유지)" : "내일 주문: 없음");
   else {
     lines.push(`내일 아침 주문 ${r.orders.length}건:`);

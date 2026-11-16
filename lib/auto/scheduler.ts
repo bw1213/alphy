@@ -20,7 +20,9 @@ import { tradeCredentialsFor } from "../kis/access";
 import { getBalance } from "../kis/trading";
 import { formatReport, runEvening, type EveningReport } from "./evening";
 import { appendLog, loadPlan, savePlan } from "./store";
-import { autoLimitFor } from "../kis/userkeys";
+import { autoLimitFor, kisEnvFor } from "../kis/userkeys";
+import { tradeEnv } from "../kis/config";
+import { addPoint, loadPerf, perfFor, savePerf } from "./perf";
 import { notify } from "./telegram";
 import { cleanHm, isWeekday, kst } from "./time";
 import { formatDay, loadDay, morningFollow, morningStart, saveDay, type MorningLimits } from "./morning";
@@ -166,7 +168,7 @@ export function eveningDue(now: number, st: SchedState, time: string): boolean {
 /** 계좌 보유 읽기 (그 사람의 주문용 앱키·계좌) */
 export const accountHoldings = (u: User) => async () => {
   const b = await getBalance(getClient(tradeCredentialsFor(u)));
-  return { env: b.env, holdings: b.holdings };
+  return { env: b.env, holdings: b.holdings, total: b.totalValue, cash: b.cash, stock: b.stockValue };
 };
 
 /** 한 사람의 저녁 계산 + 기록 + 알림 */
@@ -175,8 +177,14 @@ export async function eveningFor(u: User, trigger: EveningReport["trigger"], opt
   const plan = loadPlan(u.id, e);
   if (!plan) return null;
   if (trigger === "schedule" && !plan.enabled) return null;
-  const r = await runEvening(plan, trigger, { holdings: accountHoldings(u), env: e, maxLoss: autoLimitFor(u.id, e).maxLoss });
+  const perf = perfFor(loadPerf(u.id, e), plan, tradeEnv(kisEnvFor(u, e)));
+  const r = await runEvening(plan, trigger, { holdings: accountHoldings(u), env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base?.total });
   appendLog(r, u.id, e);
+  // 매일 성과 기록: 계좌 평가액과 전략 평가액 (첫날의 계좌 평가액이 기준이 됨)
+  if (r.status === "ok" && r.equity != null) {
+    try { savePerf(addPoint(perf, { date: r.runDate, total: r.accountTotal, cash: r.accountCash, stock: r.accountStock, strategy: r.equity }), u.id, e); }
+    catch (err) { console.error(`[auto] ${u.id} 성과 기록 실패: ${(err as Error).message}`); }
+  }
   // 손실 한도에 닿으면 운용을 끔 (다시 켜는 건 사람이)
   if (r.lossStop && plan.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, u.id, e);
   // 휴장일은 조용히 넘어감 (기록만)

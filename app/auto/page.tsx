@@ -8,6 +8,7 @@ import type { SavedStrategy } from "@/lib/strategies/library";
 import type { EveningReport } from "@/lib/auto/evening";
 import type { MorningDay } from "@/lib/auto/morning";
 import type { IntradayDay } from "@/lib/auto/intraday";
+import type { PerfPoint, PerfSummary } from "@/lib/auto/perf";
 
 interface PlanView {
   label: string; kind: "builtin" | "cycle" | "builder" | "custom"; strategyName: string | null; builtin: string | null;
@@ -18,6 +19,8 @@ interface AutoState {
   lastEvening: { date: string; attempts: number; done: boolean } | null;
   limit: { realBudget: number; maxLoss: number }; account: "real" | "mock";
   times: { morning: string; cutoff: string }; days: MorningDay[]; intradayDays?: IntradayDay[];
+  perf: { base: { date: string; total: number } | null; budget: number; env: "real" | "mock"; points: PerfPoint[]; summary: PerfSummary | null } | null;
+  real: { confirmedAt: string | null; lock: string | null; mockDays: number; telegram: boolean };
 }
 const ST = { waiting: "대기", placed: "주문됨", partial: "일부 체결", filled: "체결", cancelled: "취소", failed: "실패", skipped: "건너뜀" } as const;
 interface TgState { botSet: boolean; bot: string | null; owner: boolean; linked: boolean; chatName: string | null; code: string | null }
@@ -29,6 +32,41 @@ async function post(url: string, body: unknown) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
   return j;
+}
+
+const signed = (n: number) => `${n >= 0 ? "+" : "-"}${won(Math.abs(n))}`;
+const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+
+/** 계좌 손익과 전략 손익(운용 금액 대비 %)을 한 그림에 */
+function PerfChart({ points, budget }: { points: PerfPoint[]; budget: number }) {
+  if (points.length < 2) return null;
+  const W = 640, H = 180, L = 44, R = 8, T = 8, B = 20;
+  const a = points.map((p) => (p.pnl == null ? null : (p.pnl / budget) * 100));
+  const s = points.map((p) => ((p.strategy - budget) / budget) * 100);
+  const all = [...s, ...a.filter((x): x is number => x != null), 0];
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1) { hi += 0.5; lo -= 0.5; }
+  const x = (i: number) => L + (i / (points.length - 1)) * (W - L - R);
+  const y = (v: number) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const line = (vals: (number | null)[]) => vals.map((v, i) => (v == null ? "" : `${i === 0 || vals[i - 1] == null ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`)).join(" ");
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }} role="img" aria-label="계좌 손익과 전략 손익 추이">
+        {[lo, 0, hi].map((v, i) => (
+          <g key={i}><line x1={L} x2={W - R} y1={y(v)} y2={y(v)} stroke="var(--grid, #ddd)" strokeDasharray={v === 0 ? "" : "3 3"} />
+            <text x={L - 6} y={y(v) + 4} textAnchor="end" fontSize="11" fill="currentColor" opacity="0.6">{v.toFixed(1)}%</text></g>
+        ))}
+        <text x={L} y={H - 4} fontSize="11" fill="currentColor" opacity="0.6">{points[0].date}</text>
+        <text x={W - R} y={H - 4} textAnchor="end" fontSize="11" fill="currentColor" opacity="0.6">{points.at(-1)!.date}</text>
+        <path d={line(s)} fill="none" stroke="var(--series-2, #d95926)" strokeWidth="2" />
+        <path d={line(a)} fill="none" stroke="var(--series-1, #2a78d6)" strokeWidth="2" />
+      </svg>
+      <div className="help" style={{ display: "flex", gap: 14 }}>
+        <span><span style={{ display: "inline-block", width: 14, height: 2, background: "var(--series-1, #2a78d6)", verticalAlign: "middle", marginRight: 4 }} />실제 계좌</span>
+        <span><span style={{ display: "inline-block", width: 14, height: 2, background: "var(--series-2, #d95926)", verticalAlign: "middle", marginRight: 4 }} />전략 계산(백테스트)</span>
+      </div>
+    </div>
+  );
 }
 
 function Report({ r }: { r: EveningReport }) {
@@ -85,6 +123,7 @@ export default function AutoPage() {
   const [time, setTime] = useState("");
   const [mt, setMt] = useState({ morning: "", cutoff: "" });
   const [stopAsk, setStopAsk] = useState(false);
+  const [realPw, setRealPw] = useState("");
   const [sendTg, setSendTg] = useState(false);
   const [open, setOpen] = useState(0);
 
@@ -276,6 +315,57 @@ export default function AutoPage() {
             ))}
           </div>
           <div className="card">
+            <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>성과: 실제 계좌와 전략 비교
+              {st?.perf?.base && <span style={{ marginLeft: "auto" }}><button disabled={!!busy} title="입금·출금을 했을 때 누르세요" onClick={() => act("rebase", () => post("/api/auto", { action: "rebase" }), "지금 계좌 평가액에 맞춰 기준을 다시 잡았습니다. 지금까지의 손익은 그대로입니다.")}>기준 다시 잡기</button></span>}
+            </h2>
+            {!st?.perf?.summary ? <p className="help">아직 기록이 없습니다. 저녁 계산을 할 때마다 계좌 총평가액과 전략 평가액을 하루 한 줄씩 남깁니다.</p> : (
+              <div style={{ display: "grid", gap: 10 }}>
+                <div className="kpis">
+                  <div className="kpi"><div className="k">실제 계좌 손익</div><div className="v">{st.perf.summary.pnl != null ? signed(st.perf.summary.pnl) : "기록 없음"}</div><div className="s">{st.perf.summary.pnlPct != null ? `운용 금액 대비 ${pct(st.perf.summary.pnlPct)}` : "계좌를 읽지 못했습니다"}</div></div>
+                  <div className="kpi"><div className="k">전략 계산 손익</div><div className="v">{signed(st.perf.summary.strategyPnl)}</div><div className="s">운용 금액 대비 {pct(st.perf.summary.strategyPct)}</div></div>
+                  <div className="kpi"><div className="k">차이 (계좌 − 전략)</div><div className="v">{st.perf.summary.gap != null ? `${st.perf.summary.gap >= 0 ? "+" : ""}${st.perf.summary.gap.toFixed(2)}%p` : "-"}</div><div className="s">{st.perf.summary.days}일 기록 · {st.perf.env === "real" ? "실전" : "모의투자"}</div></div>
+                </div>
+                <PerfChart points={st.perf.points} budget={st.perf.budget} />
+                <details>
+                  <summary style={{ cursor: "pointer", fontSize: 13 }}>날짜별 기록</summary>
+                  <div className="tablewrap" style={{ marginTop: 6 }}><table>
+                    <thead><tr><th>날짜</th><th>계좌 총평가액</th><th>계좌 손익</th><th>전략 평가액</th><th>전략 손익</th></tr></thead>
+                    <tbody>{st.perf.points.slice(-20).reverse().map((p) => (
+                      <tr key={p.date}><td>{p.date}</td><td>{p.total != null ? won(p.total) : "못 읽음"}</td><td>{p.pnl != null ? signed(p.pnl) : ""}</td><td>{won(p.strategy)}</td><td>{signed(p.strategy - st.perf!.budget)}</td></tr>
+                    ))}</tbody>
+                  </table></div>
+                </details>
+                <p className="help">계좌 손익은 운용을 시작한 날 저녁의 계좌 총평가액({st.perf.base ? `${st.perf.base.date} ${won(st.perf.base.total)}` : "아직 없음"})에서 얼마나 늘거나 줄었는지입니다. 계좌에 돈을 넣거나 빼면 그만큼 틀어지니 그때는 &quot;기준 다시 잡기&quot;를 누르세요. 손실 한도({st.limit.maxLoss ? `-${st.limit.maxLoss}%` : "없음"})는 이 계좌 손익으로 봅니다.</p>
+              </div>
+            )}
+          </div>
+          <div className="card">
+            <h2>실전 전환</h2>
+            {!st ? <p className="help">확인 중…</p> : (
+              <>
+                <p className="help" style={{ marginTop: 0 }}>주문 계좌를 실전으로 바꿔도, 여기서 확인하기 전에는 계산·알림만 하고 자동 주문은 내지 않습니다. 전략·종목을 바꾸거나 운용 금액을 올리면 다시 확인해야 합니다.</p>
+                <ul style={{ fontSize: 13, paddingLeft: 18, margin: "0 0 10px", lineHeight: 1.8 }}>
+                  <li>{st.account === "real" ? "✓" : "○"} 주문 계좌: {st.account === "real" ? "실전" : <>모의투자 (<a href="/settings">설정</a>에서 주문 대상을 실전으로)</>}</li>
+                  <li>{st.account === "real" && !st.real.lock ? "✓" : "○"} 실전 주문 잠금: {st.account !== "real" ? "주문 계좌를 실전으로 바꾸면 확인합니다" : st.real.lock ?? "풀려 있음"}</li>
+                  <li>{st.real.mockDays >= 5 ? "✓" : "○"} 모의투자로 자동 주문이 체결된 날: {st.real.mockDays}일 (5일 이상 권장)</li>
+                  <li>{st.real.telegram ? "✓" : "○"} 텔레그램 알림: {st.real.telegram ? "연결됨" : "연결 안 됨 (권장)"}</li>
+                  <li>{st.limit.realBudget > 0 && st.limit.maxLoss > 0 ? "✓" : "○"} 한도: 실전 운용 금액 상한 {st.limit.realBudget ? won(st.limit.realBudget) : "없음"}, 손실 한도 {st.limit.maxLoss ? `-${st.limit.maxLoss}%` : "없음"}</li>
+                </ul>
+                {st.real.confirmedAt ? (
+                  <div className="btns">
+                    <span style={{ fontSize: 13 }}>확인됨 ({new Date(st.real.confirmedAt).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })}){st.account === "real" ? " · 실전 계좌로 자동 주문합니다" : ""}</span>
+                    <button disabled={!!busy} onClick={() => act("real", () => post("/api/auto", { action: "real", on: false }), "실전 전환 확인을 취소했습니다. 실전 계좌로는 자동 주문하지 않습니다.")}>확인 취소</button>
+                  </div>
+                ) : (
+                  <div className="row">
+                    <label className="f">로그인 비밀번호<input type="password" autoComplete="current-password" value={realPw} onChange={(e) => setRealPw(e.target.value)} /></label>
+                    <label className="f">&nbsp;<button disabled={!!busy || !realPw || !st.plan || st.account !== "real" || !!st.real.lock} onClick={() => act("real", () => post("/api/auto", { action: "real", on: true, password: realPw }), "실전 전환을 확인했습니다. 다음 거래일 아침부터 실전 계좌로 자동 주문합니다.").then(() => setRealPw(""))}>실전 자동 매매 확인</button></label>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div className="card">
             <h2>장중 실시간 매도</h2>
             <p className="help" style={{ marginTop: 0 }}>평일 09:00~15:20 동안 15초마다 현재가를 보고, 어제 저녁 계산의 매도 가격에 닿으면 바로 시장가로 팝니다. 손절·익절은 그 종목 전부, 하락 매도는 정한 수량만 팝니다. 긴급 정지를 누르면 감시도 멈춥니다.</p>
             {!st?.intradayDays?.length ? <p className="help">아직 장중 감시 기록이 없습니다.</p> : st.intradayDays.slice(0, 5).map((d) => (
@@ -307,7 +397,8 @@ export default function AutoPage() {
             <h2>지금 되는 것과 다음 단계</h2>
             <ul style={{ fontSize: 13, paddingLeft: 18, margin: 0, lineHeight: 1.8 }}>
               <li>지금: 저녁 계산·알림, 아침 자동 주문(매도 먼저, 현금이 모자라면 매도 체결 뒤 매수), 체결 확인, 미체결 취소, 긴급 정지, 장중 실시간 매도(백테스트도 같은 규칙)</li>
-              <li>그다음: 매일 계좌 기록·성과 비교, 실전 전환</li>
+              <li>지금: 매일 계좌 기록·전략과 성과 비교, 실제 계좌 기준 손실 한도, 실전 전환 확인</li>
+              <li>다음: 미국 주식 자동 주문</li>
             </ul>
           </div>
         </section>

@@ -35,8 +35,23 @@ export interface AutoPlan {
    * 끄면 종가로 확인해 다음 날 아침에 판다. 없으면 켬
    */
   intraday?: boolean;
+  /**
+   * 실전 전환 확인 시각. 주문 계좌가 실전이어도 이 확인이 없으면 자동 주문을 내지 않는다 (계산·알림만).
+   * 전략·종목을 바꾸거나 운용 금액을 올리면 지워져 다시 확인해야 함
+   */
+  realConfirmedAt?: string;
   updatedAt: string;
 }
+
+/** 운용을 다시 저장할 때 실전 전환 확인을 이어 갈지: 전략·종목이 같고 운용 금액이 늘지 않았을 때만 */
+export function keepRealConfirm(prev: AutoPlan | null, next: AutoPlan): AutoPlan {
+  if (!prev?.realConfirmedAt) return next;
+  const same = prev.label === next.label && prev.tickers.join(",") === next.tickers.join(",") && next.budget <= prev.budget
+    && JSON.stringify(prev.strategy ?? prev.builtin) === JSON.stringify(next.strategy ?? next.builtin);
+  return same ? { ...next, realConfirmedAt: prev.realConfirmedAt } : next;
+}
+
+export const REAL_NOT_CONFIRMED = "주문 계좌가 실전인데 실전 전환을 아직 확인하지 않아 주문하지 않습니다. 자동 매매 화면의 \"실전 전환\"에서 확인하세요.";
 
 /** 장중 실시간 매도를 쓰는지 (예전 저장본엔 값이 없음 → 켬) */
 export const intradayOn = (p: Pick<AutoPlan, "intraday">) => p.intraday !== false;

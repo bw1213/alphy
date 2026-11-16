@@ -6,7 +6,7 @@ import { parseDayOrders, type DayOrder } from "@/lib/kis/orders";
 
 const at = (date: string, hm: string) => Date.parse(`${date}T${hm}:00+09:00`);
 const TODAY = "2026-11-17";
-const plan: AutoPlan = { builtin: "momentum", label: "모멘텀", tickers: [], budget: 3_000_000, startDate: "2026-11-01", enabled: true, updatedAt: "2026-11-10T00:00:00Z" };
+const plan: AutoPlan = { builtin: "momentum", label: "모멘텀", tickers: [], budget: 3_000_000, startDate: "2026-11-01", enabled: true, updatedAt: "2026-11-10T00:00:00Z", realConfirmedAt: "2026-11-10T00:00:00Z" };
 const report = (orders: EveningReport["orders"], over: Partial<EveningReport> = {}): EveningReport => ({
   runDate: "2026-11-16", ranAt: "2026-11-16T09:00:00Z", trigger: "schedule", status: "ok", label: "모멘텀", orders, sellLevels: [], warnings: [], ...over,
 });
