@@ -7,6 +7,7 @@
  * - 저장된 코드(직접 작성 전략)를 서버에서 실행하지 않음. 서버에서 돌리는 건 기본 전략, 조건 고르기·적립 분할 매도 화면 전략처럼
  *   앱이 직접 만든 코드뿐 (브라우저 밖에서 남의 코드가 실행되면 서버의 비밀값에 닿을 수 있으므로).
  * - 시세는 네이버·CSV·가상 데이터만 (한국투자증권 시세는 내 앱키 호출 한도를 쓰므로 제외).
+ *   한국투자증권 연결 자체는 /api/diag/kis (lib/diag/kis.ts) 에서 몇 건만 불러 확인.
  */
 import fs from "fs";
 import path from "path";
@@ -23,6 +24,9 @@ import { cycle, cycleParams, cycleStatus, cycleWarmup, normalizeCycleSpec } from
 import { compileStrategy, STRATEGIES, type Params } from "../strategies";
 import { loadStrategies, type SavedStrategy } from "../strategies/library";
 import { passwordConfigured, totpEnabled } from "../settings/auth";
+import { listInvites, listUsers } from "../settings/users";
+import { OWNER_ID } from "../settings/userdir";
+import { dataGate } from "../server/limiter";
 import { configDir, envPassword, loadSettings, runtimeEnv } from "../settings/store";
 
 type Env = Record<string, string | undefined>;
@@ -66,6 +70,19 @@ function cacheSummary(root = path.join(process.cwd(), ".cache"), conf = configDi
   return out;
 }
 
+/** 계정 요약: 아이디·이름 없이 숫자만 */
+export function usersSummary(e: Env = process.env) {
+  const list = listUsers(e);
+  return {
+    total: list.length,
+    admins: list.filter((u) => u.role === "admin").length,
+    disabled: list.filter((u) => u.disabled).length,
+    totpEnabled: list.filter((u) => u.totpSecret).length,
+    realOrdersAllowed: list.filter((u) => u.id !== OWNER_ID && u.realOrders).length,
+    pendingInvites: listInvites(e).length,
+  };
+}
+
 /** GET /api/diag : 버전·실행 상태·설정 요약·저장된 전략·캐시 */
 export function overview(e: Env = process.env) {
   const s = loadSettings(e);
@@ -93,6 +110,9 @@ export function overview(e: Env = process.env) {
       ...(x.cycle ? { cycle: x.cycle } : {}), ...(x.builder ? { builder: x.builder } : {}),
       runnableOnServer: kindOf(x) !== "custom",
     })),
+    // 다른 사람의 전략·설정 내용은 내보내지 않고 사람 수만 (위 strategies 는 owner 것)
+    users: usersSummary(e),
+    load: dataGate.stats(),
     builtinStrategies: STRATEGIES.map((x) => x.id),
     cache: cacheSummary(),
   };

@@ -23,18 +23,21 @@ import type { LastState } from "@/lib/strategies/lastState";
 import FinderResults from "@/components/FinderResults";
 import { buildCandidates, maxWarmup, type Candidate } from "@/lib/finder/candidates";
 import { evaluate, OBJECTIVES, type FinderReport, type Objective } from "@/lib/finder/search";
-const LS_KEY = "kbt.custom-strategies";
-const LAST_KEY = "alphy.last-state";
+import { userKey } from "@/lib/client/userStorage";
+import { fetchData } from "@/lib/client/fetchData";
+// 브라우저 저장 이름은 사람마다 다름 (같은 기기를 여럿이 써도 섞이지 않게)
+const lsKey = () => userKey("kbt.custom-strategies");
+const lastKey = () => userKey("alphy.last-state");
 
 const today = () => new Date().toISOString().slice(0, 10);
 const minusDays = (d: string, n: number) => new Date(Date.parse(d) - n * 864e5).toISOString().slice(0, 10);
 const toFrac = (s: string) => (s.trim() === "" ? null : Number(s) / 100);
 
 function loadSaved(): SavedStrategy[] {
-  try { return JSON.parse(localStorage.getItem(LS_KEY) ?? "[]"); } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(lsKey()) ?? "[]"); } catch { return []; }
 }
 function storeSaved(list: SavedStrategy[]) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch { /* 저장 불가 환경 */ }
+  try { localStorage.setItem(lsKey(), JSON.stringify(list)); } catch { /* 저장 불가 환경 */ }
 }
 
 export default function Page() {
@@ -136,7 +139,7 @@ export default function Page() {
   /** 불러온 직후 한 번은 저장하지 않음 (불러온 값을 그대로 다시 쓰지 않게) */
   const skipSave = useRef(false);
   const getJson = (url: string) => fetch(url, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const readLocal = (): LastState | null => { try { return JSON.parse(localStorage.getItem(LAST_KEY) ?? "null"); } catch { return null; } };
+  const readLocal = (): LastState | null => { try { return JSON.parse(localStorage.getItem(lastKey()) ?? "null"); } catch { return null; } };
   const newer = (a: LastState | null, b: LastState | null) => {
     const ok = (x: LastState | null) => (x && typeof x === "object" && x.sid ? x : null);
     const x = ok(a), y = ok(b);
@@ -201,13 +204,13 @@ export default function Page() {
     const savedAt = new Date().toISOString();
     lastSavedAt.current = savedAt;
     const body = JSON.stringify({ ...snapRef.current, savedAt });
-    try { localStorage.setItem(LAST_KEY, body); } catch { /* 저장 불가 환경 */ }
+    try { localStorage.setItem(lastKey(), body); } catch { /* 저장 불가 환경 */ }
     fetch("/api/last-state", { method: "PUT", headers: { "Content-Type": "application/json" }, body, keepalive: keepalive && body.length < 60_000 })
       .then((r) => (r.ok ? r.json() : null)).then((j) => {
         // 서버 시각으로 맞춰 둠 (기기마다 시계가 조금씩 달라도 비교가 맞게)
         if (!j?.savedAt || lastSavedAt.current !== savedAt) return;
         lastSavedAt.current = j.savedAt;
-        try { localStorage.setItem(LAST_KEY, JSON.stringify({ ...JSON.parse(body), savedAt: j.savedAt })); } catch { /* 무시 */ }
+        try { localStorage.setItem(lastKey(), JSON.stringify({ ...JSON.parse(body), savedAt: j.savedAt })); } catch { /* 무시 */ }
       })
       .catch(() => { lastBody.current = ""; /* 다음 변경 때 다시 */ });
   };
@@ -234,7 +237,7 @@ export default function Page() {
   }, [restored]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetLast = async () => {
-    try { localStorage.removeItem(LAST_KEY); } catch { /* 무시 */ }
+    try { localStorage.removeItem(lastKey()); } catch { /* 무시 */ }
     setRestored(false); // 지우는 동안 다시 저장되지 않게
     await fetch("/api/last-state", { method: "DELETE" }).catch(() => null);
     location.reload();
@@ -313,10 +316,8 @@ export default function Page() {
     let data = dataCache.current.get(key);
     if (!data) {
       setBusy(source === "naver" || source === "kis" ? "시세 데이터를 받는 중입니다 (처음 한 번은 몇 분 걸릴 수 있어요)" : "데이터 준비 중");
-      const r = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-      data = j as DataResponse;
+      const label = source === "naver" || source === "kis" ? "시세 데이터를 받는 중입니다" : "데이터 준비 중";
+      data = await fetchData(req, (p) => setBusy(`${label} (${p.done}/${p.total}종목, 처음 한 번은 몇 분 걸릴 수 있어요)`));
       dataCache.current.set(key, data);
     }
     setWarnings([...data.warnings, ...staleWarnings(data, end)]);

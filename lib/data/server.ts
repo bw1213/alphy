@@ -197,7 +197,13 @@ function parseCsv(text: string): Bar[] {
 const clip = (bars: Bar[], s: string, e: string) => bars.filter((b) => b.date >= s && b.date <= e);
 
 /** kisCred: 한국투자증권 시세에 쓸 키 (안 주면 owner 것). 로그인한 사람의 키를 넘김 */
-export async function loadData(req: DataRequest, opts: { kisCred?: KisCredentials | null } = {}): Promise<DataResponse> {
+export interface LoadOptions {
+  kisCred?: KisCredentials | null;
+  /** 종목 시세를 하나 받을 때마다 (받은 수, 전체 수) */
+  onProgress?: (done: number, total: number) => void;
+}
+
+export async function loadData(req: DataRequest, opts: LoadOptions = {}): Promise<DataResponse> {
   const out = await loadPrices(req, opts);
   if (req.dividends === false || req.source === "synthetic") return out;
   try {
@@ -263,7 +269,7 @@ async function csvDividends(codes: string[]): Promise<DividendData> {
   return Object.fromEntries(codes.filter((c) => all[c]?.length).map((c) => [c, all[c]]));
 }
 
-async function loadPrices(req: DataRequest, opts: { kisCred?: KisCredentials | null } = {}): Promise<DataResponse> {
+async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<DataResponse> {
   const warnings: string[] = [];
   if (req.source === "synthetic") {
     const n = req.tickers?.length || req.universeSize || 50;
@@ -331,15 +337,19 @@ async function loadPrices(req: DataRequest, opts: { kisCred?: KisCredentials | n
   let fromKrx = 0;
   // 미국 종목은 데이터 소스와 상관없이 야후 파이낸스 시세(달러) → 아래에서 원화로 환산
   const usCodes = list.filter((s) => isUsTicker(s.code)).map((s) => s.code);
+  let got = 0;
+  opts.onProgress?.(0, list.length);
   const results = await pool(list, 6, async (s) => {
-    if (isUsTicker(s.code)) return await cachedDaily(s.code, req.start, "yahoo", fetchYahooDaily);
-    try { return await cachedDaily(s.code, req.start, src, fetcher); }
-    catch (e) {
-      if (!isin.get(s.code)) throw e;
-      const bars = await cachedDaily(s.code, req.start, "krx", krxFetcher(s.code));
-      fromKrx++;
-      return bars;
-    }
+    try {
+      if (isUsTicker(s.code)) return await cachedDaily(s.code, req.start, "yahoo", fetchYahooDaily);
+      try { return await cachedDaily(s.code, req.start, src, fetcher); }
+      catch (e) {
+        if (!isin.get(s.code)) throw e;
+        const bars = await cachedDaily(s.code, req.start, "krx", krxFetcher(s.code));
+        fromKrx++;
+        return bars;
+      }
+    } finally { opts.onProgress?.(++got, list.length); }
   });
   let fx: { date: string; close: number }[] | undefined;
   if (usCodes.length) {
