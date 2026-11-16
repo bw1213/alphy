@@ -132,6 +132,9 @@ DSM → **제어판 → 보안 → 방화벽** → 방화벽 활성화 → 프�
 - 휴대폰을 잃어버렸으면 File Station 으로 `docker/alphy/nas/cache/config` 에 빈 `disable-2fa.txt` 파일을 올리면 2단계 인증이 꺼집니다. 로그인 후 다시 켜세요
 - GitHub 계정(bw1213)에 2단계 인증 필수: main 에 들어간 코드는 Watchtower 가 NAS 에 자동으로 깔기 때문에 GitHub 계정이 곧 NAS 의 열쇠입니다
 - `docker/alphy/nas/cache/config` 폴더는 Hyper Backup 등으로 백업 (앱키·비밀번호 해시가 들어 있음, 백업도 암호화 권장)
+  - 이 폴더에 계정(`users.json`), 사람별 전략·마지막 설정·한국투자증권 키(`users/<아이디>/`), 암호화 키(`secret.key`)가 모두 들어 있습니다. `.env` 에 `ALPHY_SECRET_KEY` 를 넣었다면 `.env` 도 따로 보관해야 복원할 수 있습니다
+  - 복원: 컨테이너를 멈추고 폴더를 되돌린 뒤 다시 시작. 시세 캐시(`nas/cache` 의 나머지)는 백업하지 않아도 다시 받습니다
+  - 설정 → 관리 → "서버 상태 · 백업" 칸에서 폴더 크기와 마지막 변경 시각을 볼 수 있습니다
 
 ## 다른 방법
 
