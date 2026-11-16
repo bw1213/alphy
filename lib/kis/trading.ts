@@ -74,6 +74,8 @@ export async function placeOrder(client: KisClient, order: OrderRequest): Promis
 export interface Holding {
   code: string; name: string; qty: number; avgPrice: number; price: number;
   value: number; pnl: number; pnlRate: number;
+  /** 지금 팔 수 있는 수량 (주문 중인 수량 제외, 응답에 있을 때만) */
+  sellable?: number;
 }
 
 export interface Balance {
@@ -94,6 +96,7 @@ export function parseBalance(env: "real" | "mock", rows: any[], summary: any): B
       code: String(r.pdno), name: String(r.prdt_name ?? "").trim(), qty: num(r.hldg_qty),
       avgPrice: num(r.pchs_avg_pric), price: num(r.prpr), value: num(r.evlu_amt),
       pnl: num(r.evlu_pfls_amt), pnlRate: num(r.evlu_pfls_rt),
+      ...(r.ord_psbl_qty != null && r.ord_psbl_qty !== "" ? { sellable: num(r.ord_psbl_qty) } : {}),
     }));
   const s = summary ?? {};
   return {

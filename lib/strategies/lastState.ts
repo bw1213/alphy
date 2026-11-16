@@ -25,6 +25,8 @@ export interface LastState {
   rebalance: Rebalance;
   stopLoss: string;
   takeProfit: string;
+  /** 장중 매도 (손절·익절·하락 매도를 장중 가격으로). 없으면 끔 */
+  intraday?: boolean;
   source: "naver" | "kis" | "csv" | "synthetic";
   start: string;
   /** "" = 오늘 (열 때마다 오늘 날짜로) */
@@ -88,6 +90,7 @@ export function cleanLastState(x: any): LastState {
     rebalance,
     stopLoss: str(x.stopLoss, 20),
     takeProfit: str(x.takeProfit, 20),
+    intraday: x.intraday === true,
     source,
     start: date(x.start) || "2018-01-01",
     end: date(x.end),

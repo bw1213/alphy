@@ -30,8 +30,16 @@ export interface AutoPlan {
   startDate: string;
   /** 꺼 두면 저녁 계산·알림을 하지 않음 */
   enabled: boolean;
+  /**
+   * 장중 실시간 매도: 손절·익절·하락 매도 가격에 장중에 닿으면 바로 시장가로 판다 (백테스트도 같은 규칙).
+   * 끄면 종가로 확인해 다음 날 아침에 판다. 없으면 켬
+   */
+  intraday?: boolean;
   updatedAt: string;
 }
+
+/** 장중 실시간 매도를 쓰는지 (예전 저장본엔 값이 없음 → 켬) */
+export const intradayOn = (p: Pick<AutoPlan, "intraday">) => p.intraday !== false;
 
 export const MAX_LOG = 60;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -74,7 +82,7 @@ export function cleanPlan(x: any, user: string, today: string, lib: SavedStrateg
   let startDate = String(x?.startDate ?? "").trim();
   if (!ISO.test(startDate)) startDate = today;
   if (startDate > today) startDate = today;
-  return { strategy, builtin, label, tickers, budget, startDate, enabled: x?.enabled !== false, updatedAt: new Date().toISOString() };
+  return { strategy, builtin, label, tickers, budget, startDate, enabled: x?.enabled !== false, intraday: x?.intraday !== false, updatedAt: new Date().toISOString() };
 }
 
 export function loadPlan(user: string = OWNER_ID, e: Env = process.env): AutoPlan | null {

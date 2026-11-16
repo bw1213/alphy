@@ -70,6 +70,8 @@ export interface Broker {
   orders(date: string): Promise<DayOrder[]>;
   cancel(o: { orderNo: string; orgNo: string }): Promise<string>;
   openDay(date: string): Promise<boolean | null>;
+  /** 현재가 (장중 실시간 매도용) */
+  quote?(code: string): Promise<number>;
 }
 
 export interface MorningLimits {
@@ -178,8 +180,8 @@ export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Brok
   return d;
 }
 
-/** 체결 결과를 반영 */
-function applyFills(d: MorningDay, orders: DayOrder[]) {
+/** 체결 결과를 반영 (아침 주문·장중 매도 같이 씀) */
+export function applyFills(d: { items: Pick<MorningItem, "orderNo" | "orgNo" | "status" | "qty" | "filledQty" | "avgPrice">[] }, orders: DayOrder[]) {
   const by = new Map(orders.map((o) => [o.orderNo.replace(/^0+/, ""), o]));
   for (const it of d.items) {
     if (!it.orderNo || !["placed", "partial"].includes(it.status)) continue;

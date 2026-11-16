@@ -5,6 +5,7 @@ import { credentialsFor } from "../kis/config";
 import { buyableCash, cancelOrder, isOpenDay, listDayOrders } from "../kis/orders";
 import { getBalance, placeOrder } from "../kis/trading";
 import { kisEnvFor } from "../kis/userkeys";
+import { kisQuote } from "../kis/market";
 import type { User } from "../settings/users";
 import type { Broker } from "./morning";
 
@@ -22,6 +23,7 @@ export function brokerFor(u: User, e: Env = process.env): Broker {
     place: (o) => placeOrder(client, o),
     orders: (date) => listDayOrders(client, date),
     cancel: (o) => cancelOrder(client, o),
+    quote: async (code) => (await kisQuote(client, code)).price,
     openDay: async (date) => {
       if (openCache.has(date)) return openCache.get(date)!;
       // 휴장일 조회는 실전 앱키로만 됨. 없으면 모름(null) → 주문을 내 보고 증권사 응답에 맡김

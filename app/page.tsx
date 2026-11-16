@@ -69,6 +69,7 @@ export default function Page() {
   const [rebalance, setRebalance] = useState<Rebalance>(STRATEGIES[0].rebalance);
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
+  const [intraday, setIntraday] = useState(false);
   const [customWarmup, setCustomWarmup] = useState(250);
 
   // 데이터·기간
@@ -177,7 +178,7 @@ export default function Page() {
     setCustomName(s.customName || "내 전략"); setCustomWarmup(s.customWarmup ?? 250);
     if (s.spec) setSpec(normalizeSpec(s.spec));
     if (s.cycleSpec) setCycleSpec(normalizeCycleSpec(s.cycleSpec));
-    setRebalance(s.rebalance); setStopLoss(s.stopLoss ?? ""); setTakeProfit(s.takeProfit ?? "");
+    setRebalance(s.rebalance); setStopLoss(s.stopLoss ?? ""); setTakeProfit(s.takeProfit ?? ""); setIntraday(!!s.intraday);
     setSource(s.source); setStart(s.start); setEnd(s.end || today());
     setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? "");
     setCash(s.cash); setMonthly(s.monthly ?? 0);
@@ -191,9 +192,9 @@ export default function Page() {
   // 바뀔 때마다(1초 쉬었다가) NAS 와 이 브라우저에 저장. 실행·화면 전환 때는 바로 저장
   const snapshot = useMemo<LastState>(() => ({
     version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
-    rebalance, stopLoss, takeProfit, source, start, end: end === today() ? "" : end,
+    rebalance, stopLoss, takeProfit, intraday, source, start, end: end === today() ? "" : end,
     universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax, usCommission, usFx,
-  }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit,
+  }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit, intraday,
     source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax, usCommission, usFx]);
   const snapRef = useRef(snapshot);
   snapRef.current = snapshot;
@@ -367,7 +368,7 @@ export default function Page() {
       let errInStrategy: Error | null = null;
       const exec = (pp: Params, w: number) => runBacktest({
         data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
-        settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w },
+        settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w, intraday },
         costs,
         strategy: (ctx) => {
           try { return fn(ctx, pp); }
@@ -592,6 +593,11 @@ export default function Page() {
               <label className="f">손절 %<input type="number" placeholder="없음" value={stopLoss} onChange={(e) => setStopLoss(e.target.value)} /></label>
               <label className="f">익절 %<input type="number" placeholder="없음" value={takeProfit} onChange={(e) => setTakeProfit(e.target.value)} /></label>
             </div>
+            <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+              <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={intraday} onChange={(e) => setIntraday(e.target.checked)} />
+              장중 매도: 손절·익절{isCustom && mode === "cycle" ? "·하락 매도" : ""} 가격에 장중에 닿으면 그날 그 가격에 판 것으로 계산
+            </label>
+            <p className="help">끄면 종가로 확인하고 다음 날 시가에 팝니다. 자동 매매에서 장중 실시간 매도를 켜면 이 방식과 같습니다.</p>
           </div>
 
           <div className="card">

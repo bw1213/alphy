@@ -8,6 +8,8 @@
  *
  * 아침 주문(lib/auto/morning.ts): 평일 주문 시각(기본 08:40) ~ 마감 시각(기본 10:00) 사이.
  *   주문 시각에 한 번 주문하고, 09:00 이후 3분마다 체결 확인, 마감 시각에 남은 주문 취소 후 결과 알림.
+ *
+ * 장중 실시간 매도(lib/auto/intraday.ts): 평일 09:00~15:20 동안 15초마다 현재가를 보고 매도 가격에 닿으면 시장가 매도.
  */
 import fs from "fs";
 import path from "path";
@@ -26,6 +28,7 @@ import { brokerFor } from "./broker";
 import { addUsage, usedToday } from "../kis/limits";
 import { orderLimitFor } from "../kis/userkeys";
 import { loadLog } from "./store";
+import { intradayCheck, intradayStart, loadIntradayDay, saveIntradayDay, WATCH_FROM } from "./intraday";
 
 type Env = Record<string, string | undefined>;
 
@@ -111,6 +114,45 @@ export async function morningTick(now = Date.now(), e: Env = process.env): Promi
   } finally { morningRunning = false; }
 }
 
+/** 한 사람의 장중 감시 한 번 */
+export async function intradayFor(u: User, now: number, e: Env = process.env): Promise<void> {
+  const k = kst(now);
+  let d = loadIntradayDay(k.date, u.id, e);
+  const plan = loadPlan(u.id, e);
+  if (!d) {
+    if (!plan) return;
+    d = await intradayStart(plan, loadLog(u.id, e), brokerFor(u, e), now);
+    saveIntradayDay(d, u.id, e);
+    console.log(`[auto] ${k.date} 장중 감시 ${u.id}: ${d.done ? d.reason : `${d.levels.length}개 가격`}`);
+  }
+  if (d.done) return;
+  // 운용을 끄거나 긴급 정지하면 그날 감시도 멈춤 (이미 낸 주문의 체결 확인은 계속)
+  if (!plan?.enabled && !d.sells.some((s) => s.orderNo && !s.told)) {
+    d = { ...d, done: true, reason: "운용이 꺼져 감시를 멈췄습니다.", log: [...d.log, `${k.hm} 운용이 꺼져 감시를 멈춤`] };
+    saveIntradayDay(d, u.id, e);
+    return;
+  }
+  const b = brokerFor(u, e);
+  const { day, messages } = await intradayCheck(plan?.enabled ? d : { ...d, levels: [] }, b, now, limitsFor(u, e));
+  saveIntradayDay(day, u.id, e);
+  for (const m of messages) await notify(u.id, m, e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
+}
+
+let intradayRunning = false;
+
+export async function intradayTick(now = Date.now(), e: Env = process.env): Promise<void> {
+  const k = kst(now);
+  if (!isWeekday(k) || intradayRunning || k.hm < WATCH_FROM || k.hm > "15:40") return;
+  intradayRunning = true;
+  try {
+    for (const u of listUsers(e)) {
+      if (u.disabled) continue;
+      try { await intradayFor(getUser(u.id, e) ?? u, now, e); }
+      catch (err) { console.error(`[auto] ${u.id} 장중 감시 오류: ${(err as Error).message}`); }
+    }
+  } finally { intradayRunning = false; }
+}
+
 /** 지금 저녁 계산을 해야 하는지 */
 export function eveningDue(now: number, st: SchedState, time: string): boolean {
   const k = kst(now);
@@ -173,16 +215,21 @@ export async function tick(now = Date.now(), e: Env = process.env): Promise<void
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
+let fastTimer: ReturnType<typeof setInterval> | null = null;
+/** 장중 감시 간격 */
+export const INTRADAY_MS = 15_000;
 
 export function startScheduler(e: Env = process.env) {
   if (timer) return;
   const m = morningTimes(e);
-  console.log(`[auto] 예약 실행기 시작 (평일 아침 주문 ${m.morning}~${m.cutoff}, 저녁 계산 ${eveningTime(e)} 이후)`);
+  console.log(`[auto] 예약 실행기 시작 (평일 아침 주문 ${m.morning}~${m.cutoff}, 장중 매도 감시 09:00~15:20, 저녁 계산 ${eveningTime(e)} 이후)`);
   const run = () => {
     tick(Date.now(), e).catch((err) => console.error(`[auto] ${(err as Error).message}`));
     morningTick(Date.now(), e).catch((err) => console.error(`[auto] ${(err as Error).message}`));
   };
   timer = setInterval(run, 60_000);
   timer.unref?.();
+  fastTimer = setInterval(() => intradayTick(Date.now(), e).catch((err) => console.error(`[auto] ${(err as Error).message}`)), INTRADAY_MS);
+  fastTimer.unref?.();
   setTimeout(run, 15_000).unref?.();
 }

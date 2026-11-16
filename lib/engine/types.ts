@@ -42,7 +42,15 @@ export interface RunSettings {
   takeProfit: number | null; // 0.3 = +30%
   rebalanceBand: number; // 보유비중 차이가 이보다 작으면 수량 조정 안 함
   warmup: number; // 최소 영업일 수
+  /**
+   * 장중 매도: 손절·익절과 전략이 걸어 둔 매도 가격(ctx.stops)을 그날 장중 저가·고가로 확인해
+   * 닿은 날 바로 그 가격(시가가 이미 넘었으면 시가)에 판 것으로 계산. 끄면 종가로 확인하고 다음 날 시가에 판다.
+   */
+  intraday?: boolean;
 }
+
+/** 전략이 장 마감 때 걸어 두는 다음 날 장중 매도: 가격이 below 이하로 내려오면 qty 주를 판다 */
+export interface StopOrder { below: number; qty: number; note: string }
 
 export interface CostSettings {
   commission: number; // 0.00015
@@ -88,6 +96,8 @@ export interface Signal {
   kept: boolean;
   /** 전략이 남긴 종목별 매매 이유 (예: 적립 매수) */
   notes?: Record<string, string>;
+  /** 장중 매도 모드에서 다음 날 걸어 둘 매도 가격 (종목별, 높은 가격 먼저) */
+  stops?: Record<string, StopOrder[]>;
 }
 
 export interface BacktestResult {

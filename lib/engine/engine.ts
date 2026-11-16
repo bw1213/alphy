@@ -5,12 +5,14 @@
  *  - t일 장 마감 후: 전략이 t일까지의 데이터로 목표 비중 결정, 손절/익절 조건 확인
  *  - t+1일 시가: 매도 먼저, 그 다음 매수 (정수 주)
  *  - 거래정지(거래량 0)·가격 없음 종목은 그날 매매하지 않음
+ *  - 장중 매도(settings.intraday): 시가 체결 뒤, 손절·익절과 전략이 걸어 둔 매도 가격(ctx.stops)을
+ *    그날 저가·고가로 확인해 닿으면 그 가격(시가가 이미 넘었으면 시가)에 판다. 종가 기준 손절·익절은 하지 않음
  */
 import { buildPanel, StrategyContext, type Panel } from "./context";
 import { buyFeeRate, DEFAULT_COSTS, sellFeeRate } from "./costs";
 import { HOLD } from "./types";
 import { dividendBook, type DividendTax } from "./dividends";
-import type { BacktestResult, DividendData, DividendPayment, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Signal, Trade, UniverseSnapshot, Weights } from "./types";
+import type { BacktestResult, DividendData, DividendPayment, CostSettings, EquityPoint, PriceData, Rebalance, RunSettings, Signal, StopOrder, Trade, UniverseSnapshot, Weights } from "./types";
 
 export type TargetFn = (ctx: StrategyContext) => Weights | null | undefined;
 
@@ -87,6 +89,17 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   const memo: Record<string, any> = {};
   let forced = new Map<string, Trade["reason"]>();
   let signal: Signal | null = null;
+  const intraday = !!st.intraday;
+  /** 장중 매도 모드: 전략이 걸어 둔 매도 가격 (다음에 전략을 부를 때까지 유지, 체결되면 빠짐) */
+  let stops: Record<string, StopOrder[]> = {};
+  /** 오늘 장중 체결 (전략에 ctx.filled 로 전달) */
+  let fills: Record<string, { n: number; qty: number; price: number }> = {};
+  const makeCtx = (i: number, eq: number) => {
+    const c = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i), memo);
+    c.intraday = intraday;
+    c.filled = fills;
+    return c;
+  };
   const divBook = dividendBook(dates, opt.dividends, opt.dividendTax);
   const divs: DividendPayment[] = [];
 
@@ -210,6 +223,45 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       forced = new Map();
     }
 
+    // ---------- 1.2) 장중 매도 (장중 매도 모드) ----------
+    fills = {};
+    if (intraday) {
+      const year = Number(d.slice(0, 4));
+      const sellAt = (t: string, n: number, raw: number, reason: Trade["reason"], note?: string) => {
+        const px = raw * (1 - costs.slippage);
+        const gross = n * px;
+        const fee = gross * sellFeeRate(costs, t, year);
+        cash += gross - fee;
+        trades.push({ date: d, ticker: t, side: "SELL", qty: n, price: px, fee, pnl: (px - avg[t]) * n - fee, ret: px / avg[t] - 1, reason, ...(note ? { note } : {}) });
+        if (pos[t] - n <= 0) { delete pos[t]; delete avg[t]; } else pos[t] -= n;
+      };
+      for (const t of Object.keys(pos)) {
+        const k = col(t);
+        const o = P.open[k][i], h = P.high[k][i], l = P.low[k][i], v = P.volume[k][i];
+        if (!(Number.isFinite(o) && o > 0 && Number.isFinite(v) && v > 0)) continue;
+        const lo = Number.isFinite(l) ? l : Math.min(o, P.close[k][i]);
+        const hi = Number.isFinite(h) ? h : Math.max(o, P.close[k][i]);
+        // 손절·익절 (평단 기준). 같은 날 둘 다 닿으면 보수적으로 손절
+        const sl = st.stopLoss ? avg[t] * (1 - st.stopLoss) : NaN;
+        const tp = st.takeProfit ? avg[t] * (1 + st.takeProfit) : NaN;
+        if (lo <= sl) { sellAt(t, pos[t], Math.min(o, sl), "stop_loss"); continue; }
+        if (hi >= tp) { sellAt(t, pos[t], Math.max(o, tp), "take_profit"); continue; }
+        // 전략이 걸어 둔 매도 (높은 가격부터)
+        const list = (stops[t] ?? []).slice().sort((a, b) => b.below - a.below);
+        const left: StopOrder[] = [];
+        for (const so of list) {
+          if (pos[t] && lo <= so.below && so.qty > 0) {
+            const n = Math.min(pos[t], Math.floor(so.qty));
+            const raw = Math.min(o, so.below);
+            const f = (fills[t] ??= { n: 0, qty: 0, price: raw });
+            f.n++; f.qty += n; f.price = raw;
+            if (n > 0) sellAt(t, n, raw, "rebalance", so.note);
+          } else left.push(so);
+        }
+        if (stops[t]) stops[t] = left;
+      }
+    }
+
     // ---------- 1.5) 상장폐지 청산 ----------
     // 시세가 끊긴 뒤 다시 나오지 않는 종목은 마지막 종가에 판 것으로 처리 (정리매매 가격이 마지막 종가에 반영돼 있음)
     for (const t of Object.keys(pos)) {
@@ -237,14 +289,15 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     if (i === N - 1) {
       // 마지막 날: 리밸런싱 주기와 상관없이 "지금 전략이 고르는 종목"을 계산 (추천 종목용, 체결은 없음)
       if (i + 1 >= st.warmup) {
-        const lastCtx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i), memo);
+        const lastCtx = makeCtx(i, eq);
         const w = opt.strategy(lastCtx);
         const nowW = (t: string) => (eq > 0 ? ((pos[t] ?? 0) * P.closeFilled[col(t)][i]) / eq : 0);
         const weights = w ? Object.fromEntries(Object.entries(cleanWeights(w)).map(([t, x]) => [t, x === HOLD ? nowW(t) : x]))
           : Object.fromEntries(Object.keys(pos).map((t) => [t, nowW(t)]));
         const notes = Object.keys(lastCtx.notes ?? {}).length ? { ...lastCtx.notes } : undefined;
+        const nextStops = intraday ? Object.fromEntries(Object.entries(lastCtx.stops).filter(([, v]) => v?.length)) : {};
         signal = {
-          date: d, kept: !w, ...(notes ? { notes } : {}),
+          date: d, kept: !w, ...(notes ? { notes } : {}), ...(Object.keys(nextStops).length ? { stops: nextStops } : {}),
           picks: Object.entries(weights).map(([t, weight]) => ({ ticker: t, weight, close: P.closeFilled[col(t)][i] }))
             .sort((a, b) => b.weight - a.weight),
         };
@@ -253,7 +306,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     }
 
     // ---------- 3) 장 마감 후 신호 ----------
-    if (st.stopLoss || st.takeProfit) {
+    if (!intraday && (st.stopLoss || st.takeProfit)) {
       for (const t of Object.keys(pos)) {
         const r = P.closeFilled[col(t)][i] / avg[t] - 1;
         if (st.stopLoss && r <= -st.stopLoss) forced.set(t, "stop_loss");
@@ -261,8 +314,9 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       }
     }
     if (reb.has(i) && i + 1 >= st.warmup && i + 1 >= startIdx) {
-      const ctx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i), memo);
+      const ctx = makeCtx(i, eq);
       const w = opt.strategy(ctx);
+      if (intraday) stops = Object.fromEntries(Object.entries(ctx.stops).filter(([t, v]) => v?.length && P.index.has(t)));
       if (w) {
         const clean = cleanWeights(w);
         pending = clean;
