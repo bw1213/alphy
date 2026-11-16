@@ -29,6 +29,8 @@ export interface User {
   totpPending?: string;
   totpLastCounter?: number;
   disabled?: boolean;
+  /** owner 가 켜 준 "실전 주문 허용" (서버 잠금·본인 2단계 인증도 있어야 실제로 나감) */
+  realOrders?: boolean;
   createdAt: number;
 }
 
@@ -47,7 +49,7 @@ export interface Invite {
 interface UsersFile { version: 1; users: User[]; invites: Invite[] }
 
 /** 화면에 보여 주는 모양 (비밀값 없음) */
-export interface UserView { id: string; name: string; role: Role; totpEnabled: boolean; disabled: boolean; createdAt: number; owner: boolean }
+export interface UserView { id: string; name: string; role: Role; totpEnabled: boolean; disabled: boolean; createdAt: number; owner: boolean; realOrders: boolean }
 export type InviteView = Omit<Invite, "hash">;
 
 export const INVITE_PREFIX = "alphy_inv_";
@@ -141,7 +143,7 @@ export function rotateSession(id: string, e: Env = process.env) {
 }
 
 export const userView = (u: User): UserView => ({
-  id: u.id, name: u.name, role: u.role, totpEnabled: !!u.totpSecret, disabled: !!u.disabled, createdAt: u.createdAt, owner: u.id === OWNER_ID,
+  id: u.id, name: u.name, role: u.role, totpEnabled: !!u.totpSecret, disabled: !!u.disabled, createdAt: u.createdAt, owner: u.id === OWNER_ID, realOrders: u.id === OWNER_ID || u.realOrders === true,
 });
 
 const activeAdmins = (f: UsersFile) => f.users.filter((u) => u.role === "admin" && !u.disabled);
@@ -169,6 +171,12 @@ export function deleteUser(id: string, by: string, e: Env = process.env) {
     if (f.users.length === before) throw new Error("없는 사용자입니다.");
     if (!activeAdmins(f).length) throw new Error("관리자가 한 명은 있어야 합니다.");
   }, e);
+}
+
+/** 실전 주문 허용·취소 (owner 가) */
+export function setRealOrders(id: string, allow: boolean, e: Env = process.env) {
+  if (id === OWNER_ID) throw new Error("owner 는 서버 잠금(KIS_ALLOW_REAL_ORDERS)만 따릅니다.");
+  updateUser(id, (u) => { if (allow) u.realOrders = true; else delete u.realOrders; }, e);
 }
 
 /** 휴대폰을 잃어버린 사람의 2단계 인증 끄기 (관리자가) */

@@ -9,7 +9,7 @@ import { syntheticData } from "./synthetic";
 import { isKrTicker, isUsTicker } from "./market";
 import { fetchUsMaster, type UsStock } from "./usMaster";
 import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
-import { quoteCredentials } from "../kis/config";
+import { quoteCredentials, type KisCredentials } from "../kis/config";
 import { getClient } from "../kis/client";
 import { kisDaily, kisIndexDaily } from "../kis/market";
 
@@ -106,8 +106,8 @@ export async function cachedDaily(symbol: string, start: string, src: "naver" | 
 }
 
 /** 한국투자증권 일봉 (오늘까지 받아 캐시, 요청 구간은 호출부에서 자름) */
-function kisFetcher(): DailyFetcher {
-  const cred = quoteCredentials();
+function kisFetcher(given?: KisCredentials | null): DailyFetcher {
+  const cred = given === undefined ? quoteCredentials() : given;
   if (!cred) throw new Error("한국투자증권 앱키가 설정되지 않았습니다. 설정 화면(/settings)에서 실전 또는 모의투자 앱키·앱시크릿을 넣으세요.");
   const client = getClient(cred);
   const end = today();
@@ -186,8 +186,9 @@ function parseCsv(text: string): Bar[] {
 
 const clip = (bars: Bar[], s: string, e: string) => bars.filter((b) => b.date >= s && b.date <= e);
 
-export async function loadData(req: DataRequest): Promise<DataResponse> {
-  const out = await loadPrices(req);
+/** kisCred: 한국투자증권 시세에 쓸 키 (안 주면 owner 것). 로그인한 사람의 키를 넘김 */
+export async function loadData(req: DataRequest, opts: { kisCred?: KisCredentials | null } = {}): Promise<DataResponse> {
+  const out = await loadPrices(req, opts);
   if (req.dividends === false || req.source === "synthetic") return out;
   try {
     out.dividends = req.source === "csv" ? await csvDividends(Object.keys(out.data)) : await onlineDividends(Object.keys(out.data), req, out);
@@ -252,7 +253,7 @@ async function csvDividends(codes: string[]): Promise<DividendData> {
   return Object.fromEntries(codes.filter((c) => all[c]?.length).map((c) => [c, all[c]]));
 }
 
-async function loadPrices(req: DataRequest): Promise<DataResponse> {
+async function loadPrices(req: DataRequest, opts: { kisCred?: KisCredentials | null } = {}): Promise<DataResponse> {
   const warnings: string[] = [];
   if (req.source === "synthetic") {
     const n = req.tickers?.length || req.universeSize || 50;
@@ -286,7 +287,7 @@ async function loadPrices(req: DataRequest): Promise<DataResponse> {
 
   // naver / kis (kis 는 시세만 한국투자증권, 시총 순위는 네이버)
   const isKis = req.source === "kis";
-  const fetcher = isKis ? kisFetcher() : fetchDaily;
+  const fetcher = isKis ? kisFetcher(opts.kisCred) : fetchDaily;
   const src = isKis ? "kis" : "naver";
   let list: StockInfo[];
   let universe: UniverseSnapshot[] | undefined;

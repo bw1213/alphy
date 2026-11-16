@@ -12,6 +12,7 @@ interface Status {
   mock: { keys: boolean; account: boolean };
   tradeEnv: "real" | "mock";
   realOrdersAllowed: boolean;
+  realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean };
 }
 
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
@@ -83,14 +84,13 @@ export default function TradePage() {
                 <li>시세 조회: {status.quotes ? <span className="badge ok">{status.quotes === "real" ? "실전 키" : "모의 키"}</span> : <span className="badge no">앱키 없음</span>}</li>
                 <li>모의투자: {status.mock.keys ? <span className="badge ok">앱키</span> : <span className="badge no">앱키 없음</span>} {status.mock.account ? <span className="badge ok">계좌</span> : <span className="badge no">계좌 없음</span>}</li>
                 <li>실전: {status.real.keys ? <span className="badge ok">앱키</span> : <span className="badge no">앱키 없음</span>} {status.real.account ? <span className="badge ok">계좌</span> : <span className="badge no">계좌 없음</span>}</li>
-                <li>주문 대상: <b>{envLabel}</b>{env === "real" && !status.realOrdersAllowed && " (잠김: NAS .env 에 KIS_ALLOW_REAL_ORDERS=yes 필요)"}</li>
+                <li>주문 대상: <b>{envLabel}</b>{env === "real" && !status.realOrdersAllowed && (auth?.user && !auth.user.owner ? " (잠김: 설정 화면의 실전 주문 잠금 참고)" : " (잠김: NAS .env 에 KIS_ALLOW_REAL_ORDERS=yes 필요)")}</li>
                 <li>로그인: {auth?.loggedIn ? <span className="badge ok">됨</span> : <span className="badge no">필요</span>}</li>
               </ul>
             )}
             {status && !acctOk && <p className="help">앱키·계좌번호는 <a href="/settings">설정</a> 화면에서 넣습니다.</p>}
           </div>
           {auth && !auth.loggedIn && <Login auth={auth} title="로그인 (관리자 비밀번호)" onDone={() => fetchAuth().then(setAuth)} />}
-          {auth?.user && !auth.user.owner && <div className="card"><h2>아직 쓸 수 없습니다</h2><p className="help">한국투자증권 잔고·주문은 지금은 관리자(owner) 계정만 쓸 수 있습니다. 사람마다 본인 계좌를 연결하는 기능은 준비 중입니다.</p></div>}
 
           <div className="card">
             <h2>주문</h2>

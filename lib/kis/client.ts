@@ -67,7 +67,7 @@ export class KisClient {
   private get keyHash() {
     return createHash("sha256").update(this.cred.appKey).digest("hex").slice(0, 16);
   }
-  private get tokenFile() { return this.cacheDir ? path.join(this.cacheDir, `token-${this.cred.env}.json`) : null; }
+  private get tokenFile() { return this.cacheDir ? path.join(this.cacheDir, `token-${this.cred.env}-${this.keyHash}.json`) : null; }
 
   /** 만료 1시간 전부터는 새로 발급 */
   private valid(t: Token | null): t is Token {
