@@ -111,3 +111,76 @@ export async function kisQuote(client: KisClient, code: string): Promise<Quote> 
     change: num(o.prdy_vrss), changeRate: num(o.prdy_ctrt), volume: num(o.acml_vol),
   };
 }
+
+/* ───────── 해외(미국) 주식 일봉, 환율, 해외 지수 ───────── */
+
+/** 한국투자증권 거래소 코드 */
+export type KisExchange = "NAS" | "NYS" | "AMS";
+export const KIS_EXCHANGE: Record<string, KisExchange> = { NASDAQ: "NAS", NYSE: "NYS", AMEX: "AMS" };
+
+/** BRK.B → BRK/B (한국투자증권 표기) */
+export const kisUsSymbol = (t: string) => t.replace(/\./g, "/");
+
+/** 해외주식 기간별시세 output2 → Bar[] (오름차순) */
+export function parseOverseasDaily(rows: any[] | undefined): Bar[] {
+  return (rows ?? [])
+    .filter((r) => /^\d{8}$/.test(String(r?.xymd ?? "")))
+    .map((r) => ({ date: iso(r.xymd), open: num(r.open), high: num(r.high), low: num(r.low), close: num(r.clos), volume: num(r.tvol) }))
+    .filter((b) => b.close > 0 && b.open > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
+ * 미국 주식·ETF 일봉 (달러, 수정주가). 한 번에 100일씩, 기준일을 과거로 당기며 받는다.
+ * 거래소를 모르면 exchanges 를 순서대로 시도한다
+ */
+export async function kisUsDaily(client: KisClient, ticker: string, start: string, end: string, exchanges: KisExchange[] = ["NAS", "NYS", "AMS"]): Promise<Bar[]> {
+  let lastErr: Error | null = null;
+  for (const excd of exchanges) {
+    try {
+      const bars = await paginate(start, end, async (_from, to) => {
+        const { body } = await client.call({
+          method: "GET",
+          path: "/uapi/overseas-price/v1/quotations/dailyprice",
+          trId: "HHDFS76240000",
+          query: { AUTH: "", EXCD: excd, SYMB: kisUsSymbol(ticker), GUBN: "0", BYMD: to, MODP: "1" }, // GUBN 0: 일, MODP 1: 수정주가
+        });
+        return parseOverseasDaily(body.output2 as any[]);
+      });
+      if (bars.length) return bars;
+    } catch (e) { lastErr = e as Error; }
+  }
+  throw new Error(`${ticker}: 한국투자증권 해외 시세 없음${lastErr ? ` (${lastErr.message})` : ""}`);
+}
+
+/** 해외 지수·환율 기간별시세 output2 → Bar[] (오름차순) */
+export function parseOverseasChart(rows: any[] | undefined): Bar[] {
+  return (rows ?? [])
+    .filter((r) => /^\d{8}$/.test(String(r?.stck_bsop_date ?? "")))
+    .map((r) => {
+      const close = num(r.ovrs_nmix_prpr);
+      const or = (v: unknown) => (num(v) > 0 ? num(v) : close);
+      return { date: iso(r.stck_bsop_date), open: or(r.ovrs_nmix_oprc), high: or(r.ovrs_nmix_hgpr), low: or(r.ovrs_nmix_lwpr), close, volume: num(r.acml_vol) || 0 };
+    })
+    .filter((b) => b.close > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+async function kisOverseasChart(client: KisClient, div: "N" | "X", code: string, start: string, end: string): Promise<Bar[]> {
+  const bars = await paginate(start, end, async (from, to) => {
+    const { body } = await client.call({
+      method: "GET",
+      path: "/uapi/overseas-price/v1/quotations/inquire-daily-chartprice",
+      trId: "FHKST03030100",
+      query: { FID_COND_MRKT_DIV_CODE: div, FID_INPUT_ISCD: code, FID_INPUT_DATE_1: from, FID_INPUT_DATE_2: to, FID_PERIOD_DIV_CODE: "D" },
+    });
+    return parseOverseasChart(body.output2 as any[]);
+  });
+  if (!bars.length) throw new Error(`${code}: 한국투자증권 데이터 없음`);
+  return bars;
+}
+
+/** 원/달러 환율 일별 */
+export const kisUsdKrwDaily = (client: KisClient, start: string, end: string) => kisOverseasChart(client, "X", "FX@KRW", start, end);
+/** S&P 500 지수 일별 */
+export const kisSp500Daily = (client: KisClient, start: string, end: string) => kisOverseasChart(client, "N", "SPX", start, end);

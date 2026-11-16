@@ -7,7 +7,7 @@
  */
 import { credentialsFor, quoteCredentials, realOrdersAllowed, tradeEnv, type KisCredentials, type KisEnv } from "../kis/config";
 import { getClient, type KisClient } from "../kis/client";
-import { kisDaily, kisIndexDaily, kisQuote } from "../kis/market";
+import { kisDaily, kisIndexDaily, kisQuote, kisSp500Daily, kisUsDaily, kisUsdKrwDaily } from "../kis/market";
 import { getBalance, getBuyable, getOrders } from "../kis/trading";
 import { runtimeEnv } from "../settings/store";
 import { lookupCodes } from "../stocks/master";
@@ -63,6 +63,30 @@ export async function checkEnv(client: KisClient, cred: KisCredentials, opts: { 
     }, now));
     checks.push(await step("KOSPI 지수 일봉 조회", "index", async () => {
       const bars = await kisIndexDaily(client, monthAgo, today);
+      return { count: bars.length, last: bars.at(-1)?.date ?? null, close: bars.at(-1)?.close ?? null };
+    }, now));
+    // 미국 주식: 일봉(수정주가인지, 과거 몇 년치인지), 환율, S&P 500
+    checks.push(await step("미국 주식 일봉 조회 (AAPL, 최근)", "usDaily", async () => {
+      const bars = await kisUsDaily(client, "AAPL", monthAgo, today, ["NAS"]);
+      return { count: bars.length, last: bars.at(-1)?.date ?? null, close: bars.at(-1)?.close ?? null };
+    }, now));
+    checks.push(await step("미국 주식 과거 범위·수정주가 (NVDA 2024-06 액면분할 전후, AAPL 2010)", "usHistory", async () => {
+      // NVDA 는 2024-06-10 에 10:1 분할. 수정주가면 2024-06-07 종가가 120.9 안팎, 아니면 1208.9
+      const nv = await kisUsDaily(client, "NVDA", "2024-06-03", "2024-06-14", ["NAS"]);
+      const pre = nv.find((b) => b.date === "2024-06-07")?.close ?? null;
+      const old = await kisUsDaily(client, "AAPL", "2010-01-04", "2010-01-29", ["NAS"]).catch((e) => e as Error);
+      return {
+        nvda20240607: pre, splitAdjusted: pre == null ? null : pre < 200,
+        aapl2010: old instanceof Error ? old.message : { count: old.length, first: old[0]?.date ?? null, close: old[0]?.close ?? null },
+      };
+    }, now));
+    checks.push(await step("원/달러 환율 일별 조회", "fx", async () => {
+      const bars = await kisUsdKrwDaily(client, monthAgo, today);
+      const old = await kisUsdKrwDaily(client, "2010-01-04", "2010-01-29").catch((e) => e as Error);
+      return { count: bars.length, last: bars.at(-1)?.date ?? null, close: bars.at(-1)?.close ?? null, y2010: old instanceof Error ? old.message : { count: old.length, first: old[0]?.date ?? null, close: old[0]?.close ?? null } };
+    }, now));
+    checks.push(await step("S&P 500 지수 일별 조회", "sp500", async () => {
+      const bars = await kisSp500Daily(client, monthAgo, today);
       return { count: bars.length, last: bars.at(-1)?.date ?? null, close: bars.at(-1)?.close ?? null };
     }, now));
     if (account) {
