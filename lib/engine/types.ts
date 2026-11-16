@@ -86,6 +86,8 @@ export interface Signal {
   picks: { ticker: string; weight: number; close: number }[];
   /** 전략이 '이번엔 매매 안 함(null)'을 돌려줘서 백테스트상 보유 종목을 그대로 보여주는 경우 */
   kept: boolean;
+  /** 전략이 남긴 종목별 매매 이유 (예: 적립 매수) */
+  notes?: Record<string, string>;
 }
 
 export interface BacktestResult {

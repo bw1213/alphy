@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Balance, OrderResult, OrderType, Side } from "@/lib/kis/trading";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import RebalancePlan from "@/components/RebalancePlan";
+import TodayOrders from "@/components/TodayOrders";
 import { StockSearch } from "@/components/StockSearch";
 import { useShowMore } from "@/components/ShowMore";
 
@@ -75,7 +76,7 @@ export default function TradePage() {
       <header className="top">
         <h1>한국투자증권 주문·잔고</h1>
         <p>{envLabel}로 주문합니다.</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/">← 백테스트</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/">← 백테스트</a><a href="/auto">자동 매매</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">
@@ -172,6 +173,7 @@ export default function TradePage() {
               </>
             )}
           </div>
+          <TodayOrders loggedIn={!!auth?.loggedIn} onLog={(l) => setLog((x) => [l, ...x])} />
           <RebalancePlan env={env} loggedIn={!!auth?.loggedIn} onLog={(l) => setLog((x) => [l, ...x])} onDone={loadBalance} />
           {log.length > 0 && (
             <div className="card">

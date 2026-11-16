@@ -13,16 +13,16 @@
  */
 import fs from "fs";
 import path from "path";
-import { DEFAULT_ORDER_LIMIT, loadSettings, runtimeEnv, type KisEnvName, type KisKeySet, type OrderLimit, type Settings } from "../settings/store";
+import { DEFAULT_AUTO_LIMIT, DEFAULT_ORDER_LIMIT, loadSettings, type AutoLimit, runtimeEnv, type KisEnvName, type KisKeySet, type OrderLimit, type Settings } from "../settings/store";
 import { open, seal } from "../settings/secretbox";
 import { ensureUserDir, OWNER_ID, userDir } from "../settings/userdir";
 import type { User } from "../settings/users";
 
 type Env = Record<string, string | undefined>;
 
-export interface UserKis { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit }
+export interface UserKis { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit }
 
-export const emptyUserKis = (): UserKis => ({ real: {}, mock: {}, tradeEnv: "mock", orderLimit: { ...DEFAULT_ORDER_LIMIT } });
+export const emptyUserKis = (): UserKis => ({ real: {}, mock: {}, tradeEnv: "mock", orderLimit: { ...DEFAULT_ORDER_LIMIT }, autoLimit: { ...DEFAULT_AUTO_LIMIT } });
 
 const file = (user: string, e: Env) => path.join(userDir(user, e), "kis.json");
 
@@ -36,6 +36,7 @@ export function loadUserKis(user: string, e: Env = process.env): UserKis {
     real: { ...(j.real ?? {}) }, mock: { ...(j.mock ?? {}) },
     tradeEnv: j.tradeEnv === "real" ? "real" : "mock",
     orderLimit: { ...d.orderLimit, ...(j.orderLimit ?? {}) },
+    autoLimit: { ...d.autoLimit, ...(j.autoLimit ?? {}) },
   };
 }
 
@@ -81,8 +82,13 @@ export function orderLimitFor(user: string, e: Env = process.env): OrderLimit {
   return user === OWNER_ID ? loadSettings(e).kis.orderLimit : loadUserKis(user, e).orderLimit;
 }
 
+/** 자동 매매 한도 (실전 운용 금액 상한, 손실 한도) */
+export function autoLimitFor(user: string, e: Env = process.env): AutoLimit {
+  return user === OWNER_ID ? loadSettings(e).kis.autoLimit : loadUserKis(user, e).autoLimit;
+}
+
 /** 설정 화면 코드(view.ts)를 그대로 쓰기 위한 모양: 그 사람의 KIS + 서버의 백테스트 기본값 */
 export function memberSettings(user: string, e: Env = process.env): Settings {
   const s = loadSettings(e);
-  return { version: 1, kis: loadUserKis(user, e), backtest: s.backtest, auth: {} };
+  return { version: 1, kis: loadUserKis(user, e), backtest: s.backtest, auth: {}, auto: { eveningTime: s.auto.eveningTime, morningTime: s.auto.morningTime, cutoffTime: s.auto.cutoffTime } };
 }

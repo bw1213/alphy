@@ -19,6 +19,9 @@ export const OWNER_ID = "owner";
 
 /** 사용자별로 저장하는 파일 (예전에는 설정 폴더 바로 아래에 있었음) */
 export const USER_FILES = ["strategies.json", "last-state.json", "order-usage.json"] as const;
+/** 새로 생긴 사용자 파일 (예전 위치가 없어 옮길 필요 없음) */
+export const NEW_USER_FILES = ["auto.json", "auto-log.json", "notify.json", "auto-orders.json"] as const;
+export type UserFileName = (typeof USER_FILES)[number] | (typeof NEW_USER_FILES)[number];
 export type UserFile = (typeof USER_FILES)[number];
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
@@ -57,13 +60,13 @@ function migrateLegacy(name: UserFile, e: Env) {
 }
 
 /** 사용자 파일 경로. 관리자라면 예전 위치 파일을 먼저 옮김 */
-export function userFile(name: UserFile, user: string = OWNER_ID, e: Env = process.env): string {
-  if (user === OWNER_ID) migrateLegacy(name, e);
+export function userFile(name: UserFileName, user: string = OWNER_ID, e: Env = process.env): string {
+  if (user === OWNER_ID && (USER_FILES as readonly string[]).includes(name)) migrateLegacy(name as UserFile, e);
   return path.join(userDir(user, e), name);
 }
 
 /** 임시 파일 → 이름 바꾸기로 저장(권한 600) */
-export function writeUserFile(name: UserFile, data: string, user: string = OWNER_ID, e: Env = process.env): void {
+export function writeUserFile(name: UserFileName, data: string, user: string = OWNER_ID, e: Env = process.env): void {
   const file = userFile(name, user, e);
   ensureUserDir(user, e);
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;

@@ -492,7 +492,7 @@ export default function Page() {
       <header className="top">
         <h1>백테스트 (한국·미국)</h1>
         <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 {target.cagr}%, 최대 낙폭 -{target.mdd}% 이내 (<a href="/settings">설정</a>에서 변경)</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/auto">자동 매매</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">
