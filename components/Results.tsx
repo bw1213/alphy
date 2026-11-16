@@ -18,6 +18,7 @@ export interface HoldCompare {
 }
 import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine/validate";
 import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
+import { userKey } from "@/lib/client/userStorage";
 import CycleStatusCard from "./CycleStatusCard";
 
 const pct = (x: number | null | undefined, d = 1) =>
@@ -246,7 +247,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                     date: res.signal!.date, label: title || label, savedAt: new Date().toISOString(),
                     picks: res.signal!.picks.map((p) => ({ ...p, name: names[p.ticker] ?? p.ticker })),
                   };
-                  try { localStorage.setItem(SIGNAL_KEY, JSON.stringify(sig)); } catch { /* 저장 불가 환경 */ }
+                  try { localStorage.setItem(userKey(SIGNAL_KEY), JSON.stringify(sig)); } catch { /* 저장 불가 환경 */ }
                   window.location.href = "/trade#plan";
                 }}>이 비중으로 주문 목록 만들기 →</button>
               </div>
