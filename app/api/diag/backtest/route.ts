@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { backtestReport, type DiagBacktestRequest } from "@/lib/diag/report";
 import { DENIED, diagAccess } from "@/lib/diag/guard";
+import { BusyError, dataGate } from "@/lib/server/limiter";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,8 +17,9 @@ export async function POST(req: Request) {
   let body: DiagBacktestRequest;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "JSON 본문이 필요합니다." }, { status: 400 }); }
   try {
-    return NextResponse.json(await backtestReport(body), { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(await dataGate.run(() => backtestReport(body)), { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
+    if (e instanceof BusyError) return NextResponse.json({ error: e.message }, { status: 429 });
     return NextResponse.json({ error: (e as Error).message }, { status: 400 });
   }
 }

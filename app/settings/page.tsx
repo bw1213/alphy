@@ -5,6 +5,7 @@ import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import SecurityCard from "@/components/SecurityCard";
 import DiagTokenCard from "@/components/DiagTokenCard";
 import UsersCard from "@/components/UsersCard";
+import ServerStatusCard from "@/components/ServerStatusCard";
 import StockListCard from "@/components/StockListCard";
 import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
 
@@ -227,6 +228,7 @@ export default function SettingsPage() {
         <div className="wide section"><h2>관리</h2><p className="help">관리자만 보입니다. 모든 사용자에게 적용됩니다.</p></div>
           <UsersCard />
           <StockListCard />
+          <ServerStatusCard />
         </>)}
       </main>
     </>
@@ -281,6 +283,8 @@ export default function SettingsPage() {
         <StockListCard />
 
         <DiagTokenCard />
+
+        <ServerStatusCard />
 
         <div className="card wide why">
           <h2>어떤 건 화면에서, 어떤 건 환경변수로?</h2>

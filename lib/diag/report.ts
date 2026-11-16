@@ -23,6 +23,9 @@ import { cycle, cycleParams, cycleStatus, cycleWarmup, normalizeCycleSpec } from
 import { compileStrategy, STRATEGIES, type Params } from "../strategies";
 import { loadStrategies, type SavedStrategy } from "../strategies/library";
 import { passwordConfigured, totpEnabled } from "../settings/auth";
+import { listInvites, listUsers } from "../settings/users";
+import { OWNER_ID } from "../settings/userdir";
+import { dataGate } from "../server/limiter";
 import { configDir, envPassword, loadSettings, runtimeEnv } from "../settings/store";
 
 type Env = Record<string, string | undefined>;
@@ -66,6 +69,19 @@ function cacheSummary(root = path.join(process.cwd(), ".cache"), conf = configDi
   return out;
 }
 
+/** 계정 요약: 아이디·이름 없이 숫자만 */
+export function usersSummary(e: Env = process.env) {
+  const list = listUsers(e);
+  return {
+    total: list.length,
+    admins: list.filter((u) => u.role === "admin").length,
+    disabled: list.filter((u) => u.disabled).length,
+    totpEnabled: list.filter((u) => u.totpSecret).length,
+    realOrdersAllowed: list.filter((u) => u.id !== OWNER_ID && u.realOrders).length,
+    pendingInvites: listInvites(e).length,
+  };
+}
+
 /** GET /api/diag : 버전·실행 상태·설정 요약·저장된 전략·캐시 */
 export function overview(e: Env = process.env) {
   const s = loadSettings(e);
@@ -93,6 +109,9 @@ export function overview(e: Env = process.env) {
       ...(x.cycle ? { cycle: x.cycle } : {}), ...(x.builder ? { builder: x.builder } : {}),
       runnableOnServer: kindOf(x) !== "custom",
     })),
+    // 다른 사람의 전략·설정 내용은 내보내지 않고 사람 수만 (위 strategies 는 owner 것)
+    users: usersSummary(e),
+    load: dataGate.stats(),
     builtinStrategies: STRATEGIES.map((x) => x.id),
     cache: cacheSummary(),
   };
