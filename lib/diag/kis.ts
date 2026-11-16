@@ -8,6 +8,7 @@
 import { credentialsFor, quoteCredentials, realOrdersAllowed, tradeEnv, type KisCredentials, type KisEnv } from "../kis/config";
 import { getClient, type KisClient } from "../kis/client";
 import { kisDaily, kisIndexDaily, kisQuote } from "../kis/market";
+import { kisDividendRows, kisUsDividendRows } from "../kis/dividends";
 import { getBalance, getBuyable, getOrders } from "../kis/trading";
 import { runtimeEnv } from "../settings/store";
 import { lookupCodes } from "../stocks/master";
@@ -60,6 +61,28 @@ export async function checkEnv(client: KisClient, cred: KisCredentials, opts: { 
     checks.push(await step("일봉(기간별 시세) 조회", "daily", async () => {
       const bars = await kisDaily(client, code, monthAgo, today);
       return { code, count: bars.length, last: bars.at(-1)?.date ?? null, close: bars.at(-1)?.close ?? null };
+    }, now));
+    // 배당 조회는 실전 키로만 씀 (모의투자 서버는 지원하지 않을 수 있음)
+    if (cred.env === "real") checks.push(await step("배당 일정 조회 (예탁원, 2000년부터)", "dividends", async () => {
+      const raw = await client.call({ method: "GET", path: "/uapi/domestic-stock/v1/ksdinfo/dividend", trId: "HHKDB669102C0",
+        query: { CTS: "", GB1: "0", F_DT: "20000101", T_DT: ymd(today), SHT_CD: code, HIGH_GB: "" } });
+      const rows = await kisDividendRows(client, code, "2000-01-01", today);
+      const b = raw.body as any;
+      return {
+        code, count: rows.length, first: rows[0]?.recordDate ?? null, last: rows.at(-1)?.recordDate ?? null,
+        recent: rows.slice(-4), firstPage: { trCont: raw.trCont, rows: Array.isArray(b.output1) ? b.output1.length : b.output1 ? 1 : 0, fields: Object.keys((Array.isArray(b.output1) ? b.output1[0] : b.output1) ?? {}), bodyKeys: Object.keys(b) },
+      };
+    }, now));
+    if (cred.env === "real") checks.push(await step("미국 주식 배당 권리 조회 (AAPL, 2000년부터)", "usDividends", async () => {
+      const raw = await client.call({ method: "GET", path: "/uapi/overseas-price/v1/quotations/period-rights", trId: "CTRGT011R",
+        query: { RGHT_TYPE_CD: "%%", INQR_DVSN_CD: "02", INQR_STRT_DT: "20000101", INQR_END_DT: ymd(today), PDNO: "AAPL", PRDT_TYPE_CD: "512", CTX_AREA_NK50: "", CTX_AREA_FK50: "" } });
+      const rows = await kisUsDividendRows(client, "AAPL", "NASDAQ", "2000-01-01", today);
+      const b = raw.body as any;
+      const out = b.output ?? b.output1;
+      return {
+        count: rows.length, first: rows[0]?.recordDate ?? null, last: rows.at(-1)?.recordDate ?? null, recent: rows.slice(-4),
+        firstPage: { trCont: raw.trCont, rows: Array.isArray(out) ? out.length : out ? 1 : 0, sample: (Array.isArray(out) ? out : [out]).slice(0, 2), bodyKeys: Object.keys(b) },
+      };
     }, now));
     checks.push(await step("KOSPI 지수 일봉 조회", "index", async () => {
       const bars = await kisIndexDaily(client, monthAgo, today);

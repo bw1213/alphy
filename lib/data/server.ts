@@ -1,15 +1,16 @@
 /** 서버 측 데이터 로딩: 캐시 → 소스 순서 */
 import { promises as fs } from "fs";
 import path from "path";
-import type { Bar, DividendData, PriceData, StockInfo, UniverseSnapshot } from "../engine/types";
-import { dividendGaps, fetchDividends, parseDividendCsv } from "./dividends";
+import type { Bar, Dividend, DividendData, PriceData, StockInfo, UniverseSnapshot } from "../engine/types";
+import { dividendGaps, fetchDividends, fetchSplits, parseDividendCsv } from "./dividends";
 import { buildPitUniverse, krxDaily, krxListings, type KrxListing } from "./krx";
 import { fetchDaily, fetchTopMarketCap } from "./naver";
 import { syntheticData } from "./synthetic";
 import { isKrTicker, isUsTicker } from "./market";
 import { fetchUsMaster, type UsStock } from "./usMaster";
 import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
-import { quoteCredentials, type KisCredentials } from "../kis/config";
+import { credentialsFor, quoteCredentials, type KisCredentials } from "../kis/config";
+import { kisDividendRows, kisRawMonthly, kisUsDividendRows, mergeDividends, toEngineDividends, toEngineUsDividends, type KisDividendRow } from "../kis/dividends";
 import { getClient } from "../kis/client";
 import { kisDaily, kisIndexDaily } from "../kis/market";
 
@@ -201,13 +202,15 @@ export interface LoadOptions {
   kisCred?: KisCredentials | null;
   /** 종목 시세를 하나 받을 때마다 (받은 수, 전체 수) */
   onProgress?: (done: number, total: number) => void;
+  /** 한국 종목 배당 일정(예탁원)에 쓸 한국투자증권 키 (안 주면 owner 의 실전 키). null = 쓰지 않음(Yahoo 만) */
+  kisDividendCred?: KisCredentials | null;
 }
 
 export async function loadData(req: DataRequest, opts: LoadOptions = {}): Promise<DataResponse> {
   const out = await loadPrices(req, opts);
   if (req.dividends === false || req.source === "synthetic") return out;
   try {
-    out.dividends = req.source === "csv" ? await csvDividends(Object.keys(out.data)) : await onlineDividends(Object.keys(out.data), req, out);
+    out.dividends = req.source === "csv" ? await csvDividends(Object.keys(out.data)) : await onlineDividends(Object.keys(out.data), req, out, opts);
   } catch (e) { out.warnings.push(`배당금·분배금 이력을 받지 못해 배당 없이 계산합니다: ${(e as Error).message}`); }
   return out;
 }
@@ -238,25 +241,102 @@ export async function cachedDividends(code: string, fetcher = fetchDividends, ca
   }
 }
 
-async function onlineDividends(codes: string[], req: DataRequest, out: DataResponse): Promise<DividendData> {
-  const results = await pool(codes, 3, (c) => cachedDividends(c));
+interface KisDividendCache { fetched: string; rows: KisDividendRow[]; raw?: Record<string, number>; splits?: { date: string; ratio: number }[] }
+/** 한국투자증권 배당 일정은 이 날짜부터 받음 (캐시 키를 하나로 두려고 고정) */
+const KIS_DIV_FROM = "2000-01-01";
+
+/** 한국투자증권 배당 일정(+ 수정 금액 계산용 원주가 월봉·액면분할) 캐시: 하루 한 번만. 실패하면 예전 캐시라도 씀 */
+export async function cachedKisDividends(code: string, fetcher: (code: string) => Promise<Omit<KisDividendCache, "fetched">>, cacheDir = CACHE) {
+  const p = path.join(cacheDir, "dividends-kis", `${code.replace(/[^0-9A-Z.-]/gi, "_")}.json`);
+  const c = await readJson<KisDividendCache>(p);
+  if (c && c.fetched === today() && Array.isArray(c.rows)) return c;
+  try {
+    const fresh: KisDividendCache = { fetched: today(), ...(await fetcher(code)) };
+    await writeJson(p, fresh);
+    return fresh;
+  } catch (e) {
+    if (c && Array.isArray(c.rows)) return c;
+    throw e;
+  }
+}
+
+/** 한국 종목: 예탁원 배당 일정 + 원주가 월봉. 미국 종목: 해외주식 기간별권리조회 + 야후 액면분할 */
+function kisDividendFetcher(cred: KisCredentials, usMarket: Map<string, string>) {
+  const client = getClient(cred);
+  return async (code: string): Promise<Omit<KisDividendCache, "fetched">> => {
+    if (isKrCode(code)) {
+      const rows = await kisDividendRows(client, code, KIS_DIV_FROM, today());
+      const raw = rows.length ? await kisRawMonthly(client, code, rows[0].recordDate.slice(0, 7) + "-01", today()) : {};
+      return { rows, raw };
+    }
+    const rows = await kisUsDividendRows(client, code, usMarket.get(code) ?? "NASDAQ", KIS_DIV_FROM, today());
+    const splits = rows.length ? await fetchSplits(code) : [];
+    return { rows, splits };
+  };
+}
+
+async function onlineDividends(codes: string[], req: DataRequest, out: DataResponse, opts: LoadOptions = {}): Promise<DividendData> {
+  const yahoo = await pool(codes, 3, (c) => cachedDividends(c));
+  // 한국투자증권(한국: 예탁원 배당 일정, 미국: 해외주식 권리) 먼저, 없거나 실패하면 Yahoo
+  const cred = opts.kisDividendCred === undefined ? credentialsFor("real") : opts.kisDividendCred;
+  const usCodes = codes.filter((c) => !isKrCode(c));
+  const usMarket = new Map<string, string>();
+  if (cred && usCodes.length) { try { for (const u of await cachedUsMaster()) usMarket.set(u.code, u.market); } catch { /* 모르면 NASDAQ 로 시도 */ } }
+  /** 한국투자증권 기준 배당 (현지 통화: 한국 원, 미국 달러) */
+  const kisBy = new Map<string, Dividend[]>();
+  let kisError = "", skipped = 0;
+  if (cred) {
+    const fetcher = kisDividendFetcher(cred, usMarket);
+    const kr = await pool(codes, 3, (c) => cachedKisDividends(c, fetcher));
+    kr.forEach((r, k) => {
+      const code = codes[k];
+      if (r.status !== "fulfilled") { kisError ||= `${code}: ${(r.reason as Error)?.message ?? r.reason}`; return; }
+      const bars = out.data[code] ?? [];
+      if (isKrCode(code)) {
+        const t = toEngineDividends(r.value.rows, bars, r.value.raw ?? {});
+        skipped += t.skipped;
+        if (t.divs.length) kisBy.set(code, t.divs);
+      } else {
+        // 미국 시세는 원화로 바뀌어 있지만 날짜는 그대로 → 날짜만 씀
+        const d = toEngineUsDividends(r.value.rows, bars.map((b) => b.date), r.value.splits ?? []);
+        if (d.length) kisBy.set(code, d);
+      }
+    });
+  }
   const res: DividendData = {};
   const failed: string[] = [], gaps: string[] = [];
-  let count = 0;
-  results.forEach((r, k) => {
-    const code = codes[k];
-    if (r.status !== "fulfilled") { failed.push(code); return; }
-    let divs = r.value.filter((d) => d.date >= req.start && d.date <= req.end);
+  let count = 0, nKis = 0, nMixed = 0;
+  codes.forEach((code, k) => {
+    const r = yahoo[k];
+    const y = r.status === "fulfilled" ? r.value : null;
+    const kis = kisBy.get(code);
+    let divs: Dividend[];
+    if (kis?.length) {
+      const m = mergeDividends(kis, y ?? []);
+      divs = m.divs.filter((d) => d.date >= req.start && d.date <= req.end);
+      const early = Date.parse(kis[0].date) - 20 * 864e5;
+      if (divs.some((d) => Date.parse(d.date) < early)) nMixed++; else nKis++;
+    } else {
+      if (!y) { failed.push(code); return; }
+      divs = y.filter((d) => d.date >= req.start && d.date <= req.end);
+      const g = dividendGaps(y, req.start, req.end);
+      if (g.length) gaps.push(`${code}(${g.map((x) => `${x.from}~${x.to}`).join(", ")})`);
+    }
     if (!isKrCode(code)) {
       // 미국 종목: 시세가 원화로 바뀌어 있으므로 배당도 배당락일 환율로 원화 환산
       if (!out.fx?.length) { failed.push(code); return; }
       divs = divs.map((d) => ({ date: d.date, amount: d.amount * (fxOn(out.fx!, d.date) ?? NaN) })).filter((d) => d.amount > 0);
     }
     if (divs.length) { res[code] = divs; count++; }
-    const g = dividendGaps(r.value, req.start, req.end);
-    if (g.length) gaps.push(`${code}(${g.map((x) => `${x.from}~${x.to}`).join(", ")})`);
   });
-  if (count) out.warnings.push(`배당금·분배금: ${count}종목의 배당 이력(Yahoo Finance)을 반영했습니다. 배당락일 장 시작 전에 들고 있던 수량만큼 세후 금액이 현금으로 들어옵니다.`);
+  if (count) {
+    const nY = count - nKis - nMixed;
+    const src = [nKis && `한국투자증권 ${nKis}종목`, nMixed && `한국투자증권 + 그 이전 기간은 Yahoo ${nMixed}종목`, nY > 0 && `Yahoo Finance ${nY}종목`].filter(Boolean).join(", ");
+    out.warnings.push(`배당금·분배금: ${count}종목의 배당 이력을 반영했습니다 (${src}). 배당락일 장 시작 전에 들고 있던 수량만큼 세후 금액이 현금으로 들어옵니다.`);
+  }
+  if (kisError) out.warnings.push(`한국투자증권 배당 조회가 일부 실패해 그 종목은 Yahoo 배당을 썼습니다 (${kisError}).`);
+  else if (!cred) out.warnings.push("한국투자증권 앱키가 없어 배당은 Yahoo Finance 기록을 썼습니다. 설정에서 실전 앱키를 넣으면 한국투자증권 배당 정보를 씁니다.");
+  if (skipped) out.warnings.push(`한국투자증권 배당 ${skipped}건은 그 달 원주가를 못 받아 수정 금액을 계산할 수 없어 뺐습니다.`);
   if (failed.length) out.warnings.push(`배당 이력을 못 받아 배당 없이 계산한 종목: ${failed.slice(0, 10).join(", ")}${failed.length > 10 ? ` 외 ${failed.length - 10}개` : ""}`);
   if (gaps.length) out.warnings.push(`배당 기록이 평소보다 오래 비어 있어 일부가 빠졌을 수 있는 종목: ${gaps.slice(0, 5).join("; ")}${gaps.length > 5 ? ` 외 ${gaps.length - 5}개` : ""}`);
   return res;

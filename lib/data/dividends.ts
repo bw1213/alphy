@@ -63,6 +63,29 @@ export async function fetchDividends(code: string): Promise<Dividend[]> {
   throw new Error(`${code}: 배당 이력 조회 실패 (${lastErr})`);
 }
 
+/** chart 응답 → 액면분할 [{date, ratio}] (ratio = 분할 후 주식 수 / 분할 전, 4:1 → 4) */
+export function parseYahooSplits(json: any): { date: string; ratio: number }[] {
+  const r = json?.chart?.result?.[0];
+  if (!r) return [];
+  const off = Number(r.meta?.gmtoffset) || 0;
+  return Object.values<any>(r.events?.splits ?? {})
+    .map((x) => ({ date: new Date((Number(x?.date) + off) * 1000).toISOString().slice(0, 10), ratio: Number(x?.numerator) / Number(x?.denominator) }))
+    .filter((x) => Number.isFinite(x.ratio) && x.ratio > 0 && x.ratio !== 1)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/** 미국 종목 액면분할 이력 (Yahoo). 한국투자증권 배당 금액을 분할 반영 가격에 맞출 때 씀 */
+export async function fetchSplits(code: string): Promise<{ date: string; ratio: number }[]> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const host = HOSTS[attempt % HOSTS.length];
+    const { status, json } = await getJson(`https://${host}/v8/finance/chart/${encodeURIComponent(yahooSymbols(code)[0])}?period1=0&period2=9999999999&interval=3mo&events=split`);
+    if (status === 429 || status >= 500) { await wait(800 * (attempt + 1)); continue; }
+    if (status === 200 && json?.chart?.result?.[0]) return parseYahooSplits(json);
+    break;
+  }
+  throw new Error(`${code}: 액면분할 이력 조회 실패`);
+}
+
 /**
  * 기록이 빠졌을 수 있는 구간: 평소 간격(중앙값)의 2.5배 넘게, 그리고 400일 넘게(연 1회 배당이 한 해 거른 정도는 빼고) 배당이 없던 구간.
  * 기간 [from, to] 안에 걸치는 것만.
