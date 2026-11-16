@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     loggedIn: !!me,
     passwordFromEnv: !!envPassword() && (!me || me.id === OWNER_ID),
     minPassword: MIN_PASSWORD,
-    // 혼자 쓸 때는 예전처럼 비밀번호만 묻고, 2단계 인증 칸도 켰을 때만 보임
+    // 혼자 쓸 때는 예전처럼 비밀번호만 물음. 2단계 인증 코드는 비밀번호가 맞은 뒤에 물음(POST 의 otpNeeded)
     multiUser: users.length > 1,
     otpRequired: configured && (users.length > 1 ? users.some((u) => u.totpSecret) : totpEnabled()),
     user: me ? { id: me.id, name: me.name, role: me.role, owner: me.id === OWNER_ID } : null,
@@ -45,7 +45,7 @@ function loggedInResponse(req: Request, user: string, body: unknown) {
 }
 
 /**
- * { action: "login", id?, password, otp? }      id 를 비우면 owner. otp: 2단계 인증을 켠 사람만
+ * { action: "login", id?, password, otp? }      id 를 비우면 owner. 2단계 인증을 켠 사람이 otp 없이 보내면 401 { otpNeeded: true }
  * { action: "setup", code, password }            처음 한 번: 설정 코드 + 새 비밀번호 (owner 계정이 됨)
  * { action: "join", invite, id, name, password } 초대 링크로 가입
  * { action: "change", current, password }        내 비밀번호 바꾸기 (내 다른 기기 로그인은 풀림)
@@ -98,8 +98,11 @@ export async function POST(req: Request) {
     if (!checkPassword(pw, process.env, id)) { recordFail(ip, Date.now(), id); log("fail", id); return bad(); }
     const u = getUser(id);
     if (!u || u.disabled) { recordFail(ip, Date.now(), id); log("fail", id); return bad(); }
+    // 2단계 인증을 켠 사람은 비밀번호가 맞은 뒤에 코드를 물음 (화면이 같은 비밀번호에 코드를 붙여 다시 보냄)
+    const otp = String(b.otp ?? "").trim();
+    if (!otp && totpEnabled(process.env, id)) return NextResponse.json({ otpNeeded: true }, { status: 401 });
     // 비밀번호가 맞아도 2단계 코드가 틀리면 똑같이 실패 횟수에 넣음
-    if (!checkTotp(String(b.otp ?? ""), process.env, Date.now(), id)) {
+    if (!checkTotp(otp, process.env, Date.now(), id)) {
       recordFail(ip, Date.now(), id); log("otp-fail", id);
       return NextResponse.json({ error: "인증 앱 코드가 틀렸습니다. 휴대폰의 6자리 숫자를 넣으세요." }, { status: 401 });
     }

@@ -17,6 +17,8 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
   const [password2, setPassword2] = useState("");
   const [code, setCode] = useState("");
   const [otp, setOtp] = useState("");
+  /** 비밀번호가 맞은 뒤 인증 앱 코드를 묻는 단계 */
+  const [otpStep, setOtpStep] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   useEffect(() => setError(""), [auth.setupNeeded]);
@@ -30,11 +32,12 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
     }
     setBusy(true);
     try {
-      const body = auth.setupNeeded ? { action: "setup", code, password } : { action: "login", id: auth.multiUser ? id : "", password, otp };
+      const body = auth.setupNeeded ? { action: "setup", code, password } : { action: "login", id: auth.multiUser ? id : "", password, otp: otpStep ? otp : "" };
       const r = await fetch("/api/auth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
+      if (!r.ok && j.otpNeeded) { setOtp(""); setOtpStep(true); return; }
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-      setPassword(""); setPassword2(""); setOtp("");
+      setPassword(""); setPassword2(""); setOtp(""); setOtpStep(false);
       onDone();
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
@@ -59,6 +62,13 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
             <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} autoComplete="new-password" required />
           </label>
         </>
+      ) : otpStep ? (
+        <>
+          <p className="desc">비밀번호를 확인했습니다. 휴대폰 인증 앱에 보이는 6자리 숫자를 넣으세요.</p>
+          <label className="f">인증 앱 코드 (6자리)
+            <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={7} autoFocus required />
+          </label>
+        </>
       ) : (
         <>
           {auth.multiUser && (
@@ -69,14 +79,10 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
           <label className="f">비밀번호
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus={!auth.multiUser} required />
           </label>
-          {auth.otpRequired && (
-            <label className="f" style={{ marginTop: 8 }}>인증 앱 코드 (6자리){auth.multiUser ? " · 2단계 인증을 켠 사람만" : ""}
-              <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={7} required={!auth.multiUser} />
-            </label>
-          )}
         </>
       )}
-      <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{auth.setupNeeded ? "만들고 로그인" : "로그인"}</button>
+      <button className="primary" style={{ marginTop: 12 }} disabled={busy}>{auth.setupNeeded ? "만들고 로그인" : otpStep ? "확인" : "로그인"}</button>
+      {otpStep && <button type="button" style={{ marginTop: 12, marginLeft: 8 }} disabled={busy} onClick={() => { setOtpStep(false); setOtp(""); setPassword(""); setError(""); }}>처음으로</button>}
       {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
     </form>
   );
