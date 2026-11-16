@@ -21,6 +21,8 @@ export interface OrderResult {
   orderNo: string;
   orderTime: string;
   message: string;
+  /** 주문을 받은 지점 번호 (취소할 때 필요) */
+  orgNo?: string;
 }
 
 /** 주식주문(현금) 거래ID. 2024년 개편된 신규 ID */
@@ -66,7 +68,7 @@ export async function placeOrder(client: KisClient, order: OrderRequest): Promis
     body: orderBody(cano, acntPrdtCd, o),
   });
   const out = (body.output ?? {}) as Record<string, string>;
-  return { env: client.env, orderNo: out.ODNO ?? out.odno ?? "", orderTime: out.ORD_TMD ?? out.ord_tmd ?? "", message: String(body.msg1 ?? "").trim() };
+  return { env: client.env, orderNo: out.ODNO ?? out.odno ?? "", orderTime: out.ORD_TMD ?? out.ord_tmd ?? "", message: String(body.msg1 ?? "").trim(), orgNo: out.KRX_FWDG_ORD_ORGNO ?? out.krx_fwdg_ord_orgno ?? undefined };
 }
 
 export interface Holding {

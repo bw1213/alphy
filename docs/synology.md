@@ -1,6 +1,6 @@
 # Synology NAS에 배포하기 (Container Manager)
 
-**자동 배포 구조:** main 브랜치에 머지 → GitHub Actions가 테스트 후 Docker 이미지를 만들어 `ghcr.io/bw1213/alphy:latest`에 올림 → NAS의 Watchtower가 5분마다 확인해서 새 이미지면 앱 컨테이너를 교체.
+**자동 배포 구조:** main 브랜치에 머지 → GitHub Actions가 테스트 후 Docker 이미지를 만들어 `ghcr.io/bw1213/alphy:latest`에 올림 → NAS의 Watchtower가 장 시간(08:00~15:59)을 피해 10분마다 확인해서 새 이미지면 앱 컨테이너를 교체 (자동 매매 중 재시작 방지).
 NAS에서 빌드하지 않고, 공유기 포트를 열 필요도 없습니다. 처음 한 번만 아래대로 설정하면 이후엔 PR 머지만 하면 됩니다.
 
 ## 0. 확인할 것

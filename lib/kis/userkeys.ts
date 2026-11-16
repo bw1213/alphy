@@ -90,5 +90,5 @@ export function autoLimitFor(user: string, e: Env = process.env): AutoLimit {
 /** 설정 화면 코드(view.ts)를 그대로 쓰기 위한 모양: 그 사람의 KIS + 서버의 백테스트 기본값 */
 export function memberSettings(user: string, e: Env = process.env): Settings {
   const s = loadSettings(e);
-  return { version: 1, kis: loadUserKis(user, e), backtest: s.backtest, auth: {}, auto: { eveningTime: s.auto.eveningTime } };
+  return { version: 1, kis: loadUserKis(user, e), backtest: s.backtest, auth: {}, auto: { eveningTime: s.auto.eveningTime, morningTime: s.auto.morningTime, cutoffTime: s.auto.cutoffTime } };
 }

@@ -54,13 +54,17 @@ export const DEFAULT_AUTO_LIMIT: AutoLimit = { realBudget: 1_000_000, maxLoss: 1
 export interface AutoSettings {
   /** 저녁 계산 시각 (한국 시간 HH:MM, 장 마감 15:30 이후) */
   eveningTime: string;
+  /** 아침 자동 주문 시각 (장 시작 동시호가에 넣어 시가에 체결) */
+  morningTime: string;
+  /** 이 시각까지 체결 안 된 주문은 취소 */
+  cutoffTime: string;
   /** 텔레그램 봇 토큰 (BotFather 에서 받음). 알림을 보내는 데만 씀 */
   telegramToken?: string;
   /** 봇 사용자 이름 (@ 없이). 토큰을 넣을 때 확인해서 저장 */
   telegramBot?: string;
 }
 
-export const DEFAULT_AUTO: AutoSettings = { eveningTime: "18:00" };
+export const DEFAULT_AUTO: AutoSettings = { eveningTime: "18:00", morningTime: "08:40", cutoffTime: "10:00" };
 
 export interface Settings {
   version: 1;

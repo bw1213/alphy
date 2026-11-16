@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Balance, OrderResult, OrderType, Side } from "@/lib/kis/trading";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import RebalancePlan from "@/components/RebalancePlan";
+import TodayOrders from "@/components/TodayOrders";
 import { StockSearch } from "@/components/StockSearch";
 
 interface Status {
@@ -170,6 +171,7 @@ export default function TradePage() {
               </>
             )}
           </div>
+          <TodayOrders loggedIn={!!auth?.loggedIn} onLog={(l) => setLog((x) => [l, ...x])} />
           <RebalancePlan env={env} loggedIn={!!auth?.loggedIn} onLog={(l) => setLog((x) => [l, ...x])} onDone={loadBalance} />
           {log.length > 0 && (
             <div className="card">

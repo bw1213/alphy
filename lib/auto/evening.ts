@@ -241,6 +241,7 @@ export function formatReport(r: EveningReport): string {
   }
   if (r.holdingsFrom === "backtest") lines.push("※ 계좌를 읽지 못해 전략상 보유로 계산했습니다.");
   for (const w of r.warnings.slice(0, 3)) lines.push(`※ ${w}`);
-  lines.push("아직 자동 주문은 하지 않습니다. 주문은 알피 주문 화면에서 직접 하세요.");
+  if (r.orders.length) lines.push("이 주문은 다음 거래일 아침에 자동으로 냅니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요.");
+  if (r.sellLevels.length) lines.push("장중 매도 기준 가격 자동 매도는 아직 없습니다(다음 단계).");
   return lines.join("\n");
 }
