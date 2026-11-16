@@ -24,6 +24,7 @@ import FinderResults from "@/components/FinderResults";
 import { buildCandidates, maxWarmup, type Candidate } from "@/lib/finder/candidates";
 import { evaluate, OBJECTIVES, type FinderReport, type Objective } from "@/lib/finder/search";
 import { userKey } from "@/lib/client/userStorage";
+import { fetchData } from "@/lib/client/fetchData";
 // 브라우저 저장 이름은 사람마다 다름 (같은 기기를 여럿이 써도 섞이지 않게)
 const lsKey = () => userKey("kbt.custom-strategies");
 const lastKey = () => userKey("alphy.last-state");
@@ -315,10 +316,8 @@ export default function Page() {
     let data = dataCache.current.get(key);
     if (!data) {
       setBusy(source === "naver" || source === "kis" ? "시세 데이터를 받는 중입니다 (처음 한 번은 몇 분 걸릴 수 있어요)" : "데이터 준비 중");
-      const r = await fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-      data = j as DataResponse;
+      const label = source === "naver" || source === "kis" ? "시세 데이터를 받는 중입니다" : "데이터 준비 중";
+      data = await fetchData(req, (p) => setBusy(`${label} (${p.done}/${p.total}종목, 처음 한 번은 몇 분 걸릴 수 있어요)`));
       dataCache.current.set(key, data);
     }
     setWarnings([...data.warnings, ...staleWarnings(data, end)]);
