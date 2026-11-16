@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadData, type DataRequest, type DataResponse } from "@/lib/data/server";
 import { requireUser } from "@/lib/settings/auth";
-import { quoteCredentials, type KisCredentials } from "@/lib/kis/config";
+import { credentialsFor, quoteCredentials, type KisCredentials } from "@/lib/kis/config";
 import { kisEnvFor } from "@/lib/kis/userkeys";
 import { normalizeTicker } from "@/lib/data/market";
 import { BusyError, dataGate, rateLimited } from "@/lib/server/limiter";
@@ -49,13 +49,16 @@ export async function POST(req: Request) {
     if (body.source === "kis") {
       kisCred = quoteCredentials(kisEnvFor(user));
     }
+    // 배당 정보(한국투자증권 예탁원 배당일정·해외 권리조회)는 실전 키로 (없으면 Yahoo 만. 모의투자 서버는 지원하지 않을 수 있음)
+    const userEnv = kisEnvFor(user);
+    const kisDividendCred = credentialsFor("real", userEnv);
     if (body.tickers) body.tickers = [...new Set(body.tickers.map((t) => normalizeTicker(String(t))).filter(Boolean))];
     body.pit = body.pit === true;
     // 시점별 목록은 종목이 계속 바뀌어 전체 종목 수가 2배쯤 되므로 200 까지만
     body.universeSize = Math.min(Math.max(body.universeSize ?? 100, 1), body.pit ? 200 : 300);
     // 느린 NAS 를 위해 한 번에 2건만 받고 나머지는 줄을 섬. 같은 요청을 다시 누르면 돌던 작업을 이어서 봄
     const j = jobs.start(user.id, JSON.stringify(body),
-      (onProgress) => dataGate.run(() => loadData(body, { kisCred, onProgress })),
+      (onProgress) => dataGate.run(() => loadData(body, { kisCred, kisDividendCred, onProgress })),
       (e) => (e instanceof BusyError ? 429 : undefined));
     return reply(user.id, (await jobs.wait(user.id, j.id, WAIT_MS)) ?? j);
   } catch (e) {
