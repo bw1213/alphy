@@ -176,3 +176,38 @@ describe("텔레그램", () => {
     await expect(verifyLink("owner", env, fakeFetch([], []))).rejects.toThrow(/30분/);
   });
 });
+
+describe("계정별 자동 매매 한도", () => {
+  const today = "2026-11-16";
+  it("실전 계좌면 운용 금액이 상한을 넘을 수 없음 (0 = 제한 없음)", () => {
+    expect(() => cleanPlan({ strategy: "builtin:momentum", budget: 3_000_000 }, "mom", today, [], { cap: 1_000_000 })).toThrow(/실전 운용 금액 상한/);
+    expect(cleanPlan({ strategy: "builtin:momentum", budget: 1_000_000 }, "mom", today, [], { cap: 1_000_000 }).budget).toBe(1_000_000);
+    expect(cleanPlan({ strategy: "builtin:momentum", budget: 9_000_000 }, "mom", today, [], { cap: 0 }).budget).toBe(9_000_000);
+    expect(cleanPlan({ strategy: "builtin:momentum", budget: 9_000_000 }, "mom", today, []).budget).toBe(9_000_000); // 모의투자
+  });
+
+  it("손실 한도에 닿으면 멈춤 표시와 알림 문구", async () => {
+    // 시작 뒤 30% 하락: 적립 전략이 사 둔 만큼 손실. 한도를 아주 낮게(0.1%) 잡아 확인
+    const data = { "069500": bars(today, 300, (i) => (i < 290 ? 40_000 : 40_000 - (i - 289) * 1200)) };
+    const plan: AutoPlan = { strategy: cycleStrategy, label: "적립", tickers: ["069500"], budget: 1_000_000, startDate: "2026-10-26", enabled: true, updatedAt: "" };
+    const r = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 0.1 });
+    expect(r.lossStop?.limit).toBe(0.1);
+    expect(formatReport(r)).toContain("손실 한도 도달");
+    const r2 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 0 });
+    expect(r2.lossStop).toBeUndefined();
+  });
+
+  it("설정 화면 값 검사와 저장 (owner 는 서버 설정, 다른 사람은 본인 파일)", async () => {
+    const { applyPatch, settingsView } = await import("@/lib/settings/view");
+    const { loadSettings, saveSettings } = await import("@/lib/settings/store");
+    const { autoLimitFor, memberSettings, saveUserKis } = await import("@/lib/kis/userkeys");
+    expect(autoLimitFor("owner", env)).toEqual({ realBudget: 1_000_000, maxLoss: 15 });
+    expect(() => applyPatch(loadSettings(env), { kis: { autoLimit: { maxLoss: 150 } } })).toThrow(/손실 한도/);
+    saveSettings(applyPatch(loadSettings(env), { kis: { autoLimit: { realBudget: 2_000_000, maxLoss: 10 } } }), env);
+    expect(autoLimitFor("owner", env)).toEqual({ realBudget: 2_000_000, maxLoss: 10 });
+    expect(settingsView(loadSettings(env), env).autoLimit.maxLoss).toBe(10);
+    saveUserKis("mom", applyPatch(memberSettings("mom", env), { kis: { autoLimit: { realBudget: 500_000 } } }).kis, env);
+    expect(autoLimitFor("mom", env)).toEqual({ realBudget: 500_000, maxLoss: 15 });
+    expect(autoLimitFor("owner", env).realBudget).toBe(2_000_000);
+  });
+});

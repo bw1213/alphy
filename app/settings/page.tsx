@@ -27,6 +27,7 @@ export default function SettingsPage() {
   const [keys, setKeys] = useState<Record<Env, KeyForm>>({ real: emptyKeys(), mock: emptyKeys() });
   const [bt, setBt] = useState({ source: "naver" as DataSource, cash: "", commission: "", slippage: "", sellTax: "", usCommission: "", usFx: "", universeSize: "", targetCagr: "", maxDrawdown: "" });
   const [limit, setLimit] = useState({ perOrder: "", perDay: "" });
+  const [alim, setAlim] = useState({ realBudget: "", maxLoss: "" });
   const [realConfirm, setRealConfirm] = useState(false);
   const [pw, setPw] = useState({ current: "", next: "", next2: "" });
   const [error, setError] = useState("");
@@ -36,6 +37,7 @@ export default function SettingsPage() {
     setView(v);
     const b = v.backtest;
     setLimit({ perOrder: String(v.orderLimit.perOrder), perDay: String(v.orderLimit.perDay) });
+    setAlim({ realBudget: String(v.autoLimit.realBudget), maxLoss: String(v.autoLimit.maxLoss) });
     setBt({ source: b.source, cash: String(b.cash), commission: String(b.commission), slippage: String(b.slippage), sellTax: b.sellTax == null ? "" : String(b.sellTax), usCommission: String(b.usCommission ?? 0.25), usFx: String(b.usFx ?? 0.1), universeSize: String(b.universeSize), targetCagr: String(b.targetCagr), maxDrawdown: String(b.maxDrawdown) });
   };
 
@@ -201,6 +203,16 @@ export default function SettingsPage() {
       <button style={{ marginTop: 10 }} onClick={() => {
         if (limit.perOrder.trim() === "" || limit.perDay.trim() === "") return setError("상한 금액을 넣으세요. 제한을 없애려면 0 을 넣습니다.");
         save({ kis: { orderLimit: { perOrder: Number(limit.perOrder), perDay: Number(limit.perDay) } } }, "주문 금액 상한을 저장했습니다");
+      }}>저장</button>
+      <h2 style={{ marginTop: 16 }}>자동 매매 한도</h2>
+      <div className="row">
+        <label className="f">실전 운용 금액 상한(원)<input type="number" min={0} step={100000} value={alim.realBudget} onChange={(e) => setAlim({ ...alim, realBudget: e.target.value })} /></label>
+        <label className="f">손실 한도(%)<input type="number" min={0} max={100} step={1} value={alim.maxLoss} onChange={(e) => setAlim({ ...alim, maxLoss: e.target.value })} /></label>
+      </div>
+      <p className="help">실전 운용 금액 상한: 주문 계좌가 실전일 때 자동 매매에 맡길 수 있는 최대 금액입니다. 처음엔 작게 시작하세요(0 = 제한 없음). 손실 한도: 운용 금액 대비 이만큼 잃으면 자동 매매를 멈추고 텔레그램으로 알립니다(0 = 멈추지 않음). 계정마다 따로 저장됩니다.</p>
+      <button style={{ marginTop: 10 }} onClick={() => {
+        if (alim.realBudget.trim() === "" || alim.maxLoss.trim() === "") return setError("두 칸을 모두 넣으세요. 제한을 없애려면 0 을 넣습니다.");
+        save({ kis: { autoLimit: { realBudget: Number(alim.realBudget), maxLoss: Number(alim.maxLoss) } } }, "자동 매매 한도를 저장했습니다");
       }}>저장</button>
     </div>
   );

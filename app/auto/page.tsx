@@ -14,6 +14,7 @@ interface PlanView {
 interface AutoState {
   plan: PlanView | null; log: EveningReport[]; eveningTime: string; owner: boolean; today: string;
   lastEvening: { date: string; attempts: number; done: boolean } | null;
+  limit: { realBudget: number; maxLoss: number }; account: "real" | "mock";
 }
 interface TgState { botSet: boolean; bot: string | null; owner: boolean; linked: boolean; chatName: string | null; code: string | null }
 
@@ -146,6 +147,7 @@ export default function AutoPage() {
               <button className="primary" disabled={!!busy || !form.strategy} onClick={() => act("save", () => post("/api/auto", { action: "save", ...form, budget: Number(form.budget) }), "저장했습니다. 보관함에서 전략을 고쳐도 여기서 다시 저장해야 운용에 반영됩니다.")}>{busy === "save" ? "저장 중…" : "저장"}</button>
               {st?.plan && <button disabled={!!busy} onClick={() => act("del", () => post("/api/auto", { action: "delete" }), "운용 전략을 지웠습니다.")}>운용 그만두기</button>}
             </div>
+            {st && <p className="help">주문 계좌: {st.account === "real" ? "실전" : "모의투자"} · 손실 한도 {st.limit.maxLoss ? `-${st.limit.maxLoss}%` : "없음"}{st.account === "real" ? ` · 실전 운용 금액 상한 ${st.limit.realBudget ? won(st.limit.realBudget) : "없음"}` : ""} (<a href="/settings">설정</a>에서 계정별로 변경)</p>}
             {st?.plan && <p className="help">지금 운용: <b>{st.plan.label}</b> · {won(st.plan.budget)} · {st.plan.startDate}부터 · {st.plan.enabled ? "켜짐" : "꺼짐"}</p>}
           </div>
 

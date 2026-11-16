@@ -14,7 +14,8 @@ import { getClient } from "../kis/client";
 import { tradeCredentialsFor } from "../kis/access";
 import { getBalance } from "../kis/trading";
 import { formatReport, runEvening, type EveningReport } from "./evening";
-import { appendLog, loadPlan } from "./store";
+import { appendLog, loadPlan, savePlan } from "./store";
+import { autoLimitFor } from "../kis/userkeys";
 import { notify } from "./telegram";
 import { cleanHm, isWeekday, kst } from "./time";
 
@@ -61,8 +62,10 @@ export async function eveningFor(u: User, trigger: EveningReport["trigger"], opt
   const plan = loadPlan(u.id, e);
   if (!plan) return null;
   if (trigger === "schedule" && !plan.enabled) return null;
-  const r = await runEvening(plan, trigger, { holdings: accountHoldings(u), env: e });
+  const r = await runEvening(plan, trigger, { holdings: accountHoldings(u), env: e, maxLoss: autoLimitFor(u.id, e).maxLoss });
   appendLog(r, u.id, e);
+  // 손실 한도에 닿으면 운용을 끔 (다시 켜는 건 사람이)
+  if (r.lossStop && plan.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, u.id, e);
   // 휴장일은 조용히 넘어감 (기록만)
   if (opts.notify !== false && r.status !== "holiday") {
     try { await notify(u.id, formatReport(r), e); } catch (err) { console.error(`[auto] ${u.id} 텔레그램 알림 실패: ${(err as Error).message}`); }

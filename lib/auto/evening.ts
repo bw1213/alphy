@@ -59,6 +59,8 @@ export interface EveningReport {
   /** 백테스트상 전략 평가액 (운용 금액에서 출발) */
   equity?: number;
   cash?: number;
+  /** 손실 한도에 닿음 → 자동 매매를 멈춤 */
+  lossStop?: { loss: number; limit: number };
   /** 전략이 오늘 아무것도 안 하기로 함 */
   kept?: boolean;
   orders: AutoOrder[];
@@ -103,6 +105,8 @@ export interface EveningDeps {
   holdings?: () => Promise<{ env: "real" | "mock"; holdings: Holding[] }>;
   now?: number;
   env?: Env;
+  /** 손실 한도 % (운용 금액 대비). 0 이면 안 봄 */
+  maxLoss?: number;
 }
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
@@ -147,6 +151,11 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const E = last?.equity ?? plan.budget;
   r.equity = Math.round(E);
   r.cash = Math.round(last?.cash ?? plan.budget);
+  const loss = (1 - E / plan.budget) * 100;
+  if (deps.maxLoss && deps.maxLoss > 0 && loss >= deps.maxLoss) {
+    r.lossStop = { loss, limit: deps.maxLoss };
+    r.warnings.unshift(`운용 금액 대비 ${loss.toFixed(1)}% 손실로 손실 한도(${deps.maxLoss}%)에 닿아 자동 매매를 멈춥니다. 다시 켜려면 자동 매매 화면에서 켜고 저장하세요.`);
+  }
   const name = (t: string) => d.names[t] ?? t;
   const close = (t: string) => { const b = d.data[t]; return b?.length ? b[b.length - 1].close : NaN; };
   const btQty = new Map(res.finalPositions.map((x) => [x.ticker, x.qty]));
@@ -219,6 +228,7 @@ export function formatReport(r: EveningReport): string {
   if (r.status === "error") return `${head}\n계산하지 못했습니다: ${r.error}`;
   if (r.status === "holiday") return `${head}\n오늘은 휴장일로 보고 건너뜁니다.`;
   const lines = [head];
+  if (r.lossStop) lines.push(`!! 손실 한도 도달: 운용 금액 대비 -${r.lossStop.loss.toFixed(1)}% (한도 -${r.lossStop.limit}%). 자동 매매를 멈췄습니다.`);
   if (r.equity != null) lines.push(`전략 평가액 ${won(r.equity)} (현금 ${won(r.cash ?? 0)})`);
   if (!r.orders.length) lines.push(r.kept ? "내일 주문: 없음 (보유 유지)" : "내일 주문: 없음");
   else {

@@ -1,6 +1,6 @@
 /** 설정 화면용: 비밀값을 가린 보기 + 화면에서 보낸 변경 적용 */
 import { parseAccount } from "../kis/config";
-import { envPassword, KIS_FIELDS, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type Settings } from "./store";
+import { envPassword, KIS_FIELDS, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type AutoLimit, type Settings } from "./store";
 
 type Env = Record<string, string | undefined>;
 const has = (v: string | undefined) => !!(v && v.trim());
@@ -12,6 +12,7 @@ export interface SettingsView {
   };
   realOrdersAllowed: boolean;
   orderLimit: OrderLimit;
+  autoLimit: AutoLimit;
   backtest: BacktestDefaults;
   passwordFromEnv: boolean;
   path: string;
@@ -40,6 +41,7 @@ export function settingsView(s: Settings, e: Env = process.env): SettingsView {
     },
     realOrdersAllowed: /^(yes|true|1)$/i.test(e.KIS_ALLOW_REAL_ORDERS?.trim() ?? ""),
     orderLimit: s.kis.orderLimit,
+    autoLimit: s.kis.autoLimit,
     backtest: s.backtest,
     passwordFromEnv: !!envPassword(e),
     path: settingsPath(e),
@@ -48,7 +50,7 @@ export function settingsView(s: Settings, e: Env = process.env): SettingsView {
 
 /** 화면에서 보내는 변경. 항목이 없으면 그대로, "" 이면 지움 */
 export interface SettingsPatch {
-  kis?: Partial<Record<KisEnvName, Partial<Record<keyof KisKeySet, string>>>> & { tradeEnv?: KisEnvName; orderLimit?: Partial<OrderLimit> };
+  kis?: Partial<Record<KisEnvName, Partial<Record<keyof KisKeySet, string>>>> & { tradeEnv?: KisEnvName; orderLimit?: Partial<OrderLimit>; autoLimit?: Partial<AutoLimit> };
   backtest?: Partial<BacktestDefaults>;
 }
 
@@ -82,6 +84,11 @@ export function applyPatch(s: Settings, p: SettingsPatch): Settings {
   if (ol) {
     if (ol.perOrder !== undefined) next.kis.orderLimit.perOrder = Math.round(num(ol.perOrder, "1회 주문 상한", 0, 1e12));
     if (ol.perDay !== undefined) next.kis.orderLimit.perDay = Math.round(num(ol.perDay, "하루 주문 상한", 0, 1e12));
+  }
+  const al = p.kis?.autoLimit;
+  if (al) {
+    if (al.realBudget !== undefined) next.kis.autoLimit.realBudget = Math.round(num(al.realBudget, "실전 운용 금액 상한", 0, 1e12));
+    if (al.maxLoss !== undefined) next.kis.autoLimit.maxLoss = num(al.maxLoss, "손실 한도 %", 0, 100);
   }
   const b = p.backtest;
   if (b) {

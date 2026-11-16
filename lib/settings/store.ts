@@ -45,6 +45,11 @@ export interface OrderLimit { perOrder: number; perDay: number }
 
 export const DEFAULT_ORDER_LIMIT: OrderLimit = { perOrder: 1_000_000, perDay: 5_000_000 };
 
+/** 자동 매매 한도 (사람마다). realBudget: 실전 계좌로 운용할 수 있는 최대 금액(원, 0 = 제한 없음), maxLoss: 운용 금액 대비 손실 %에 닿으면 자동 매매를 멈춤(0 = 안 멈춤) */
+export interface AutoLimit { realBudget: number; maxLoss: number }
+
+export const DEFAULT_AUTO_LIMIT: AutoLimit = { realBudget: 1_000_000, maxLoss: 15 };
+
 /** 자동 매매 (lib/auto) 서버 공용 설정. 관리자(owner)만 바꿈 */
 export interface AutoSettings {
   /** 저녁 계산 시각 (한국 시간 HH:MM, 장 마감 15:30 이후) */
@@ -60,7 +65,7 @@ export const DEFAULT_AUTO: AutoSettings = { eveningTime: "18:00" };
 export interface Settings {
   version: 1;
   auto: AutoSettings;
-  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit };
+  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit };
   backtest: BacktestDefaults;
   auth: {
     passwordHash?: string; sessionSecret?: string; setupCode?: string;
@@ -81,7 +86,7 @@ export const DEFAULT_BACKTEST: BacktestDefaults = {
 
 export const defaultSettings = (): Settings => ({
   version: 1,
-  kis: { real: {}, mock: {}, tradeEnv: "mock", orderLimit: { ...DEFAULT_ORDER_LIMIT } },
+  kis: { real: {}, mock: {}, tradeEnv: "mock", orderLimit: { ...DEFAULT_ORDER_LIMIT }, autoLimit: { ...DEFAULT_AUTO_LIMIT } },
   backtest: { ...DEFAULT_BACKTEST },
   auth: {},
   auto: { ...DEFAULT_AUTO },
@@ -106,6 +111,7 @@ function merge(raw: Partial<Settings> | null): Settings {
       mock: { ...(raw.kis?.mock ?? {}) },
       tradeEnv: raw.kis?.tradeEnv === "real" ? "real" : "mock",
       orderLimit: { ...d.kis.orderLimit, ...(raw.kis?.orderLimit ?? {}) },
+      autoLimit: { ...d.kis.autoLimit, ...(raw.kis?.autoLimit ?? {}) },
     },
     backtest: { ...d.backtest, ...(raw.backtest ?? {}) },
     auth: { ...(raw.auth ?? {}) },

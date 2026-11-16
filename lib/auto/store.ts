@@ -44,7 +44,7 @@ export const planKind = (p: Pick<AutoPlan, "strategy" | "builtin">): StrategyKin
  * 화면에서 온 값을 검사. 직접 작성한 코드 전략은 서버에서 매일 실행되므로 owner 만 허용
  * (다른 사람이 쓴 코드가 NAS 에서 돌면 서버의 비밀값·파일에 닿을 수 있음).
  */
-export function cleanPlan(x: any, user: string, today: string, lib: SavedStrategy[]): AutoPlan {
+export function cleanPlan(x: any, user: string, today: string, lib: SavedStrategy[], real?: { cap: number }): AutoPlan {
   // "builtin:<id>" = 기본 전략, "saved:<이름>" = 보관함 전략
   const key = String(x?.strategy ?? "").trim();
   if (!key) throw new Error("운용할 전략을 고르세요.");
@@ -68,6 +68,9 @@ export function cleanPlan(x: any, user: string, today: string, lib: SavedStrateg
   if (strategy?.cycle && !tickers.length) throw new Error("적립·분할 매도 전략은 대상 종목을 넣어야 합니다 (예: 069500).");
   const budget = Math.round(Number(x?.budget));
   if (!(budget >= 100_000) || budget > 10_000_000_000) throw new Error("운용 금액은 10만 원 이상으로 넣으세요.");
+  if (real && real.cap > 0 && budget > real.cap) {
+    throw new Error(`주문 계좌가 실전이라 운용 금액은 ${real.cap.toLocaleString("ko-KR")}원(설정의 실전 운용 금액 상한)까지입니다. 설정 화면에서 상한을 바꾸거나 금액을 줄이세요.`);
+  }
   let startDate = String(x?.startDate ?? "").trim();
   if (!ISO.test(startDate)) startDate = today;
   if (startDate > today) startDate = today;

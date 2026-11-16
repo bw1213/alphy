@@ -6,6 +6,8 @@ import { loadStrategies } from "@/lib/strategies/library";
 import { cleanPlan, loadLog, loadPlan, planKind, savePlan } from "@/lib/auto/store";
 import { eveningFor, eveningTime, loadState } from "@/lib/auto/scheduler";
 import { cleanHm, kst } from "@/lib/auto/time";
+import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
+import { tradeEnv } from "@/lib/kis/config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +23,8 @@ export async function GET(req: Request) {
     log: loadLog(user.id).slice(0, 30),
     eveningTime: eveningTime(),
     lastEvening: loadState().evening ?? null,
+    limit: autoLimitFor(user.id),
+    account: tradeEnv(kisEnvFor(user)),
     owner: user.id === OWNER_ID,
     today: kst().date,
   }, { headers: { "Cache-Control": "no-store" } });
@@ -40,7 +44,8 @@ export async function POST(req: Request) {
   try {
     switch (body?.action) {
       case "save": {
-        const plan = cleanPlan(body, user.id, kst().date, loadStrategies(process.env, user.id));
+        const real = tradeEnv(kisEnvFor(user)) === "real" ? { cap: autoLimitFor(user.id).realBudget } : undefined;
+        const plan = cleanPlan(body, user.id, kst().date, loadStrategies(process.env, user.id), real);
         savePlan(plan, user.id);
         return NextResponse.json({ ok: true });
       }
