@@ -6,7 +6,8 @@
  * Node.js 런타임에서 돌려서 설정 파일(쿠키 서명 키)을 그대로 읽습니다 (Next.js 15.5+).
  */
 import { NextResponse, type NextRequest } from "next/server";
-import { isLoggedIn } from "@/lib/settings/auth";
+import { currentUser } from "@/lib/settings/auth";
+import { UID_COOKIE } from "@/lib/client/userStorage";
 import { bearerToken, findDiagToken } from "@/lib/settings/diag";
 
 const PUBLIC = [/^\/login\/?$/, /^\/join\/?$/, /^\/api\/auth\/?$/, /^\/api\/health\/?$/, /^\/robots\.txt$/];
@@ -14,7 +15,14 @@ const DIAG = /^\/api\/diag(\/|$)/;
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  if (PUBLIC.some((re) => re.test(pathname)) || isLoggedIn(req)) return NextResponse.next();
+  const me = currentUser(req);
+  if (me) {
+    // 브라우저 저장값을 사람별로 나누기 위한 이름표 (비밀 아님, lib/client/userStorage.ts)
+    const res = NextResponse.next();
+    if (req.cookies.get(UID_COOKIE)?.value !== me.id) res.cookies.set(UID_COOKIE, me.id, { path: "/", sameSite: "strict", maxAge: 30 * 86400 });
+    return res;
+  }
+  if (PUBLIC.some((re) => re.test(pathname))) return NextResponse.next();
   // 점검 키는 점검 API 에서만 통함 (다른 화면·API 에 보내면 무시되고 401)
   if (DIAG.test(pathname) && findDiagToken(bearerToken(req))) return NextResponse.next();
   if (pathname.startsWith("/api/")) {

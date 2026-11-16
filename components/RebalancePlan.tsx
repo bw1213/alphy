@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Balance, OrderResult } from "@/lib/kis/trading";
 import { isUsTicker } from "@/lib/data/market";
 import { buildPlan, SIGNAL_KEY, type Plan, type SavedSignal } from "@/lib/trade/plan";
+import { userKey } from "@/lib/client/userStorage";
 
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
@@ -24,7 +25,7 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
   const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
-    try { const s = JSON.parse(localStorage.getItem(SIGNAL_KEY) ?? "null"); if (s?.picks) setSignal(s); } catch { /* 없음 */ }
+    try { const s = JSON.parse(localStorage.getItem(userKey(SIGNAL_KEY)) ?? "null"); if (s?.picks) setSignal(s); } catch { /* 없음 */ }
   }, []);
   useEffect(() => { setSellOthers(env === "mock"); }, [env]);
 

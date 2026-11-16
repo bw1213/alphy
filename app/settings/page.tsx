@@ -217,12 +217,17 @@ export default function SettingsPage() {
           <p className="help">백테스트와 전략 보관함·마지막 설정은 내 계정에 따로 저장됩니다. 아래에 넣는 한국투자증권 앱키·계좌는 암호화해서 저장되고 본인만 쓸 수 있습니다(관리자도 볼 수 없음). 주문은 본인이 직접 누를 때만 나갑니다.</p>
           <p className="help">백테스트 결과와 추천은 과거 자료를 바탕으로 한 참고용이며, 투자 판단과 책임은 본인에게 있습니다.</p>
         </div>
+        <div className="wide section"><h2>내 설정</h2><p className="help">내 계정에만 적용됩니다.</p></div>
         {keyCard("mock")}
         {keyCard("real")}
         {tradeCard}
         {pwCard(false)}
         <SecurityCard />
-        {auth.user.role === "admin" && <UsersCard />}
+        {auth.user.role === "admin" && (<>
+        <div className="wide section"><h2>관리</h2><p className="help">관리자만 보입니다. 모든 사용자에게 적용됩니다.</p></div>
+          <UsersCard />
+          <StockListCard />
+        </>)}
       </main>
     </>
   );
@@ -233,10 +238,18 @@ export default function SettingsPage() {
       <main className="settings">
         {(error || saved) && <div className="wide">{error ? <div className="error">{error}</div> : <span className="saved">✓ {saved}</span>}</div>}
 
+        <div className="wide section"><h2>내 설정</h2><p className="help">내 계정(owner)에만 적용됩니다.</p></div>
         {keyCard("mock")}
         {keyCard("real")}
 
         {tradeCard}
+
+        {pwCard(view.passwordFromEnv)}
+
+        <SecurityCard />
+
+        <div className="wide section"><h2>관리</h2><p className="help">모든 사용자에게 적용됩니다. 초대받은 사람에게는 보이지 않습니다.</p></div>
+        <UsersCard />
 
         <div className="card">
           <h2>백테스트 기본값</h2>
@@ -266,12 +279,6 @@ export default function SettingsPage() {
         </div>
 
         <StockListCard />
-
-        {pwCard(view.passwordFromEnv)}
-
-        <SecurityCard />
-
-        <UsersCard />
 
         <DiagTokenCard />
 
