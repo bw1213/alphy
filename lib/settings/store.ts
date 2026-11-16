@@ -45,8 +45,21 @@ export interface OrderLimit { perOrder: number; perDay: number }
 
 export const DEFAULT_ORDER_LIMIT: OrderLimit = { perOrder: 1_000_000, perDay: 5_000_000 };
 
+/** 자동 매매 (lib/auto) 서버 공용 설정. 관리자(owner)만 바꿈 */
+export interface AutoSettings {
+  /** 저녁 계산 시각 (한국 시간 HH:MM, 장 마감 15:30 이후) */
+  eveningTime: string;
+  /** 텔레그램 봇 토큰 (BotFather 에서 받음). 알림을 보내는 데만 씀 */
+  telegramToken?: string;
+  /** 봇 사용자 이름 (@ 없이). 토큰을 넣을 때 확인해서 저장 */
+  telegramBot?: string;
+}
+
+export const DEFAULT_AUTO: AutoSettings = { eveningTime: "18:00" };
+
 export interface Settings {
   version: 1;
+  auto: AutoSettings;
   kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit };
   backtest: BacktestDefaults;
   auth: {
@@ -71,6 +84,7 @@ export const defaultSettings = (): Settings => ({
   kis: { real: {}, mock: {}, tradeEnv: "mock", orderLimit: { ...DEFAULT_ORDER_LIMIT } },
   backtest: { ...DEFAULT_BACKTEST },
   auth: {},
+  auto: { ...DEFAULT_AUTO },
 });
 
 type Env = Record<string, string | undefined>;
@@ -95,6 +109,7 @@ function merge(raw: Partial<Settings> | null): Settings {
     },
     backtest: { ...d.backtest, ...(raw.backtest ?? {}) },
     auth: { ...(raw.auth ?? {}) },
+    auto: { ...d.auto, ...(raw.auto ?? {}) },
   };
 }
 

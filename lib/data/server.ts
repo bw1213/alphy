@@ -57,7 +57,17 @@ async function writeJson(p: string, v: unknown) {
 
 type DailyFetcher = (symbol: string, start: string) => Promise<Bar[]>;
 
-interface DailyCache { fetched: string; from?: string; bars: Bar[] }
+interface DailyCache { fetched: string; from?: string; bars: Bar[]; /** 받은 시각(ms) */ fetchedAt?: number }
+
+/**
+ * 오늘 받은 캐시라도 장 마감(한국 시간 15:40) 전에 받은 것이면, 마감 뒤에는 한 번 더 받는다.
+ * 낮에 백테스트를 돌려 캐시가 생겼어도 저녁 자동 계산이 오늘 종가를 쓰게 하려는 것.
+ */
+export function needsAfterCloseRefresh(fetchedAt: number | undefined, now = Date.now()): boolean {
+  const kstDay = new Date(now + 9 * 3600_000).toISOString().slice(0, 10);
+  const close = Date.parse(`${kstDay}T15:40:00+09:00`);
+  return now >= close && (fetchedAt ?? 0) < close;
+}
 
 const minusDays = (iso: string, n: number) => new Date(Date.parse(iso) - n * 864e5).toISOString().slice(0, 10);
 
@@ -86,7 +96,7 @@ export async function cachedDaily(symbol: string, start: string, src: "naver" | 
   const c = await readJson<DailyCache>(p);
   const covers = !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) <= start;
   if (c && covers) {
-    if (c.fetched === today()) return c.bars;
+    if (c.fetched === today() && !needsAfterCloseRefresh(c.fetchedAt)) return c.bars;
     try {
       const overlapFrom = minusDays(c.bars[c.bars.length - 1].date, 10);
       const fresh = await fetcher(symbol, overlapFrom);
@@ -94,14 +104,14 @@ export async function cachedDaily(symbol: string, start: string, src: "naver" | 
         const byDate = new Map(c.bars.map((b) => [b.date, b]));
         for (const b of fresh) byDate.set(b.date, b);
         const bars = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-        await writeJson(p, { fetched: today(), from: c.from ?? c.bars[0].date, bars } satisfies DailyCache);
+        await writeJson(p, { fetched: today(), fetchedAt: Date.now(), from: c.from ?? c.bars[0].date, bars } satisfies DailyCache);
         return bars;
       }
     } catch { /* 이어 받기 실패 → 아래에서 전체 다시 */ }
   }
   const from = c?.from && c.from < start ? c.from : start;
   const bars = await fetcher(symbol, from);
-  await writeJson(p, { fetched: today(), from, bars } satisfies DailyCache);
+  await writeJson(p, { fetched: today(), fetchedAt: Date.now(), from, bars } satisfies DailyCache);
   return bars;
 }
 

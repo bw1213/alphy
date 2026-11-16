@@ -67,7 +67,9 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   const { dates, tickers } = P;
   const N = dates.length;
   const reb = rebalanceDays(dates, st.rebalance);
-  const startIdx = opt.startDate ? Math.max(0, dates.findIndex((d) => d >= opt.startDate!)) : 0;
+  // 시작일이 데이터보다 뒤면(자동 매매 첫날 저녁) 거래 없이 마지막 날 신호만 계산
+  const found = opt.startDate ? dates.findIndex((d) => d >= opt.startDate!) : 0;
+  const startIdx = found < 0 ? N : found;
 
   let cash = opt.initialCash ?? 10_000_000;
   // 추가 입금: 수익률은 펀드 '좌수'처럼 계산해 입금 효과를 뺀다 (nav = 평가액 / 좌수, 시작 nav = 시작 자금)
@@ -235,12 +237,14 @@ export function runBacktest(opt: RunOptions): BacktestResult {
     if (i === N - 1) {
       // 마지막 날: 리밸런싱 주기와 상관없이 "지금 전략이 고르는 종목"을 계산 (추천 종목용, 체결은 없음)
       if (i + 1 >= st.warmup) {
-        const w = opt.strategy(new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i), memo));
+        const lastCtx = new StrategyContext(P, i, { ...pos }, { ...avg }, cash, eq, opt.names, activeAt(i), memo);
+        const w = opt.strategy(lastCtx);
         const nowW = (t: string) => (eq > 0 ? ((pos[t] ?? 0) * P.closeFilled[col(t)][i]) / eq : 0);
         const weights = w ? Object.fromEntries(Object.entries(cleanWeights(w)).map(([t, x]) => [t, x === HOLD ? nowW(t) : x]))
           : Object.fromEntries(Object.keys(pos).map((t) => [t, nowW(t)]));
+        const notes = Object.keys(lastCtx.notes ?? {}).length ? { ...lastCtx.notes } : undefined;
         signal = {
-          date: d, kept: !w,
+          date: d, kept: !w, ...(notes ? { notes } : {}),
           picks: Object.entries(weights).map(([t, weight]) => ({ ticker: t, weight, close: P.closeFilled[col(t)][i] }))
             .sort((a, b) => b.weight - a.weight),
         };
