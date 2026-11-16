@@ -18,7 +18,7 @@ import type { OrderLimit } from "../settings/store";
 import { checkOrderLimit } from "../kis/limits";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport } from "./evening";
-import type { AutoPlan } from "./store";
+import { REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
 import { kst, minusDays } from "./time";
 
 type Env = Record<string, string | undefined>;
@@ -141,6 +141,7 @@ export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Brok
   const d: MorningDay = { date: today, label: plan.label, env: b.env, phase: "placed", items: [], log: [] };
   const skip = (reason: string): MorningDay => ({ ...d, phase: "skipped", reason, log: [`${hhmm(now)} ${reason}`] });
   if (!plan.enabled) return skip("운용이 꺼져 있습니다.");
+  if (b.env === "real" && !plan.realConfirmedAt) return skip(REAL_NOT_CONFIRMED);
   if (b.env === "real" && lim.realCap && plan.budget > lim.realCap) return skip(`운용 금액 ${won(plan.budget)}이 실전 운용 금액 상한 ${won(lim.realCap)}을 넘습니다. 설정에서 상한을 올리거나 운용 금액을 줄이세요.`);
   const { report, reason } = pickReport(log, plan, today);
   if (!report) return skip(reason!);

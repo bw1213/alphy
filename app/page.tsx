@@ -483,7 +483,7 @@ export default function Page() {
   const hasUs = universeMode === "list" && parseTickers(tickers).some(isUsTicker);
   const sourceHelp = useMemo(() => ({
     naver: "네이버 증권 일봉(수정주가). 서버가 받아 .cache/ 에 저장하고 새 날짜만 이어 받습니다.",
-    kis: "한국투자증권 Open API 일봉(수정주가). 설정 화면에서 앱키를 넣어야 합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요.",
+    kis: "한국투자증권 Open API 일봉(수정주가). 설정 화면에서 앱키를 넣어야 합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요. 미국 종목 시세·환율도 한국투자증권에서 받고, 못 받으면 야후 파이낸스를 씁니다.",
     csv: "data/csv/{종목코드}.csv (Date,Open,High,Low,Close,Volume). 지수는 KOSPI.csv",
     synthetic: "랜덤 가짜 데이터. 전략 코드가 돌아가는지 확인할 때만 쓰세요.",
   }[source]), [source]);

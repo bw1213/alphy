@@ -14,7 +14,7 @@ import { checkOrderLimit } from "../kis/limits";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport, SellLevel } from "./evening";
 import { applyFills, pickReport, type Broker, type ItemStatus, type MorningLimits } from "./morning";
-import { intradayOn, type AutoPlan } from "./store";
+import { intradayOn, REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
 import { kst } from "./time";
 
 type Env = Record<string, string | undefined>;
@@ -90,6 +90,7 @@ export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Bro
   const off = (reason: string): IntradayDay => ({ ...d, done: true, reason, log: [`${k.hm} ${reason}`] });
   if (!plan.enabled) return off("운용이 꺼져 있습니다.");
   if (!intradayOn(plan)) return off("장중 실시간 매도가 꺼져 있습니다.");
+  if (b.env === "real" && !plan.realConfirmedAt) return off(REAL_NOT_CONFIRMED);
   const { report, reason } = pickReport(log, plan, k.date);
   if (!report) return off(reason!);
   d.reportDate = report.runDate;

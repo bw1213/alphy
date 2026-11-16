@@ -12,7 +12,7 @@ import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
 import { credentialsFor, quoteCredentials, type KisCredentials } from "../kis/config";
 import { kisDividendRows, kisRawMonthly, kisUsDividendRows, mergeDividends, toEngineDividends, toEngineUsDividends, type KisDividendRow } from "../kis/dividends";
 import { getClient } from "../kis/client";
-import { kisDaily, kisIndexDaily } from "../kis/market";
+import { KIS_EXCHANGE, kisDaily, kisIndexDaily, kisSp500Daily, kisUsDaily, kisUsdKrwDaily, type KisExchange } from "../kis/market";
 
 const ROOT = process.cwd();
 const CACHE = path.join(ROOT, ".cache");
@@ -70,6 +70,7 @@ export function needsAfterCloseRefresh(fetchedAt: number | undefined, now = Date
   return now >= close && (fetchedAt ?? 0) < close;
 }
 
+const plusDays = (iso: string, n: number) => new Date(Date.parse(iso) + n * 864e5).toISOString().slice(0, 10);
 const minusDays = (iso: string, n: number) => new Date(Date.parse(iso) - n * 864e5).toISOString().slice(0, 10);
 
 /** 겹치는 날짜의 종가가 같으면(수정주가가 안 바뀌었으면) 이어 붙여도 안전 */
@@ -415,13 +416,38 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
     return bars;
   };
   let fromKrx = 0;
-  // 미국 종목은 데이터 소스와 상관없이 야후 파이낸스 시세(달러) → 아래에서 원화로 환산
+  // 미국 종목 시세(달러) → 아래에서 원화로 환산.
+  // 데이터가 한국투자증권이면 한국투자증권 해외 시세를 먼저 쓰고, 못 받거나 과거가 모자라면 야후 파이낸스로 넘어간다
   const usCodes = list.filter((s) => isUsTicker(s.code)).map((s) => s.code);
+  const usMaster = usCodes.length ? await cachedUsMaster() : [];
+  const usVia = new Map<string, "kis" | "yahoo">();
+  const kisUs = isKis && usCodes.length ? getClient((opts.kisCred === undefined ? quoteCredentials() : opts.kisCred)!) : null;
+  /** 한국투자증권 먼저, 안 되면 야후. 한국투자증권 쪽 시작이 늦으면 야후와 비교해 더 긴 쪽 */
+  const kisFirst = async (key: string, yahooSym: string, from: string, kis: DailyFetcher): Promise<Bar[]> => {
+    const viaYahoo = () => cachedDaily(yahooSym, from, "yahoo", fetchYahooDaily);
+    if (!kisUs) { usVia.set(key, "yahoo"); return viaYahoo(); }
+    let bars: Bar[];
+    try { bars = await cachedDaily(key, from, "kis", kis); }
+    catch { usVia.set(key, "yahoo"); return viaYahoo(); }
+    if (bars[0].date > plusDays(from, 14)) {
+      try {
+        const y = await viaYahoo();
+        if (y.length && y[0].date < minusDays(bars[0].date, 14)) { usVia.set(key, "yahoo"); return y; }
+      } catch { /* 야후도 안 되면 한국투자증권 것 그대로 */ }
+    }
+    usVia.set(key, "kis");
+    return bars;
+  };
+  const usDaily = (code: string) => {
+    const m = usMaster.find((u) => u.code === code)?.market;
+    const ex: KisExchange[] | undefined = m ? [KIS_EXCHANGE[m]] : undefined;
+    return kisFirst(code, code, req.start, (sym, start) => kisUsDaily(kisUs!, sym, start, today(), ex));
+  };
   let got = 0;
   opts.onProgress?.(0, list.length);
   const results = await pool(list, 6, async (s) => {
     try {
-      if (isUsTicker(s.code)) return await cachedDaily(s.code, req.start, "yahoo", fetchYahooDaily);
+      if (isUsTicker(s.code)) return await usDaily(s.code);
       try { return await cachedDaily(s.code, req.start, src, fetcher); }
       catch (e) {
         if (!isin.get(s.code)) throw e;
@@ -434,12 +460,12 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   let fx: { date: string; close: number }[] | undefined;
   if (usCodes.length) {
     try {
-      fx = (await cachedDaily(USDKRW, minusDays(req.start, 10), "yahoo", fetchYahooDaily)).map((b) => ({ date: b.date, close: b.close }));
+      fx = (await kisFirst("FX@KRW", USDKRW, minusDays(req.start, 10), (_, start) => kisUsdKrwDaily(kisUs!, start, today()))).map((b) => ({ date: b.date, close: b.close }));
     } catch (e) {
       throw new Error(`원/달러 환율을 받지 못해 미국 종목을 원화로 바꿀 수 없습니다 (${(e as Error).message}). 잠시 뒤 다시 실행하세요.`);
     }
   }
-  const usNames = usCodes.length ? new Map((await cachedUsMaster()).map((u) => [u.code, u.name])) : new Map<string, string>();
+  const usNames = new Map(usMaster.map((u) => [u.code, u.name]));
   const data: PriceData = {}, names: Record<string, string> = {};
   results.forEach((r, k) => {
     const s = list[k];
@@ -452,8 +478,11 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   });
   const usLoaded = usCodes.filter((t) => t in data);
   if (usLoaded.length) {
-    warnings.push(`미국 종목 ${usLoaded.length}개(${usLoaded.slice(0, 5).join(", ")}${usLoaded.length > 5 ? " 등" : ""})는 야후 파이낸스 시세를 그날 원/달러 환율로 원화로 바꿔 계산했습니다. 환율 변동이 수익률에 들어가고, 미국 종목 비용은 '자금·비용'의 미국 수수료·환전 비용을 씁니다. 양도소득세(연 250만 원 넘는 차익의 22%)는 계산하지 않습니다.`);
-    if (isKis) warnings.push("한국투자증권 데이터를 골라도 미국 종목 시세는 야후 파이낸스에서 받습니다.");
+    const fromKis = usLoaded.filter((t) => usVia.get(t) === "kis"), fromYahoo = usLoaded.filter((t) => usVia.get(t) !== "kis");
+    const where = !fromYahoo.length ? "한국투자증권" : !fromKis.length ? "야후 파이낸스" : "한국투자증권·야후 파이낸스";
+    warnings.push(`미국 종목 ${usLoaded.length}개(${usLoaded.slice(0, 5).join(", ")}${usLoaded.length > 5 ? " 등" : ""})는 ${where} 시세를 그날 원/달러 환율(${usVia.get("FX@KRW") === "kis" ? "한국투자증권" : "야후 파이낸스"})로 원화로 바꿔 계산했습니다. 환율 변동이 수익률에 들어가고, 미국 종목 비용은 '자금·비용'의 미국 수수료·환전 비용을 씁니다. 양도소득세(연 250만 원 넘는 차익의 22%)는 계산하지 않습니다.`);
+    if (isKis && fromYahoo.length) warnings.push(`${fromYahoo.slice(0, 8).join(", ")}${fromYahoo.length > 8 ? " 등" : ""}: 한국투자증권에서 시세를 못 받았거나 과거 기간이 모자라 야후 파이낸스 시세를 썼습니다.`);
+    if (!isKis) warnings.push("데이터를 '한국투자증권 API'로 고르면 미국 종목 시세·환율도 한국투자증권에서 받습니다.");
   }
   if (!Object.keys(data).length) throw new Error(`가격 데이터를 하나도 받지 못했습니다. 네트워크 상태를 확인하세요. (${warnings[0] ?? ""})`);
   let benchmark = null;
@@ -461,7 +490,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   const usOnly = list.length > 0 && list.every((x) => isUsTicker(x.code));
   if (usOnly) {
     try {
-      const idx = toKrw(await cachedDaily(SP500, req.start, "yahoo", fetchYahooDaily), fx!);
+      const idx = toKrw(await kisFirst("SPX", SP500, req.start, (_, start) => kisSp500Daily(kisUs!, start, today())), fx!);
       benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
     } catch (e) { warnings.push(`S&P 500 지수 조회 실패: ${(e as Error).message}`); }
     if (fromKrx) warnings.push(`${fromKrx}종목은 KRX 시세를 썼습니다.`);
