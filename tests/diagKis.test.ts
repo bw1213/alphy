@@ -28,12 +28,15 @@ describe("diag kis", () => {
       if (p.endsWith("inquire-balance")) return ok({ output1: [{ pdno: "005930", hldg_qty: "3", prdt_name: "삼성전자" }], output2: [{ dnca_tot_amt: "1234567", tot_evlu_amt: "9876543" }] });
       if (p.endsWith("inquire-psbl-order")) return ok({ output: { ord_psbl_cash: "1234567", max_buy_qty: "17" } });
       if (p.endsWith("inquire-daily-ccld")) return ok({ output1: [{ ord_dt: "20261116", ord_tmd: "091500", odno: "0000123", sll_buy_dvsn_cd_name: "매수", pdno: "005930", ord_qty: "1", tot_ccld_qty: "1", rmn_qty: "0" }] });
+      if (p.endsWith("/dailyprice")) return ok({ output2: [{ xymd: u.searchParams.get("BYMD")! < "20240700" ? "20240607" : "20261113", clos: "120.888", open: "119", high: "121", low: "118", tvol: "100" }] });
+      if (p.endsWith("inquire-daily-chartprice")) return ok({ output2: [{ stck_bsop_date: "20261113", ovrs_nmix_prpr: "1336.2", ovrs_nmix_oprc: "1330", ovrs_nmix_hgpr: "1340", ovrs_nmix_lwpr: "1329", acml_vol: "0" }] });
       return { status: 500, body: { rt_cd: "1", msg1: "unknown" } };
     });
     const r = await kisReport({}, { env, clientFor: (c) => new KisClient(c, { fetch: f, cacheDir: null, sleep: async () => {}, minIntervalMs: 0 }) });
     const mock = r.envs.find((x) => x.env === "mock")!;
     expect(mock.ok).toBe(true);
-    expect(mock.checks.map((c) => c.step)).toEqual(["token", "quote", "daily", "index", "balance", "buyable", "orders"]);
+    expect(mock.checks.map((c) => c.step)).toEqual(["token", "quote", "daily", "index", "usDaily", "usHistory", "fx", "sp500", "balance", "buyable", "orders"]);
+    expect(mock.checks.find((c) => c.step === "usHistory")?.info).toMatchObject({ nvda20240607: 120.888, splitAdjusted: true });
     expect(r.envs.find((x) => x.env === "real")).toMatchObject({ keys: false, checks: [] });
     expect(paths.filter((p) => p.startsWith("POST") && !p.includes("tokenP"))).toEqual([]);
     const s = JSON.stringify(r);

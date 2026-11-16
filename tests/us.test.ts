@@ -134,3 +134,33 @@ describe("한국·미국 휴일이 다른 종목 섞기", () => {
     expect(Number.isNaN(P.close[kr][3])).toBe(true); // 마지막 시세 뒤는 비움 (상장폐지 판단용)
   });
 });
+
+describe("한국투자증권 해외 시세", () => {
+  it("해외주식 기간별시세·환율 응답을 일봉으로 읽고, BRK.B 는 BRK/B 로 보낸다", async () => {
+    const { parseOverseasDaily, parseOverseasChart, kisUsSymbol, kisUsDaily } = await import("@/lib/kis/market");
+    expect(kisUsSymbol("BRK.B")).toBe("BRK/B");
+    expect(parseOverseasDaily([
+      { xymd: "20250103", clos: "243.36", open: "243.36", high: "244.18", low: "241.89", tvol: "40244114" },
+      { xymd: "20250102", clos: "243.85", open: "248.93", high: "249.10", low: "241.82", tvol: "55740731" },
+      { xymd: "", clos: "0" },
+    ])).toEqual([
+      { date: "2025-01-02", open: 248.93, high: 249.1, low: 241.82, close: 243.85, volume: 55740731 },
+      { date: "2025-01-03", open: 243.36, high: 244.18, low: 241.89, close: 243.36, volume: 40244114 },
+    ]);
+    expect(parseOverseasChart([{ stck_bsop_date: "20250102", ovrs_nmix_prpr: "1470.5", ovrs_nmix_oprc: "0", ovrs_nmix_hgpr: "1475", ovrs_nmix_lwpr: "1465", acml_vol: "" }]))
+      .toEqual([{ date: "2025-01-02", open: 1470.5, high: 1475, low: 1465, close: 1470.5, volume: 0 }]);
+    // 거래소를 모르면 순서대로 시도, 100일씩 과거로 넘겨 받음
+    const calls: Record<string, string>[] = [];
+    const client = { call: async ({ query }: any) => {
+      calls.push(query);
+      if (query.EXCD !== "NYS") return { body: { output2: [] } };
+      const rows = query.BYMD >= "20250103" ? [{ xymd: "20250103", clos: "2", open: "2", high: "2", low: "2", tvol: "1" }, { xymd: "20250102", clos: "1", open: "1", high: "1", low: "1", tvol: "1" }]
+        : query.BYMD >= "20241231" ? [{ xymd: "20241231", clos: "3", open: "3", high: "3", low: "3", tvol: "1" }] : [];
+      return { body: { output2: rows } };
+    } } as any;
+    const bars = await kisUsDaily(client, "BRK.B", "2024-12-01", "2025-01-10");
+    expect(bars.map((b) => b.date)).toEqual(["2024-12-31", "2025-01-02", "2025-01-03"]);
+    expect(calls[0]).toMatchObject({ EXCD: "NAS", SYMB: "BRK/B", MODP: "1", GUBN: "0" });
+    await expect(kisUsDaily(client, "ZZZZ", "2024-12-01", "2025-01-10", ["NAS"])).rejects.toThrow("한국투자증권 해외 시세 없음");
+  });
+});
