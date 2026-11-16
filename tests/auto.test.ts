@@ -203,6 +203,14 @@ describe("계정별 자동 매매 한도", () => {
     expect(r.lossStop?.limit).toBe(0.1);
     expect(formatReport(r)).toContain("손실 한도 도달");
     const r2 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 0 });
+    // 실제 계좌 손익이 있으면 그걸로 손실 한도를 봄
+    const acct = (total: number) => async () => ({ env: "mock" as const, holdings: [], total, cash: total, stock: 0 });
+    const r3 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 10, holdings: acct(9_850_000), accountBase: 10_000_000 });
+    expect(r3.accountPnl).toBe(-150_000);
+    expect(r3.lossStop).toMatchObject({ basis: "account", limit: 10 });
+    expect(r3.lossStop!.loss).toBeCloseTo(15);
+    const r4 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 10, holdings: acct(9_990_000), accountBase: 10_000_000 });
+    expect(r4.lossStop).toBeUndefined();
     expect(r2.lossStop).toBeUndefined();
   });
 
