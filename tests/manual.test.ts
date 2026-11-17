@@ -270,3 +270,11 @@ describe("한국투자증권 총자산 조회값 검사", () => {
     expect(v.total).toBe(9_999_071);
   });
 });
+
+describe("달러 예수금", () => {
+  it("평가액에 달러 예수금(원화 환산)을 더하고, 예수금에도 포함", () => {
+    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [{ code: "UPRO", name: "UPRO", qty: 57, avgPrice: 129.12, price: 129.52, value: 7382.64 }], cashUsd: 220_000, fx: 1450 } }, null, 0);
+    expect(v.total).toBe(Math.round(9_999_071 + 57 * 129.52 * 1450 + 220_000 * 1450));
+    expect(v.cash).toBe(Math.round(9_999_071 + 220_000 * 1450));
+  });
+});

@@ -51,8 +51,10 @@ export interface KisView {
 export interface KisRaw {
   env: "real" | "mock";
   kr: { cash: number; total: number; holdings: { code: string; name: string; qty: number; avgPrice: number; price: number; value: number }[] };
-  us?: { holdings: { code: string; name: string; qty: number; avgPrice: number; price: number; value: number }[]; totalAsset?: number };
+  us?: { holdings: { code: string; name: string; qty: number; avgPrice: number; price: number; value: number }[]; totalAsset?: number; cashUsd?: number; fx?: number };
   note?: string;
+  /** 달러 예수금을 못 읽었을 때 */
+  cashNote?: string;
 }
 
 export const KIS_ID = "kis";
@@ -112,8 +114,8 @@ export async function fetchPrices(tickers: string[], e: Env = process.env, load:
 /** 한국투자증권 잔고를 원화로 (미국 보유는 받은 원화 종가, 없으면 달러 × 환율) */
 export function kisViewOf(raw: KisRaw, prices: PriceBook | null, now: number): KisView {
   const positions: KisPosition[] = raw.kr.holdings.map((h) => ({ ticker: h.code, name: h.name, qty: h.qty, avgPrice: h.avgPrice, price: h.price, value: h.value || h.qty * h.price }));
-  let note = raw.note;
-  const fx = prices?.fx;
+  let note = [raw.note, raw.cashNote].filter(Boolean).join(" ") || undefined;
+  const fx = raw.us?.fx && raw.us.fx > 0 ? raw.us.fx : prices?.fx;
   let usValue = 0;
   for (const h of raw.us?.holdings ?? []) {
     const krw = prices?.map[h.code]?.close ?? (fx ? h.price * fx : NaN);
@@ -122,9 +124,10 @@ export function kisViewOf(raw: KisRaw, prices: PriceBook | null, now: number): K
     usValue += value;
     positions.push({ ticker: h.code, name: h.name, qty: h.qty, avgPrice: h.avgPrice * fx, price: krw, value });
   }
-  // 평가액 = 국내 총평가 + 미국 주식(원화). 증권사 "총자산" 조회값은 모의투자에서 엉뚱한 값(수억 원)이 나온 적이 있어
-  // 미국 종목을 원화로 못 바꿨을 때만 대신 씀 (달러 예수금은 이 계산에 들어가지 않음)
-  const sum = raw.kr.total + usValue;
+  // 평가액 = 국내 총평가(원화 예수금 포함) + 미국 주식 + 달러 예수금 (모두 원화). 총자산 조회값은 오락가락해서
+  // 미국 종목을 원화로 못 바꿨을 때만 대신 씀
+  const usCashKrw = raw.us?.cashUsd && fx ? raw.us.cashUsd * fx : 0;
+  const sum = raw.kr.total + usValue + usCashKrw;
   const dropped = positions.length < raw.kr.holdings.length + (raw.us?.holdings.length ?? 0);
   const asset = raw.us?.totalAsset ?? 0;
   const total = dropped && asset > 0 ? asset : sum;

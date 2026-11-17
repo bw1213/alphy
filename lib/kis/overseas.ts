@@ -200,4 +200,20 @@ export async function usBuyableQty(client: KisClient, ticker: string, exchange: 
   return Math.floor(Math.max(num(o.ovrs_max_ord_psbl_qty), num(o.max_ord_psbl_qty)));
 }
 
+/**
+ * 달러 예수금(주문 가능 외화)과 그때 환율. 해외 매수가능금액 조회를 아무 종목·1달러로 물어 씀 (주문 아님).
+ * 모의투자 계좌는 원화와 별도로 달러 예수금이 있어, 이것을 빼면 미국 주식을 산 만큼 평가액이 늘어난 것처럼 보임
+ */
+export async function usCash(client: KisClient, ticker = "AAPL", exchange: OrderExchange = "NASD"): Promise<{ usd: number; fx: number }> {
+  const { body } = await client.call({
+    method: "GET",
+    path: "/uapi/overseas-stock/v1/trading/inquire-psamount",
+    trId: tr(client.env, "TTTS3007R"),
+    query: { ...account(client), OVRS_EXCG_CD: exchange, OVRS_ORD_UNPR: "1", ITEM_CD: kisUsSymbol(ticker) },
+  });
+  const o = (body.output ?? {}) as Record<string, unknown>;
+  if (o.ord_psbl_frcr_amt == null) throw new Error("달러 예수금을 읽지 못했습니다");
+  return { usd: num(o.ord_psbl_frcr_amt), fx: num(o.exrt) };
+}
+
 export const quoteExchange = (x: OrderExchange): KisExchange => QUOTE_EXCHANGE[x];

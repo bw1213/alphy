@@ -6,7 +6,7 @@
 import { getClient } from "../kis/client";
 import { credentialsFor, tradeEnv } from "../kis/config";
 import { getBalance } from "../kis/trading";
-import { getUsBalance, usTotalAsset } from "../kis/overseas";
+import { getUsBalance, usCash, usTotalAsset } from "../kis/overseas";
 import { kisEnvFor } from "../kis/userkeys";
 import type { User } from "../settings/users";
 import type { KisRaw } from "./value";
@@ -28,9 +28,11 @@ export const kisReader = (u: User, e: Env = process.env) => async (): Promise<Ki
   const out: KisRaw = { env: client.env, kr: { cash: kr.cash, total: kr.totalValue, holdings: kr.holdings } };
   try {
     const us = await getUsBalance(client);
-    // 총자산 조회값은 미국 종목을 원화로 못 바꿀 때만 쓰므로(kisViewOf) 미국 보유가 있을 때만 읽음
+    // 달러 예수금: 못 읽으면 평가액이 그만큼 빠지므로 메모를 남김 (자동 매매 성과 기록은 이때 평가액을 쓰지 않음)
+    let cash: { usd: number; fx: number } | undefined;
+    try { cash = await usCash(client); } catch (err) { out.cashNote = `달러 예수금을 읽지 못했습니다: ${(err as Error).message}`; }
     const totalAsset = us.holdings.length ? await usTotalAsset(client).catch(() => undefined) : undefined;
-    if (us.holdings.length) out.us = { holdings: us.holdings, ...(totalAsset ? { totalAsset } : {}) };
+    if (us.holdings.length || cash?.usd) out.us = { holdings: us.holdings, ...(totalAsset ? { totalAsset } : {}), ...(cash ? { cashUsd: cash.usd, ...(cash.fx > 0 ? { fx: cash.fx } : {}) } : {}) };
   } catch (err) {
     out.note = `미국 잔고를 읽지 못했습니다: ${(err as Error).message}`;
   }

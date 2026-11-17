@@ -31,7 +31,7 @@ export async function autoReport() {
       const v = kisViewOf(raw, loadHistory(u.id).prices, Date.now());
       account = {
         env: raw.env, krTotal: raw.kr.total, krCash: raw.kr.cash, krHoldings: raw.kr.holdings.map((h) => ({ code: h.code, qty: h.qty, value: h.value })),
-        usHoldings: (raw.us?.holdings ?? []).map((h) => ({ code: h.code, qty: h.qty, valueUsd: h.value })), usTotalAsset: raw.us?.totalAsset ?? null,
+        usHoldings: (raw.us?.holdings ?? []).map((h) => ({ code: h.code, qty: h.qty, valueUsd: h.value })), usTotalAsset: raw.us?.totalAsset ?? null, usCashUsd: raw.us?.cashUsd ?? null, usFx: raw.us?.fx ?? null, cashNote: raw.cashNote ?? null,
         viewTotal: v.total, viewCash: v.cash, note: v.note ?? raw.note ?? null,
       };
     }
