@@ -7,7 +7,7 @@
  */
 import { credentialsFor, quoteCredentials, realOrdersAllowed, tradeEnv, type KisCredentials, type KisEnv } from "../kis/config";
 import { getClient, type KisClient } from "../kis/client";
-import { kisDaily, kisIndexDaily, kisQuote, kisSp500Daily, kisUsDaily, kisUsdKrwDaily } from "../kis/market";
+import { applySplits, detectSplits, kisDaily, kisIndexDaily, kisQuote, kisSp500Daily, kisUsDaily, kisUsdKrwDaily } from "../kis/market";
 import { kisDividendRows, kisUsDividendRows } from "../kis/dividends";
 import { getBalance, getBuyable, getOrders } from "../kis/trading";
 import { runtimeEnv } from "../settings/store";
@@ -98,7 +98,20 @@ export async function checkEnv(client: KisClient, cred: KisCredentials, opts: { 
       const nv = await kisUsDaily(client, "NVDA", "2024-06-03", "2024-06-14", ["NAS"]);
       const pre = nv.find((b) => b.date === "2024-06-07")?.close ?? null;
       const old = await kisUsDaily(client, "AAPL", "2010-01-04", "2010-01-29", ["NAS"]).catch((e) => e as Error);
+      // 원래 가격(수정 전)은 1208.9 안팎이어야 함. 분할만 반영한 가격은 120.888
+      const rawNv = await kisUsDaily(client, "NVDA", "2024-06-03", "2024-06-14", ["NAS"], false);
+      const so = applySplits(rawNv, detectSplits(rawNv, nv));
+      // AAPL 2010년부터 분할만 반영: 첫 종가 7.643 안팎, 분할 2014-06-09(7), 2020-08-31(4)
+      const aRaw = await kisUsDaily(client, "AAPL", "2010-01-04", today, ["NAS"], false).catch((e) => e as Error);
+      const aAdj = aRaw instanceof Error ? aRaw : await kisUsDaily(client, "AAPL", "2010-01-04", today, ["NAS"], true).catch((e) => e as Error);
+      const aapl = aRaw instanceof Error ? aRaw.message : aAdj instanceof Error ? aAdj.message : (() => {
+        const sp = detectSplits(aRaw, aAdj), x = applySplits(aRaw, sp);
+        return { count: x.length, first: x[0]?.date ?? null, rawClose: aRaw[0]?.close ?? null, splitOnlyClose: x[0]?.close ?? null, splits: sp };
+      })();
       return {
+        nvdaRaw20240607: rawNv.find((b) => b.date === "2024-06-07")?.close ?? null,
+        nvdaSplitOnly20240607: so.find((b) => b.date === "2024-06-07")?.close ?? null,
+        nvdaSplits: detectSplits(rawNv, nv), aaplSplitOnly: aapl,
         nvda20240607: pre, splitAdjusted: pre == null ? null : pre < 200,
         aapl2010: old instanceof Error ? old.message : { count: old.length, first: old[0]?.date ?? null, close: old[0]?.close ?? null },
       };

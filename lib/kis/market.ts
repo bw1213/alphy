@@ -131,10 +131,12 @@ export function parseOverseasDaily(rows: any[] | undefined): Bar[] {
 }
 
 /**
- * 미국 주식·ETF 일봉 (달러, 수정주가). 한 번에 100일씩, 기준일을 과거로 당기며 받는다.
+ * 미국 주식·ETF 일봉 (달러). 한 번에 100일씩, 기준일을 과거로 당기며 받는다.
+ * adjusted=true(수정주가)는 액면분할뿐 아니라 배당까지 반영된 값이다 (2026-11-16 실서버 확인: AAPL 2010-01-04 종가 6.39,
+ * 분할만 반영하면 7.64). 백테스트에는 kisUsSplitOnlyDaily(분할만 반영)를 쓴다.
  * 거래소를 모르면 exchanges 를 순서대로 시도한다
  */
-export async function kisUsDaily(client: KisClient, ticker: string, start: string, end: string, exchanges: KisExchange[] = ["NAS", "NYS", "AMS"]): Promise<Bar[]> {
+export async function kisUsDaily(client: KisClient, ticker: string, start: string, end: string, exchanges: KisExchange[] = ["NAS", "NYS", "AMS"], adjusted = true): Promise<Bar[]> {
   let lastErr: Error | null = null;
   for (const excd of exchanges) {
     try {
@@ -143,7 +145,7 @@ export async function kisUsDaily(client: KisClient, ticker: string, start: strin
           method: "GET",
           path: "/uapi/overseas-price/v1/quotations/dailyprice",
           trId: "HHDFS76240000",
-          query: { AUTH: "", EXCD: excd, SYMB: kisUsSymbol(ticker), GUBN: "0", BYMD: to, MODP: "1" }, // GUBN 0: 일, MODP 1: 수정주가
+          query: { AUTH: "", EXCD: excd, SYMB: kisUsSymbol(ticker), GUBN: "0", BYMD: to, MODP: adjusted ? "1" : "0" }, // GUBN 0: 일, MODP 1: 수정주가 0: 원래 가격
         });
         return parseOverseasDaily(body.output2 as any[]);
       });
@@ -151,6 +153,66 @@ export async function kisUsDaily(client: KisClient, ticker: string, start: strin
     } catch (e) { lastErr = e as Error; }
   }
   throw new Error(`${ticker}: 한국투자증권 해외 시세 없음${lastErr ? ` (${lastErr.message})` : ""}`);
+}
+
+export interface SplitEvent { date: string; ratio: number }
+
+/** 2, 3, 1.5, 0.125 처럼 깔끔한 비율에 0.3% 안으로 가까우면 그 값으로 (분사 때문에 생긴 1.324 같은 비율은 그대로) */
+function snapRatio(x: number): number {
+  let best = x, err = 0.003;
+  for (let den = 1; den <= 10; den++) {
+    const num = Math.round(x * den);
+    if (num < 1 || num > 100) continue;
+    const e = Math.abs(num / den - x) / x;
+    if (e < err) { err = e; best = num / den; }
+  }
+  return best;
+}
+
+/**
+ * 원래 가격(raw)과 수정주가(adj)를 비교해 액면분할을 찾는다.
+ * 하루 등락률이 두 쪽에서 20% 넘게 다르면 분할(배당은 보통 몇 % 이하라 걸리지 않음). ratio 4 = 1주가 4주로
+ */
+export function detectSplits(raw: Bar[], adj: Bar[]): SplitEvent[] {
+  const a = new Map(adj.map((b) => [b.date, b.close]));
+  const out: SplitEvent[] = [];
+  let prev: { raw: number; adj: number } | null = null;
+  for (const b of raw) {
+    const ac = a.get(b.date);
+    if (!(ac! > 0) || !(b.close > 0)) continue;
+    if (prev) {
+      const q = (b.close / prev.raw) / (ac! / prev.adj); // 분할이면 1/ratio
+      if (q < 1 / 1.2 || q > 1.2) out.push({ date: b.date, ratio: snapRatio(1 / q) });
+    }
+    prev = { raw: b.close, adj: ac! };
+  }
+  return out;
+}
+
+/** 원래 가격에 액면분할만 반영 (그날 이후의 분할만큼 가격은 나누고 거래량은 곱함) */
+export function applySplits(raw: Bar[], splits: SplitEvent[]): Bar[] {
+  const sp = [...splits].sort((x, y) => x.date.localeCompare(y.date));
+  let k = sp.length - 1, f = 1;
+  const out: Bar[] = new Array(raw.length);
+  for (let i = raw.length - 1; i >= 0; i--) {
+    const b = raw[i];
+    while (k >= 0 && sp[k].date > b.date) { f *= sp[k].ratio; k--; }
+    const r = (x: number) => Math.round((x / f) * 1e6) / 1e6;
+    out[i] = f === 1 ? b : { date: b.date, open: r(b.open), high: r(b.high), low: r(b.low), close: r(b.close), volume: Math.round(b.volume * f) };
+  }
+  return out;
+}
+
+/**
+ * 미국 일봉, 액면분할만 반영하고 배당은 가격에 넣지 않음 (한국 종목·야후 시세와 같은 기준 → 배당은 현금으로 따로 계산).
+ * 한국투자증권에는 분할 목록이 따로 없어 원래 가격과 수정주가를 둘 다 받아 비교해 분할을 찾는다
+ */
+export async function kisUsSplitOnlyDaily(client: KisClient, ticker: string, start: string, end: string, exchanges?: KisExchange[]): Promise<Bar[]> {
+  const raw = await kisUsDaily(client, ticker, start, end, exchanges, false);
+  let adj: Bar[];
+  try { adj = await kisUsDaily(client, ticker, start, end, exchanges, true); }
+  catch (e) { throw new Error(`${ticker}: 한국투자증권 수정주가를 못 받아 액면분할을 확인할 수 없습니다 (${(e as Error).message})`); }
+  return applySplits(raw, detectSplits(raw, adj));
 }
 
 /** 해외 지수·환율 기간별시세 output2 → Bar[] (오름차순) */

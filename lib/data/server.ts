@@ -12,7 +12,7 @@ import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
 import { credentialsFor, quoteCredentials, type KisCredentials } from "../kis/config";
 import { kisDividendRows, kisRawMonthly, kisUsDividendRows, mergeDividends, toEngineDividends, toEngineUsDividends, type KisDividendRow } from "../kis/dividends";
 import { getClient } from "../kis/client";
-import { KIS_EXCHANGE, kisDaily, kisIndexDaily, kisSp500Daily, kisUsDaily, kisUsdKrwDaily, type KisExchange } from "../kis/market";
+import { KIS_EXCHANGE, kisDaily, kisIndexDaily, kisSp500Daily, kisUsSplitOnlyDaily, kisUsdKrwDaily, type KisExchange } from "../kis/market";
 
 const ROOT = process.cwd();
 const CACHE = path.join(ROOT, ".cache");
@@ -93,7 +93,7 @@ export function sameHistory(oldBars: Bar[], fresh: Bar[]): boolean {
  * - 오늘 받은 캐시면 그대로, 예전 캐시면 마지막 날짜 근처부터만 받아 이어 붙인다.
  *   액면분할·배당 등으로 수정주가가 바뀌었으면(겹치는 날 종가가 다르면) 전체를 다시 받는다
  */
-export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "krx" | "yahoo" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
+export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "kis-us" | "krx" | "yahoo" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
   const p = path.join(cacheDir, src, `${symbol}.json`);
   const c = await readJson<DailyCache>(p);
   const covers = !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) <= start;
@@ -423,11 +423,11 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   const usVia = new Map<string, "kis" | "yahoo">();
   const kisUs = isKis && usCodes.length ? getClient((opts.kisCred === undefined ? quoteCredentials() : opts.kisCred)!) : null;
   /** 한국투자증권 먼저, 안 되면 야후. 한국투자증권 쪽 시작이 늦으면 야후와 비교해 더 긴 쪽 */
-  const kisFirst = async (key: string, yahooSym: string, from: string, kis: DailyFetcher): Promise<Bar[]> => {
+  const kisFirst = async (key: string, yahooSym: string, from: string, kis: DailyFetcher, cacheSrc: "kis" | "kis-us" = "kis"): Promise<Bar[]> => {
     const viaYahoo = () => cachedDaily(yahooSym, from, "yahoo", fetchYahooDaily);
     if (!kisUs) { usVia.set(key, "yahoo"); return viaYahoo(); }
     let bars: Bar[];
-    try { bars = await cachedDaily(key, from, "kis", kis); }
+    try { bars = await cachedDaily(key, from, cacheSrc, kis); }
     catch { usVia.set(key, "yahoo"); return viaYahoo(); }
     if (bars[0].date > plusDays(from, 14)) {
       try {
@@ -441,7 +441,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   const usDaily = (code: string) => {
     const m = usMaster.find((u) => u.code === code)?.market;
     const ex: KisExchange[] | undefined = m ? [KIS_EXCHANGE[m]] : undefined;
-    return kisFirst(code, code, req.start, (sym, start) => kisUsDaily(kisUs!, sym, start, today(), ex));
+    return kisFirst(code, code, req.start, (sym, start) => kisUsSplitOnlyDaily(kisUs!, sym, start, today(), ex), "kis-us");
   };
   let got = 0;
   opts.onProgress?.(0, list.length);
@@ -480,7 +480,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   if (usLoaded.length) {
     const fromKis = usLoaded.filter((t) => usVia.get(t) === "kis"), fromYahoo = usLoaded.filter((t) => usVia.get(t) !== "kis");
     const where = !fromYahoo.length ? "한국투자증권" : !fromKis.length ? "야후 파이낸스" : "한국투자증권·야후 파이낸스";
-    warnings.push(`미국 종목 ${usLoaded.length}개(${usLoaded.slice(0, 5).join(", ")}${usLoaded.length > 5 ? " 등" : ""})는 ${where} 시세를 그날 원/달러 환율(${usVia.get("FX@KRW") === "kis" ? "한국투자증권" : "야후 파이낸스"})로 원화로 바꿔 계산했습니다. 환율 변동이 수익률에 들어가고, 미국 종목 비용은 '자금·비용'의 미국 수수료·환전 비용을 씁니다. 양도소득세(연 250만 원 넘는 차익의 22%)는 계산하지 않습니다.`);
+    warnings.push(`미국 종목 ${usLoaded.length}개(${usLoaded.slice(0, 5).join(", ")}${usLoaded.length > 5 ? " 등" : ""})는 ${where} 시세(액면분할만 반영, 배당은 가격에 넣지 않고 따로 계산)를 그날 원/달러 환율(${usVia.get("FX@KRW") === "kis" ? "한국투자증권" : "야후 파이낸스"})로 원화로 바꿔 계산했습니다. 환율 변동이 수익률에 들어가고, 미국 종목 비용은 '자금·비용'의 미국 수수료·환전 비용을 씁니다. 양도소득세(연 250만 원 넘는 차익의 22%)는 계산하지 않습니다.`);
     if (isKis && fromYahoo.length) warnings.push(`${fromYahoo.slice(0, 8).join(", ")}${fromYahoo.length > 8 ? " 등" : ""}: 한국투자증권에서 시세를 못 받았거나 과거 기간이 모자라 야후 파이낸스 시세를 썼습니다.`);
     if (!isKis) warnings.push("데이터를 '한국투자증권 API'로 고르면 미국 종목 시세·환율도 한국투자증권에서 받습니다.");
   }
