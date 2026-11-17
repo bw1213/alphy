@@ -212,3 +212,36 @@ it("보관함에서 지운 전략도 계좌를 고칠 때 그대로 이어 씀",
   expect(b.cash).toBe(2_000_000);
   expect(() => cleanAccount({ name: "x", plan: { strategy: "saved:적립", tickers: "069500", budget: 1_000_000 } }, null, "owner", today, [])).toThrow(/보관함에 없습니다/);
 });
+
+describe("수동 계좌: 이미 있는 보유와 예수금", () => {
+  const allIn: SavedStrategy = { name: "전부", code: "return { '069500': 1 }", params: "{}", rebalance: "D", stopLoss: "", takeProfit: "", warmup: 1 };
+  const data = { "069500": bars(today, 300, () => 40_000) };
+  const acct = (others?: "sell" | "keep") => cleanAccount({ name: "연금저축", cash: 100_000, others, positions: [{ ticker: "005930", name: "삼성전자", qty: 20, avgPrice: 70_000 }],
+    plan: { strategy: "saved:전부", tickers: "069500", budget: 1_500_000, startDate: "2026-11-02" } }, null, "owner", today, [allIn]);
+
+  it("전략 밖 보유는 팔아서 쓰고, 수량은 계좌 평가액 기준, 매수는 돈 안에서", async () => {
+    const r = (await runManual(acct(), "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    expect(r.status).toBe("ok");
+    expect(r.accountTotal).toBe(1_500_000);
+    const sell = r.orders.find((o) => o.side === "sell")!;
+    expect(sell).toMatchObject({ ticker: "005930", qty: 20, targetQty: 0 });
+    const buy = r.orders.find((o) => o.side === "buy")!;
+    // 1,500,000 ÷ 40,000 = 37주, 예수금 10만 + 매도 대금 약 139.6만 안
+    expect(buy).toMatchObject({ ticker: "069500", qty: 37 });
+    expect(r.orders[0].side).toBe("sell");
+  });
+
+  it("그대로 두기: 전략 밖 보유를 뺀 금액만 전략으로", async () => {
+    const r = (await runManual(acct("keep"), "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    expect(r.orders.filter((o) => o.side === "sell")).toHaveLength(0);
+    expect(r.orders[0]).toMatchObject({ ticker: "069500", side: "buy", qty: 2 });
+    expect(r.warnings.join(" ")).toContain("그대로 두고");
+  });
+
+  it("돈이 모자라면 매수 수량을 줄임", async () => {
+    const a = cleanAccount({ name: "x", cash: 200_000, plan: { strategy: "saved:전부", tickers: "069500", budget: 1_000_000, startDate: "2026-11-02" } }, null, "owner", today, [allIn]);
+    // 기록한 평가액은 20만 원뿐 → 4주 (예전에는 운용 금액 100만 원 기준 25주를 안내)
+    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    expect(r.orders[0]).toMatchObject({ side: "buy", qty: 4 });
+  });
+});
