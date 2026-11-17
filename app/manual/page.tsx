@@ -11,7 +11,7 @@ import type { PriceBook } from "@/lib/manual/value";
 import { fetchJob } from "@/lib/client/fetchData";
 
 interface PlanView { label: string; kind: string; strategyName: string | null; builtin: string | null; tickers: string[]; budget: number; startDate: string; enabled: boolean; updatedAt: string }
-interface AccountView { id: string; name: string; broker: string; cash: number; positions: ManualPosition[]; plan: PlanView | null; log: EveningReport[]; updatedAt: string }
+interface AccountView { id: string; name: string; broker: string; cash: number; others?: "sell" | "keep"; positions: ManualPosition[]; plan: PlanView | null; log: EveningReport[]; updatedAt: string }
 interface ManualState { accounts: AccountView[]; prices: PriceBook | null; trades: ManualTrade[]; brokers: string[]; rates: FeeRates; today: string }
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
@@ -20,15 +20,15 @@ const post = (body: unknown) => fetchJob("/api/manual", { method: "POST", header
 interface PosRow { ticker: string; name: string; qty: string; avgPrice: string }
 interface Form {
   id: string; name: string; broker: string; cash: string; positions: PosRow[];
-  strategy: string; tickers: string; budget: string; startDate: string; enabled: boolean;
+  strategy: string; tickers: string; budget: string; startDate: string; enabled: boolean; others: "sell" | "keep";
 }
-const emptyForm = (today: string): Form => ({ id: "", name: "", broker: "토스증권", cash: "0", positions: [], strategy: "", tickers: "", budget: "", startDate: today, enabled: true });
+const emptyForm = (today: string): Form => ({ id: "", name: "", broker: "토스증권", cash: "0", positions: [], strategy: "", tickers: "", budget: "", startDate: today, enabled: true, others: "sell" });
 
 const formOf = (a: AccountView, today: string): Form => ({
   id: a.id, name: a.name, broker: a.broker, cash: String(a.cash),
   positions: a.positions.map((p) => ({ ticker: p.ticker, name: p.name ?? "", qty: String(p.qty), avgPrice: String(Math.round(p.avgPrice * 100) / 100) })),
   strategy: a.plan ? (a.plan.builtin ? `builtin:${a.plan.builtin}` : `saved:${a.plan.strategyName}`) : "",
-  tickers: a.plan?.tickers.join(", ") ?? "", budget: a.plan ? String(a.plan.budget) : "", startDate: a.plan?.startDate ?? today, enabled: a.plan?.enabled ?? true,
+  tickers: a.plan?.tickers.join(", ") ?? "", budget: a.plan ? String(a.plan.budget) : "", startDate: a.plan?.startDate ?? today, enabled: a.plan?.enabled ?? true, others: a.others ?? "sell",
 });
 
 interface TradeForm { ticker: string; name: string; side: "buy" | "sell"; qty: string; price: string; fee: string; date: string }
@@ -152,7 +152,7 @@ export default function ManualPage() {
     const r: any = await post({
       action: "save",
       account: {
-        id: form.id || undefined, name: form.name, broker: form.broker, cash: form.cash,
+        id: form.id || undefined, name: form.name, broker: form.broker, cash: form.cash, others: form.others,
         positions: form.positions.filter((p) => p.ticker.trim()).map((p) => ({ ticker: p.ticker, name: p.name, qty: p.qty, avgPrice: p.avgPrice })),
         plan: form.strategy ? { strategy: form.strategy, tickers: form.tickers, budget: Number(form.budget || 0), startDate: form.startDate, enabled: form.enabled } : null,
       },
@@ -274,6 +274,13 @@ export default function ManualPage() {
                     <label className="f">운용 시작일<input type="date" value={form.startDate} max={st?.today} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
                   </div>
                   <p className="help">운용 금액은 보통 계좌 평가액(흐린 값)을 넣습니다.</p>
+                  <label className="f" style={{ marginTop: 10 }}>전략에 없는 보유 종목
+                    <select value={form.others} onChange={(e) => setForm({ ...form, others: e.target.value as "sell" | "keep" })}>
+                      <option value="sell">팔아서 전략 종목 사는 데 쓰기 (계좌 전체를 전략으로)</option>
+                      <option value="keep">그대로 두기 (나머지 금액만 전략으로)</option>
+                    </select>
+                  </label>
+                  <p className="help">사고팔 수량은 이 계좌의 지금 평가액에 전략 비중을 곱해 정하고, 매수는 예수금과 매도 대금 안에서만 안내합니다.</p>
                   <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 8 }}>
                     <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> 매일 저녁 계산·텔레그램 안내 켜기
                   </label>

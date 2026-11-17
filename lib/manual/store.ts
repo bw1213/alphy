@@ -40,6 +40,8 @@ export interface ManualAccount {
   positions: ManualPosition[];
   /** 이 계좌에 적용할 전략. 장중 실시간 매도는 늘 끔 (사람이 장중에 지켜보지 않으므로 종가 확인 → 다음 날 매도) */
   plan: AutoPlan | null;
+  /** 전략에 없는 보유 종목: sell = 팔아서 전략에 씀(기본), keep = 그대로 두고 나머지로 전략 */
+  others?: "sell" | "keep";
   createdAt: string;
   updatedAt: string;
 }
@@ -178,7 +180,7 @@ export function cleanAccount(x: any, prev: ManualAccount | null, user: string, t
   const now = new Date().toISOString();
   return {
     id: prev?.id ?? randomBytes(4).toString("hex"),
-    name, broker, cash, positions, plan,
+    name, broker, cash, positions, plan, others: x?.others === "keep" ? "keep" : "sell",
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
   };

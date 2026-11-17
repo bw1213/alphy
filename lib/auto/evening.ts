@@ -127,6 +127,13 @@ export interface EveningDeps {
   env?: Env;
   /** 손실 한도 % (운용 금액 대비). 0 이면 안 봄 */
   maxLoss?: number;
+  /**
+   * 수동 계좌 (lib/manual): 실제 계좌 전체를 전략으로 운용.
+   *   - 사고팔 수량은 백테스트 평가액이 아니라 지금 계좌 평가액에 전략 비중을 곱해 정함
+   *   - others "sell": 전략에 없는 보유 종목은 팔아 전략에 씀 / "keep": 그대로 두고 나머지 금액만 전략으로
+   *   - 매수 합계가 예수금 + 매도 대금을 넘지 않게 줄임
+   */
+  manual?: { others: "sell" | "keep"; feeRate?: number };
   /** 미국: 지난번 정상 계산에 쓴 마지막 시세 날짜. 그 뒤로 새 시세가 없으면(미국 휴장) 건너뜀 */
   prevDataDate?: string;
 }
@@ -189,15 +196,18 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
 
   // 실제 계좌 보유
   let real: Map<string, number> | null = null;
+  /** 계좌에서 읽은 종목별 가격·이름 (시세를 따로 받지 않은 종목용) */
+  const acctPx = new Map<string, { price: number; name: string }>();
   if (deps.holdings) {
     try {
       const h = await deps.holdings();
       real = new Map(h.holdings.map((x) => [x.code, x.qty]));
+      for (const x of h.holdings) acctPx.set(x.code, { price: x.price > 0 ? x.price : x.avgPrice, name: x.name });
       r.holdingsFrom = "account"; r.account = h.env;
       if (h.note) r.warnings.push(`계좌 평가: ${h.note}`);
       if (h.total == null && h.cash != null) {
         // 수동 계좌: 평가액을 오늘 종가로 계산 (시세가 없는 종목은 입력한 평균단가로)
-        const stock = h.holdings.reduce((a, x) => a + x.qty * (close(x.code) > 0 ? close(x.code) : x.avgPrice), 0);
+        const stock = h.holdings.reduce((a, x) => a + x.qty * (close(x.code) > 0 ? close(x.code) : x.price > 0 ? x.price : x.avgPrice), 0);
         h.total = h.cash + stock; h.stock = stock;
       }
       if (h.total != null) {
@@ -222,6 +232,14 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const sig = res.signal;
   if (!sig) r.warnings.push(`준비 기간(${st.warmup}영업일)이 아직 안 끝나 오늘은 신호가 없습니다.`);
   r.kept = !sig || sig.kept;
+  const man = deps.manual && real ? deps.manual : null;
+  const pxOf = (t: string) => { const c = close(t); return c > 0 ? c : acctPx.get(t)?.price ?? NaN; };
+  // 수동 계좌: 전략 밖 보유 종목 (대상 종목을 정했으면 그 밖, 비웠으면 전략이 고르거나 들고 있지 않은 종목)
+  const strategyTickers = new Set([...(plan.tickers.length ? plan.tickers : []), ...(sig?.picks ?? []).map((x) => x.ticker), ...btQty.keys()]);
+  const outside = man ? [...real!.entries()].filter(([t, q]) => q > 0 && !strategyTickers.has(t)) : [];
+  const outsideValue = outside.reduce((a, [t, q]) => a + q * (pxOf(t) || 0), 0);
+  // 비중을 곱할 금액: 자동 매매는 백테스트 평가액, 수동 계좌는 지금 계좌 평가액 (전략 밖 종목을 둔다면 그만큼 뺌)
+  const base = man && r.accountTotal != null ? Math.max(0, r.accountTotal - (man.others === "keep" ? outsideValue : 0)) : E;
   if (sig && !sig.kept) {
     const nowW = (t: string) => (E > 0 ? ((btQty.get(t) ?? 0) * close(t)) / E : 0);
     const target = new Map(sig.picks.map((x) => [x.ticker, x.weight]));
@@ -232,15 +250,35 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const px = close(t);
       if (!(px > 0)) { r.warnings.push(`${name(t)}(${t}) 가격을 몰라 주문 목록에서 뺐습니다.`); continue; }
       const cur = curQty(t);
-      const tq = Math.max(0, Math.floor((E * w) / px));
+      const tq = Math.max(0, Math.floor((base * w) / px));
       const diff = tq - cur;
       if (!diff) continue;
       // 사라는 신호가 매도 주문이 되거나 팔라는 신호가 매수 주문이 되지 않게 (실제 계좌 수량이 전략 계산과 달라도)
       if ((w > nowW(t)) !== (diff > 0)) continue;
       r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq, note: notes[t] });
     }
-    r.orders.sort((a, b) => (a.side === b.side ? b.amount - a.amount : a.side === "sell" ? -1 : 1));
   }
+  if (man && sig) {
+    // 전략 밖 보유 종목: 팔아서 전략에 쓰기 (신호가 있는 날마다 안내, 다 팔면 끝)
+    if (man.others === "sell") for (const [t, q] of outside) {
+      const px = pxOf(t);
+      if (!(px > 0)) { r.warnings.push(`${acctPx.get(t)?.name ?? t}(${t}) 가격을 몰라 정리 매도 안내에서 뺐습니다.`); continue; }
+      r.orders.push({ ticker: t, name: d.names[t] ?? acctPx.get(t)?.name ?? t, side: "sell", qty: q, price: px, amount: q * px, curQty: q, targetQty: 0, note: "전략에 없는 종목 정리 (판 돈으로 전략 종목 매수)" });
+    }
+    else if (outside.length) r.warnings.push(`전략에 없는 보유 종목 ${outside.length}개(약 ${won(outsideValue)})는 그대로 두고, 나머지 ${won(base)}으로 전략을 계산했습니다.`);
+    // 매수는 예수금 + 매도 대금 안에서 (모자라면 비율대로 줄임)
+    const fee = man.feeRate ?? 0.003;
+    const avail = (r.accountCash ?? 0) + r.orders.filter((o) => o.side === "sell").reduce((a, o) => a + o.amount * (1 - fee), 0);
+    const buys = r.orders.filter((o) => o.side === "buy");
+    const need = buys.reduce((a, o) => a + o.amount * (1 + fee), 0);
+    if (need > avail && need > 0) {
+      const k = Math.max(0, avail) / need;
+      for (const o of buys) { o.qty = Math.floor(o.qty * k); o.amount = o.qty * o.price; o.targetQty = o.curQty + o.qty; }
+      r.orders = r.orders.filter((o) => o.qty > 0);
+      r.warnings.push(`매수에 약 ${won(need)}이 필요한데 예수금과 매도 대금이 약 ${won(avail)}이라 매수 수량을 줄였습니다. 입금하면 다음 계산에서 나머지를 안내합니다.`);
+    }
+  }
+  r.orders.sort((a, b) => (a.side === b.side ? b.amount - a.amount : a.side === "sell" ? -1 : 1));
 
   // 2) 장중 매도 가격
   r.intraday = intradayOn(plan);

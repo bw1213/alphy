@@ -6,6 +6,7 @@ import type { Holding } from "../kis/trading";
 import { runEvening, type EveningDeps, type EveningReport } from "../auto/evening";
 import { notify } from "../auto/telegram";
 import { planMarket } from "../auto/session";
+import { loadHistory } from "./value";
 import { appendManualLog, loadAccounts, loadManualLog, type ManualAccount } from "./store";
 
 type Env = Record<string, string | undefined>;
@@ -13,16 +14,18 @@ type Env = Record<string, string | undefined>;
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 
 /** 기록한 보유를 저녁 계산이 읽는 모양으로 */
-export const manualHoldings = (a: ManualAccount) => async () => ({
+export const manualHoldings = (a: ManualAccount, price: (t: string) => number | undefined = () => undefined) => async () => ({
   env: "manual" as const,
   cash: a.cash,
-  holdings: a.positions.map((p): Holding => ({ code: p.ticker, name: p.name ?? p.ticker, qty: p.qty, avgPrice: p.avgPrice, price: 0, value: 0, pnl: 0, pnlRate: 0 })),
+  holdings: a.positions.map((p): Holding => ({ code: p.ticker, name: p.name ?? p.ticker, qty: p.qty, avgPrice: p.avgPrice, price: price(p.ticker) ?? 0, value: 0, pnl: 0, pnlRate: 0 })),
 });
 
 /** 한 계좌 계산 (기록·알림은 하지 않음) */
-export async function runManual(a: ManualAccount, trigger: EveningReport["trigger"], deps: Omit<EveningDeps, "holdings"> & { prevDataDate?: string } = {}): Promise<EveningReport | null> {
+export async function runManual(a: ManualAccount, trigger: EveningReport["trigger"], deps: Omit<EveningDeps, "holdings" | "manual"> & { prevDataDate?: string; user?: string } = {}): Promise<EveningReport | null> {
   if (!a.plan) return null;
-  return runEvening({ ...a.plan, intraday: false }, trigger, { ...deps, holdings: manualHoldings(a) });
+  // 전략 밖 종목의 가격은 대시보드가 받아 둔 종가 (없으면 평균단가)
+  const book = loadHistory(deps.user ?? "owner", deps.env).prices;
+  return runEvening({ ...a.plan, intraday: false }, trigger, { ...deps, holdings: manualHoldings(a, (t) => book?.map[t]?.close), manual: { others: a.others ?? "sell" } });
 }
 
 /** 텔레그램으로 보낼 글: 내일 직접 할 주문 */
@@ -61,7 +64,7 @@ export async function manualEveningFor(user: string, trigger: EveningReport["tri
     // 미국 종목만: 지난 정상 계산 뒤로 새 시세가 없으면(미국 휴장) 건너뜀
     const prevDataDate = planMarket(a.plan) === "US" && trigger === "schedule"
       ? (logs[a.id] ?? []).find((x) => x.status === "ok" && x.label === a.plan!.label && !(a.plan!.updatedAt > x.ranAt))?.dataDate : undefined;
-    const r = (await runManual(a, trigger, { env: e, prevDataDate, load: opts.load, now: opts.now }))!;
+    const r = (await runManual(a, trigger, { env: e, prevDataDate, load: opts.load, now: opts.now, user }))!;
     appendManualLog(a.id, r, user, e);
     out.reports[a.id] = r;
     if (r.status === "error") out.fail++; else out.ok++;
