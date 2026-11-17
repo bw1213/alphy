@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import { StockSearch } from "@/components/StockSearch";
 import { STRATEGIES } from "@/lib/strategies";
@@ -43,7 +43,7 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
     <div style={{ display: "grid", gap: 10 }}>
       <div className="kpis">
         <div className="kpi"><div className="k">기록한 계좌 평가액</div><div className="v">{won(r.accountTotal ?? 0)}</div><div className="s">예수금 {won(r.accountCash ?? 0)} · 시세 {r.dataDate}</div></div>
-        <div className="kpi"><div className="k">전략 평가액</div><div className="v">{won(r.equity ?? 0)}</div><div className="s">운용 금액에서 출발한 계산</div></div>
+        <div className="kpi"><div className="k">전략 계산 평가액 (가상)</div><div className="v">{won(r.equity ?? 0)}</div><div className="s">운용 금액에서 출발한 백테스트</div></div>
         <div className="kpi"><div className="k">할 일</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? "전략 신호 없음 (보유 유지)" : "직접 주문할 것"}</div></div>
       </div>
       {r.orders.length > 0 && (
@@ -90,6 +90,9 @@ export default function ManualPage() {
   const [sendTg, setSendTg] = useState(false);
   const [delAsk, setDelAsk] = useState(false);
   const [open, setOpen] = useState(0);
+  const [resetAsk, setResetAsk] = useState(false);
+  const [brokerText, setBrokerText] = useState<string | null>(null);
+  const priceTried = useRef(false);
 
   const load = useCallback(async () => {
     const [m, l] = await Promise.all([
@@ -98,9 +101,28 @@ export default function ManualPage() {
     ]);
     if (m) { setSt(m); setSel((s) => (m.accounts.some((a: AccountView) => a.id === s) ? s : m.accounts[0]?.id ?? "")); }
     if (Array.isArray(l)) setLib(l);
+    return m as ManualState | null;
   }, []);
 
-  useEffect(() => { fetchAuth().then((a) => { setAuth(a); if (a.loggedIn) load(); }).catch(() => setError("로그인 상태를 읽지 못했습니다")); }, [load]);
+  /** 종가 받기 (대시보드와 같은 기록): 수익률을 보려면 보유 종목의 시세가 필요 */
+  const refreshPrices = useCallback(async () => {
+    await fetchJob("/api/dashboard", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "refresh" }) }, undefined, undefined, 720, 2000, "시세 받기");
+  }, []);
+
+  useEffect(() => {
+    fetchAuth().then(async (a) => {
+      setAuth(a);
+      if (!a.loggedIn) return;
+      const m = await load();
+      // 시세가 없는 보유 종목이 있으면 한 번 알아서 받아 옴 (수익률·수익금액 표시용)
+      const missing = m?.accounts.some((x) => x.positions.some((p) => !m.prices?.map[p.ticker]));
+      if (missing && !priceTried.current) {
+        priceTried.current = true;
+        setBusy("prices");
+        try { await refreshPrices(); await load(); } catch { /* 버튼으로 다시 */ } finally { setBusy(""); }
+      }
+    }).catch(() => setError("로그인 상태를 읽지 못했습니다"));
+  }, [load, refreshPrices]);
 
   const act = async (name: string, fn: () => Promise<unknown>, done?: string) => {
     setBusy(name); setError(""); setMsg("");
@@ -111,6 +133,13 @@ export default function ManualPage() {
   const acc = st?.accounts.find((a) => a.id === sel) ?? null;
   const price = (t: string) => st?.prices?.map[t]?.close;
   const value = acc ? acc.cash + acc.positions.reduce((s, p) => s + p.qty * (price(p.ticker) ?? p.avgPrice), 0) : 0;
+  // 보유 평가 손익 (시세를 아는 종목만, 평균단가 대비)
+  const known = acc ? acc.positions.filter((p) => price(p.ticker)) : [];
+  const pnlSum = known.reduce((s, p) => s + (price(p.ticker)! - p.avgPrice) * p.qty, 0);
+  const costSum = known.reduce((s, p) => s + p.avgPrice * p.qty, 0);
+  const sign = (n: number) => `${n >= 0 ? "+" : "-"}${won(Math.abs(n))}`;
+  const rate = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+  const tone = (n: number) => (n >= 0 ? "var(--bad)" : "var(--accent)");
   const trades = useMemo(() => (st?.trades ?? []).filter((t) => t.accountId === sel), [st, sel]);
   const last = acc?.log.find((r) => r.status === "ok") ?? acc?.log[0];
   // 그 안내 뒤에 같은 종목·방향으로 기록한 체결이 있으면 "기록함"
@@ -151,7 +180,7 @@ export default function ManualPage() {
         <section className="stack">
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center" }}>내 수동 계좌
-              <button style={{ marginLeft: "auto", fontWeight: 400 }} disabled={!!busy || !st} onClick={() => { setForm(emptyForm(st!.today)); setDelAsk(false); }}>+ 계좌 추가</button>
+              <button style={{ marginLeft: "auto", fontWeight: 400 }} disabled={!!busy || !st} onClick={() => { setForm(emptyForm(st!.today)); setDelAsk(false); setBrokerText(null); }}>+ 계좌 추가</button>
             </h2>
             {!st ? <p className="help">불러오는 중…</p> : !st.accounts.length ? <p className="help">아직 계좌가 없습니다. "계좌 추가"로 토스·미래에셋 계좌의 예수금과 보유 종목을 넣어 주세요.</p> : (
               <div style={{ display: "grid", gap: 6 }}>
@@ -176,11 +205,23 @@ export default function ManualPage() {
               <div className="row">
                 <label className="f">계좌 이름<input value={form.name} placeholder="예: 토스 미국 주식" onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
                 <label className="f">증권사
-                  <select value={st?.brokers.includes(form.broker) ? form.broker : "기타"} onChange={(e) => setForm({ ...form, broker: e.target.value })}>
-                    {st?.brokers.map((b) => <option key={b}>{b}</option>)}
-                  </select>
+                  {brokerText == null ? (
+                    <select value={st?.brokers.includes(form.broker) ? form.broker : "기타"} onChange={(e) => (e.target.value === "__custom" ? setBrokerText("") : setForm({ ...form, broker: e.target.value }))}>
+                      {st?.brokers.map((b) => <option key={b}>{b}</option>)}
+                      <option value="__custom">직접 입력…</option>
+                    </select>
+                  ) : (
+                    <span style={{ display: "flex", gap: 6 }}>
+                      <input autoFocus value={brokerText} placeholder="증권사 이름" maxLength={30} onChange={(e) => { setBrokerText(e.target.value); setForm({ ...form, broker: e.target.value.trim() || "기타" }); }} />
+                      <button type="button" style={{ flex: "none" }} onClick={() => { setBrokerText(null); setForm({ ...form, broker: st?.brokers.includes(form.broker) ? form.broker : "기타" }); }}>목록</button>
+                    </span>
+                  )}
                 </label>
               </div>
+              {brokerText != null && <p className="help">직접 넣은 증권사는 저장하면 목록에 남아 다음에도 고를 수 있습니다.</p>}
+              {brokerText == null && st && form.broker && !["토스증권", "미래에셋증권", "한화투자증권", "키움증권", "삼성증권", "NH투자증권", "KB증권", "한국투자증권", "기타"].includes(form.broker) && (
+                <p className="help">직접 넣은 증권사입니다. <button className="link" type="button" onClick={() => act("forget", () => post({ action: "forgetBroker", name: form.broker }), `"${form.broker}"을(를) 목록에서 지웠습니다 (이 이름을 쓰는 계좌는 그대로).`)}>목록에서 지우기</button></p>
+              )}
               <label className="f" style={{ marginTop: 10 }}>예수금(원)<input type="number" min={0} value={form.cash} onChange={(e) => setForm({ ...form, cash: e.target.value })} /></label>
               <h3>보유 종목</h3>
               {form.positions.length > 0 && (
@@ -205,6 +246,11 @@ export default function ManualPage() {
               <label className="f">적용할 전략
                 <select value={form.strategy} onChange={(e) => setForm({ ...form, strategy: e.target.value })}>
                   <option value="">없음 (계좌만 기록)</option>
+                  {(() => {
+                    // 지금 계좌가 쓰는 전략이 보관함에 없으면(지웠거나 이름을 바꿈) 그대로 고를 수 있게
+                    const cur = st?.accounts.find((a) => a.id === form.id)?.plan?.strategyName;
+                    return cur && !lib.some((v) => v.name === cur) ? <option value={`saved:${cur}`}>{cur} (지금 쓰는 전략)</option> : null;
+                  })()}
                   {lib.length > 0 && <optgroup label="내 전략 보관함">{lib.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{s.cycle ? " (적립·분할 매도)" : s.builder ? " (조건 고르기)" : " (코드)"}</option>)}</optgroup>}
                   <optgroup label="기본 전략">{STRATEGIES.map((s) => <option key={s.id} value={`builtin:${s.id}`}>{s.name}</option>)}</optgroup>
                 </select>
@@ -253,27 +299,51 @@ export default function ManualPage() {
             <>
               <div className="card">
                 <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>{acc.name} <span className="help" style={{ margin: 0 }}>{acc.broker}</span>
-                  <button style={{ marginLeft: "auto", fontWeight: 400 }} disabled={!!busy} onClick={() => { setForm(formOf(acc, st!.today)); setDelAsk(false); }}>계좌·전략 고치기</button>
+                  <button style={{ marginLeft: "auto", fontWeight: 400 }} disabled={!!busy} onClick={() => { setForm(formOf(acc, st!.today)); setDelAsk(false); setBrokerText(null); }}>계좌·전략 고치기</button>
                 </h2>
                 <div className="kpis">
-                  <div className="kpi"><div className="k">평가액 (어림)</div><div className="v">{won(value)}</div><div className="s">{st?.prices ? `시세 ${st.prices.at.slice(0, 10)}` : "시세 없음: 평균단가로 계산"}</div></div>
-                  <div className="kpi"><div className="k">예수금</div><div className="v">{won(acc.cash)}</div></div>
-                  <div className="kpi"><div className="k">전략</div><div className="v" style={{ fontSize: 15 }}>{acc.plan ? acc.plan.label : "없음"}</div><div className="s">{acc.plan ? `${won(acc.plan.budget)} · ${acc.plan.startDate}부터 · ${acc.plan.enabled ? "켜짐" : "꺼짐"}` : "고치기에서 전략을 정하면 매일 안내"}</div></div>
+                  <div className="kpi"><div className="k">평가액</div><div className="v">{won(value)}</div><div className="s">예수금 {won(acc.cash)} 포함</div></div>
+                  <div className="kpi"><div className="k">보유 평가 손익</div>
+                    <div className="v" style={{ color: known.length ? tone(pnlSum) : undefined }}>{known.length ? sign(pnlSum) : "–"}</div>
+                    <div className="s">{known.length ? `수익률 ${rate(costSum > 0 ? (pnlSum / costSum) * 100 : 0)} · 매입 ${won(costSum)}` : acc.positions.length ? "시세를 받으면 표시" : "보유 종목 없음"}</div></div>
+                  <div className="kpi"><div className="k">전략</div><div className="v" style={{ fontSize: 15 }}>{acc.plan ? acc.plan.label : "없음"}</div><div className="s">{acc.plan ? `운용 금액 ${won(acc.plan.budget)} · ${acc.plan.startDate}부터 · ${acc.plan.enabled ? "켜짐" : "꺼짐"}` : "고치기에서 전략을 정하면 매일 안내"}</div></div>
                 </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                  <button disabled={!!busy} onClick={() => act("prices", refreshPrices)}>{busy === "prices" ? "시세 받는 중…" : "시세 새로 받기"}</button>
+                  <span className="help" style={{ margin: 0 }}>{st?.prices ? `시세 ${st.prices.at.slice(0, 10)} 받음 (종가)` : "아직 시세 없음: 평가액은 평균단가로 계산"}</span>
+                  {acc.plan && (!resetAsk
+                    ? <button style={{ marginLeft: "auto" }} disabled={!!busy} onClick={() => setResetAsk(true)}>전략 기준 다시 잡기</button>
+                    : <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                        <button className="primary" style={{ width: "auto", padding: "8px 12px", fontSize: 14 }} disabled={!!busy}
+                          onClick={() => act("reset", async () => {
+                            const r: any = await fetchJob("/api/manual?kind=reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "reset", accountId: acc.id }) }, undefined, undefined, 720, 2000, "기준 다시 잡기");
+                            setMsg(`전략 기준을 오늘(${r.startDate}), 지금 계좌 평가액 ${won(r.budget)}으로 다시 잡았습니다. 다음 저녁 계산부터 이 금액에서 출발합니다.${r.warning ? ` ${r.warning}` : ""}`);
+                          }).then(() => setResetAsk(false))}>{busy === "reset" ? "다시 잡는 중…" : "오늘·지금 잔고로 다시 잡기"}</button>
+                        <button disabled={!!busy} onClick={() => setResetAsk(false)}>아니요</button>
+                      </span>)}
+                </div>
+                {resetAsk && <p className="help">운용 시작일을 오늘로, 운용 금액을 지금 계좌 평가액(종가를 새로 받아 계산)으로 바꿉니다. 예전 시작일부터 계산한 전략 평가액(가상)이 실제 계좌와 크게 다를 때 쓰세요. 보유·예수금·체결 기록은 그대로입니다.</p>}
                 {acc.positions.length > 0 && (
                   <div className="tablewrap" style={{ marginTop: 10 }}><table>
-                    <thead><tr><th>종목</th><th>수량</th><th>평균단가</th><th>종가</th><th>평가액</th><th>손익</th></tr></thead>
+                    <thead><tr><th>종목</th><th>수량</th><th>평균단가</th><th>종가</th><th>매입 금액</th><th>평가액</th><th>수익금액</th><th>수익률</th></tr></thead>
                     <tbody>{acc.positions.map((p) => {
                       const px = price(p.ticker);
                       const pnl = px ? (px - p.avgPrice) * p.qty : null;
                       return (
                         <tr key={p.ticker}>
                           <td>{p.name ?? p.ticker} <span className="help">{p.ticker}</span></td><td>{p.qty.toLocaleString("ko-KR")}주</td><td>{won(p.avgPrice)}</td>
-                          <td>{px ? won(px) : "–"}</td><td>{won(p.qty * (px ?? p.avgPrice))}</td>
-                          <td style={{ color: pnl == null ? undefined : pnl >= 0 ? "var(--bad)" : "var(--accent)" }}>{pnl == null ? "–" : `${pnl >= 0 ? "+" : ""}${won(pnl)} (${((px! / p.avgPrice - 1) * 100).toFixed(1)}%)`}</td>
+                          <td>{px ? won(px) : "–"}</td><td>{won(p.qty * p.avgPrice)}</td><td>{won(p.qty * (px ?? p.avgPrice))}</td>
+                          <td style={{ color: pnl == null ? undefined : tone(pnl) }}>{pnl == null ? "–" : sign(pnl)}</td>
+                          <td style={{ color: pnl == null ? undefined : tone(pnl) }}>{pnl == null || !(p.avgPrice > 0) ? "–" : rate((px! / p.avgPrice - 1) * 100)}</td>
                         </tr>
                       );
                     })}</tbody>
+                    {known.length > 0 && (
+                      <tfoot><tr style={{ fontWeight: 600 }}>
+                        <td>합계</td><td></td><td></td><td></td><td>{won(costSum)}</td><td>{won(costSum + pnlSum)}</td>
+                        <td style={{ color: tone(pnlSum) }}>{sign(pnlSum)}</td><td style={{ color: tone(pnlSum) }}>{rate(costSum > 0 ? (pnlSum / costSum) * 100 : 0)}</td>
+                      </tr></tfoot>
+                    )}
                   </table></div>
                 )}
               </div>

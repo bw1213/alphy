@@ -7,7 +7,7 @@ import type { Bar } from "@/lib/engine/types";
 import { defaultCycleSpec } from "@/lib/strategies/cycle";
 import type { SavedStrategy } from "@/lib/strategies/library";
 import {
-  applyTrade, cleanAccount, estimateFee, loadAccounts, loadManualLog, loadTrades, recordTrade, saveAccounts, undoLastTrade, type ManualAccount,
+  applyTrade, brokerList, cleanAccount, estimateFee, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, saveAccounts, undoLastTrade, type ManualAccount,
 } from "@/lib/manual/store";
 import { formatManual, manualEveningFor, runManual } from "@/lib/manual/evening";
 import { addSnapshot, kisViewOf, loadHistory, refreshHistory, KIS_ID } from "@/lib/manual/value";
@@ -177,4 +177,38 @@ describe("대시보드 기록", () => {
     expect(v.total).toBe(5000);
     expect(v.cash).toBe(3600);
   });
+});
+
+describe("증권사 목록·기준 다시 잡기", () => {
+  it("한화투자증권이 있고, 직접 넣은 증권사는 목록에 남음", () => {
+    expect(brokerList("owner", env)).toContain("한화투자증권");
+    saveAccounts([account({ broker: "카카오페이증권" } as any)], "owner", env);
+    const list = brokerList("owner", env);
+    expect(list).toContain("카카오페이증권");
+    expect(list.at(-1)).toBe("기타");
+    // 계좌를 지워도 목록에는 남고, 지우기를 누르면 빠짐
+    saveAccounts([], "owner", env);
+    expect(brokerList("owner", env)).toContain("카카오페이증권");
+    forgetBroker("카카오페이증권", "owner", env);
+    expect(brokerList("owner", env)).not.toContain("카카오페이증권");
+  });
+
+  it("시작일=오늘, 운용 금액=지금 평가액(종가, 없으면 평균단가)", () => {
+    const a = account({ cash: 500_000, positions: [{ ticker: "069500", qty: 10, avgPrice: 40000 }, { ticker: "005930", qty: 2, avgPrice: 70000 }], plan: { strategy: "saved:적립", tickers: "069500", budget: 5_000_000, startDate: "2026-01-02" } } as any);
+    saveAccounts([a], "owner", env);
+    const next = resetBasis("owner", a.id, "2026-11-17", (t) => (t === "069500" ? 50000 : undefined), env);
+    expect(next.plan).toMatchObject({ startDate: "2026-11-17", budget: 500_000 + 500_000 + 140_000 });
+    expect(loadAccounts("owner", env)[0].plan?.budget).toBe(1_140_000);
+    // 보유·예수금은 그대로
+    expect(loadAccounts("owner", env)[0].positions).toHaveLength(2);
+    expect(() => resetBasis("owner", "없음", "2026-11-17", () => undefined, env)).toThrow(/찾지 못했/);
+  });
+});
+
+it("보관함에서 지운 전략도 계좌를 고칠 때 그대로 이어 씀", () => {
+  const a = account();
+  const b = cleanAccount({ name: "토스", cash: 2_000_000, plan: { strategy: "saved:적립", tickers: "069500", budget: 1_000_000, startDate: today } }, a, "owner", today, []);
+  expect(b.plan?.strategy?.name).toBe("적립");
+  expect(b.cash).toBe(2_000_000);
+  expect(() => cleanAccount({ name: "x", plan: { strategy: "saved:적립", tickers: "069500", budget: 1_000_000 } }, null, "owner", today, [])).toThrow(/보관함에 없습니다/);
 });

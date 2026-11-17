@@ -67,19 +67,63 @@ export const MAX_LOG = 30;
 export const MAX_TRADES = 1000;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-export const BROKERS = ["토스증권", "미래에셋증권", "키움증권", "삼성증권", "NH투자증권", "KB증권", "한국투자증권", "기타"];
+export const BROKERS = ["토스증권", "미래에셋증권", "한화투자증권", "키움증권", "삼성증권", "NH투자증권", "KB증권", "한국투자증권", "기타"];
+/** 직접 입력한 증권사는 이 개수까지 목록에 기억 */
+export const MAX_CUSTOM_BROKERS = 20;
 
 const num = (v: unknown) => (typeof v === "string" ? Number(v.replace(/[,\s원]/g, "")) : Number(v));
 
-export function loadAccounts(user: string = OWNER_ID, e: Env = process.env): ManualAccount[] {
+interface ManualFile { accounts: ManualAccount[]; /** 직접 입력한 증권사 이름 (목록에 이어서 보여 줌) */ brokers: string[] }
+
+function loadFile(user: string, e: Env): ManualFile {
   try {
     const j = JSON.parse(fs.readFileSync(userFile("manual.json", user, e), "utf8"));
-    return Array.isArray(j?.accounts) ? j.accounts : [];
-  } catch { return []; }
+    return { accounts: Array.isArray(j?.accounts) ? j.accounts : [], brokers: Array.isArray(j?.brokers) ? j.brokers.map(String) : [] };
+  } catch { return { accounts: [], brokers: [] }; }
+}
+const saveFile = (f: ManualFile, user: string, e: Env) => writeUserFile("manual.json", JSON.stringify(f, null, 1), user, e);
+
+export function loadAccounts(user: string = OWNER_ID, e: Env = process.env): ManualAccount[] {
+  return loadFile(user, e).accounts;
 }
 
+/** 계좌 목록 저장. 기본 목록에 없는 증권사 이름은 "직접 입력한 증권사"로 기억 */
 export function saveAccounts(list: ManualAccount[], user: string = OWNER_ID, e: Env = process.env): void {
-  writeUserFile("manual.json", JSON.stringify({ accounts: list }, null, 1), user, e);
+  const f = loadFile(user, e);
+  const custom = [...f.brokers];
+  for (const a of list) if (a.broker && !BROKERS.includes(a.broker) && !custom.includes(a.broker)) custom.push(a.broker);
+  saveFile({ accounts: list, brokers: custom.slice(-MAX_CUSTOM_BROKERS) }, user, e);
+}
+
+/** 고를 수 있는 증권사: 기본 목록("기타" 앞에) + 직접 입력했던 이름 */
+export function brokerList(user: string = OWNER_ID, e: Env = process.env): string[] {
+  const custom = loadFile(user, e).brokers.filter((b) => !BROKERS.includes(b));
+  return [...BROKERS.filter((b) => b !== "기타"), ...custom, "기타"];
+}
+
+/** 직접 입력한 증권사를 목록에서 지움 (그 이름을 쓰는 계좌는 그대로) */
+export function forgetBroker(name: string, user: string = OWNER_ID, e: Env = process.env): void {
+  const f = loadFile(user, e);
+  saveFile({ ...f, brokers: f.brokers.filter((b) => b !== name) }, user, e);
+}
+
+/**
+ * 전략 기준 다시 잡기: 운용 시작일을 오늘로, 운용 금액을 지금 계좌 평가액으로.
+ * 예전 시작일부터 운용 금액으로 계산한 가상 평가액이 실제 계좌와 크게 벌어졌을 때, 오늘부터 지금 잔고로 새로 출발하게 한다.
+ * price: 종목별 원화 종가 (모르면 평균단가)
+ */
+export function resetBasis(user: string, accountId: string, today: string, price: (t: string) => number | undefined, e: Env = process.env): ManualAccount {
+  const list = loadAccounts(user, e);
+  const i = list.findIndex((a) => a.id === accountId);
+  if (i < 0) throw new Error("그 계좌를 찾지 못했습니다.");
+  const a = list[i];
+  if (!a.plan) throw new Error("이 계좌에는 전략이 없습니다. 먼저 전략을 정하세요.");
+  const value = Math.round(accountValue(a, price));
+  if (value < 100_000) throw new Error(`지금 계좌 평가액이 ${value.toLocaleString("ko-KR")}원이라 운용 금액(10만 원 이상)으로 쓸 수 없습니다. 예수금·보유를 먼저 맞춰 주세요.`);
+  const now = new Date().toISOString();
+  list[i] = { ...a, plan: { ...a.plan, startDate: today, budget: value, updatedAt: now }, updatedAt: now };
+  saveAccounts(list, user, e);
+  return list[i];
 }
 
 export function getAccount(id: string, user: string = OWNER_ID, e: Env = process.env): ManualAccount {
@@ -124,7 +168,10 @@ export function cleanAccount(x: any, prev: ManualAccount | null, user: string, t
   let plan: AutoPlan | null = null;
   const p = x?.plan;
   if (p && String(p.strategy ?? "").trim()) {
-    plan = { ...cleanPlan(p, user, today, lib, undefined, { allowMix: true }), intraday: false };
+    // 지금 쓰는 전략이 보관함에서 지워졌거나 이름이 바뀌었어도 그대로 이어 쓸 수 있게 (예전에 복사해 둔 것)
+    const kept = prev?.plan?.strategy;
+    const libAll = kept && !lib.some((v) => v.name === kept.name) ? [...lib, kept] : lib;
+    plan = { ...cleanPlan(p, user, today, libAll, undefined, { allowMix: true }), intraday: false };
     // 전략·종목·금액이 그대로면 저장 시각을 유지 (저녁 기록이 "예전 설정 기준"으로 보이지 않게)
     if (prev?.plan && samePlan(prev.plan, plan)) plan.updatedAt = prev.plan.updatedAt;
   }
