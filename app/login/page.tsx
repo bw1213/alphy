@@ -35,7 +35,7 @@ function LoginInner() {
 export default function LoginPage() {
   return (
     <>
-      <header className="top"><h1>알피</h1><p>로그인해야 쓸 수 있습니다.</p></header>
+      <header className="top"><h1>알피</h1></header>
       <Suspense><LoginInner /></Suspense>
     </>
   );

@@ -95,7 +95,7 @@ export default function StrategyBuilder({ spec, onChange, rebalance, onRebalance
           <option value="D">매일</option><option value="W">매주</option><option value="M">매월</option><option value="Q">분기</option>
         </select>
       </div>
-      <p className="help" style={{ margin: "2px 0 0" }}>정한 주기의 마지막 거래일 종가로 다시 고르고 다음 거래일 시가에 맞춥니다. 비중 차이가 2%p보다 작은 종목은 그대로 둡니다.</p>
+      <p className="help" style={{ margin: "2px 0 0" }}>비중 차이가 2%p 미만이면 그대로 둡니다.</p>
 
       <div className="notice" style={{ marginTop: 12 }}>
         <b>이 전략은 이렇게 움직입니다</b>

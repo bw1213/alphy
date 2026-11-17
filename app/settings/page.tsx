@@ -7,6 +7,7 @@ import DiagTokenCard from "@/components/DiagTokenCard";
 import UsersCard from "@/components/UsersCard";
 import ServerStatusCard from "@/components/ServerStatusCard";
 import StockListCard from "@/components/StockListCard";
+import Info from "@/components/Info";
 import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
 
 type SettingsView = BaseView & { scope?: "owner" | "member"; realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean }; secretFromEnv?: boolean };
@@ -89,7 +90,7 @@ export default function SettingsPage() {
   const header = (
     <header className="top">
       <h1>알피 설정</h1>
-      <p>여기서 바꾼 값은 NAS에 저장되어 업데이트 후에도 유지됩니다.{auth?.user && auth.multiUser ? ` · ${auth.user.name}(${auth.user.id})` : ""}</p>
+      {auth?.user && auth.multiUser ? <p>{auth.user.name}({auth.user.id})</p> : null}
       <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}>
         <a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/auto">자동 매매</a><a href="/manual">수동 매매</a><a href="/dashboard">전체 계좌</a>
         {auth?.loggedIn && <button className="link" onClick={logout}>로그아웃</button>}
@@ -112,7 +113,7 @@ export default function SettingsPage() {
           <button style={{ marginTop: 10 }} onClick={changePassword}>비밀번호 바꾸기</button>
           {auth.user?.owner === false
             ? <p className="help">잊어버렸으면 관리자에게 계정을 지우고 새 초대 링크를 달라고 하세요.</p>
-            : <p className="help">잊어버렸으면 NAS의 <code>nas/cache/config/users.json</code> 에서 owner 의 <code>passwordHash</code> 줄을 지우고 컨테이너를 다시 시작하세요. 새 설정 코드가 로그에 나옵니다.</p>}
+            : <p className="help">잊어버렸으면<Info>NAS의 <code>nas/cache/config/users.json</code> 에서 owner 의 <code>passwordHash</code> 줄을 지우고 컨테이너를 다시 시작하세요. 새 설정 코드가 로그에 나옵니다.</Info></p>}
         </>
       )}
     </div>
@@ -134,7 +135,7 @@ export default function SettingsPage() {
       <div className="card">
         <h2>한국투자증권 · {label}</h2>
         <p className="help" style={{ marginTop: -6, marginBottom: 10 }}>
-          {env === "mock" ? "먼저 이것부터. 모의투자 주문·잔고와 시세(초당 2건)에 씁니다." : "선택. 넣어 두면 시세를 실전 서버(초당 20건)로 빠르게 받습니다. 계좌번호는 실전 주문할 때만 필요합니다."}
+          {env === "mock" ? "모의투자 주문·잔고·시세용" : "선택 · 시세를 더 빠르게 받습니다"}
         </p>
         {(["appKey", "appSecret", "account"] as const).map((f) => (
           <label className="f" key={f} style={{ marginTop: 8 }}>
@@ -179,8 +180,7 @@ export default function SettingsPage() {
         실전 주문 잠금: {view.realOrdersAllowed ? <span className="badge ok">해제됨 (KIS_ALLOW_REAL_ORDERS=yes)</span> : <span className="badge no">잠김</span>}
       </p>
       <p className="help">
-        실전 주문은 여기서 &apos;실전&apos;을 고르고, <b>NAS의 .env 에 KIS_ALLOW_REAL_ORDERS=yes</b> 까지 넣어야 나갑니다.
-        비밀번호가 새더라도 실제 돈이 나가지 않도록 이 잠금만은 화면에서 풀 수 없게 했습니다.
+        실전 주문은 &apos;실전&apos; 선택 + <b>NAS .env 의 KIS_ALLOW_REAL_ORDERS=yes</b> 가 모두 있어야 나갑니다.
       </p>
       </>) : (
         <>
@@ -192,7 +192,7 @@ export default function SettingsPage() {
             <li>관리자(owner)의 실전 허용: {lock?.granted ? "받음" : "아직 — 관리자에게 요청하세요"}</li>
             <li>내 계정의 2단계 인증: {lock?.totp ? "켜짐" : "꺼짐 — 아래 보안 칸에서 켜세요"}</li>
           </ul>
-          <p className="help">세 가지가 모두 되어 있고 여기서 &apos;실전&apos;을 골라야 실제 돈으로 주문이 나갑니다. 처음에는 모의투자로 충분히 써 보세요.</p>
+          <p className="help">셋 다 되고 &apos;실전&apos;을 골라야 실제 돈으로 주문이 나갑니다.</p>
         </>
       )}
       <h2 style={{ marginTop: 16 }}>실전 주문 금액 상한</h2>
@@ -200,7 +200,7 @@ export default function SettingsPage() {
         <label className="f">1회 주문 상한(원)<input type="number" min={0} value={limit.perOrder} onChange={(e) => setLimit({ ...limit, perOrder: e.target.value })} /></label>
         <label className="f">하루 합계 상한(원)<input type="number" min={0} value={limit.perDay} onChange={(e) => setLimit({ ...limit, perDay: e.target.value })} /></label>
       </div>
-      <p className="help">실전 주문에만 적용됩니다(모의투자는 제한 없음). 실수로 큰 주문이 나가는 걸 막는 장치이고, 0 을 넣으면 제한이 없습니다. 하루 합계는 매수·매도 주문 금액을 모두 더합니다.</p>
+      <p className="help">실전 주문에만 적용 · 0 = 제한 없음</p>
       <button style={{ marginTop: 10 }} onClick={() => {
         if (limit.perOrder.trim() === "" || limit.perDay.trim() === "") return setError("상한 금액을 넣으세요. 제한을 없애려면 0 을 넣습니다.");
         save({ kis: { orderLimit: { perOrder: Number(limit.perOrder), perDay: Number(limit.perDay) } } }, "주문 금액 상한을 저장했습니다");
@@ -210,7 +210,7 @@ export default function SettingsPage() {
         <label className="f">실전 운용 금액 상한(원)<input type="number" min={0} step={100000} value={alim.realBudget} onChange={(e) => setAlim({ ...alim, realBudget: e.target.value })} /></label>
         <label className="f">손실 한도(%)<input type="number" min={0} max={100} step={1} value={alim.maxLoss} onChange={(e) => setAlim({ ...alim, maxLoss: e.target.value })} /></label>
       </div>
-      <p className="help">실전 운용 금액 상한: 주문 계좌가 실전일 때 자동 매매에 맡길 수 있는 최대 금액입니다. 처음엔 작게 시작하세요(0 = 제한 없음). 손실 한도: 운용 금액 대비 이만큼 잃으면 자동 매매를 멈추고 텔레그램으로 알립니다(0 = 멈추지 않음). 계정마다 따로 저장됩니다.</p>
+      <p className="help">손실 한도만큼 잃으면 자동 매매를 멈추고 알립니다 · 0 = 제한 없음</p>
       <button style={{ marginTop: 10 }} onClick={() => {
         if (alim.realBudget.trim() === "" || alim.maxLoss.trim() === "") return setError("두 칸을 모두 넣으세요. 제한을 없애려면 0 을 넣습니다.");
         save({ kis: { autoLimit: { realBudget: Number(alim.realBudget), maxLoss: Number(alim.maxLoss) } } }, "자동 매매 한도를 저장했습니다");
@@ -227,17 +227,16 @@ export default function SettingsPage() {
         <div className="card">
           <h2>내 계정</h2>
           <p className="desc"><b>{auth.user.name}</b> (<code>{auth.user.id}</code>) · {auth.user.role === "admin" ? "관리자" : "일반 사용자"}</p>
-          <p className="help">백테스트와 전략 보관함·마지막 설정은 내 계정에 따로 저장됩니다. 아래에 넣는 한국투자증권 앱키·계좌는 암호화해서 저장되고 본인만 쓸 수 있습니다(관리자도 볼 수 없음). 주문은 본인이 직접 누를 때만 나갑니다.</p>
-          <p className="help">백테스트 결과와 추천은 과거 자료를 바탕으로 한 참고용이며, 투자 판단과 책임은 본인에게 있습니다.</p>
+          <p className="help">앱키·계좌는 암호화되어 본인만 씁니다. 결과와 추천은 참고용이며 투자 책임은 본인에게 있습니다.</p>
         </div>
-        <div className="wide section"><h2>내 설정</h2><p className="help">내 계정에만 적용됩니다.</p></div>
+        <div className="wide section"><h2>내 설정</h2></div>
         {keyCard("mock")}
         {keyCard("real")}
         {tradeCard}
         {pwCard(false)}
         <SecurityCard />
         {auth.user.role === "admin" && (<>
-        <div className="wide section"><h2>관리</h2><p className="help">관리자만 보입니다. 모든 사용자에게 적용됩니다.</p></div>
+        <div className="wide section"><h2>관리</h2><p className="help">모든 사용자에게 적용됩니다.</p></div>
           <UsersCard />
           <StockListCard />
           <ServerStatusCard />
@@ -252,7 +251,7 @@ export default function SettingsPage() {
       <main className="settings">
         {(error || saved) && <div className="wide">{error ? <div className="error">{error}</div> : <span className="saved">✓ {saved}</span>}</div>}
 
-        <div className="wide section"><h2>내 설정</h2><p className="help">내 계정(owner)에만 적용됩니다.</p></div>
+        <div className="wide section"><h2>내 설정</h2></div>
         {keyCard("mock")}
         {keyCard("real")}
 
@@ -262,12 +261,12 @@ export default function SettingsPage() {
 
         <SecurityCard />
 
-        <div className="wide section"><h2>관리</h2><p className="help">모든 사용자에게 적용됩니다. 초대받은 사람에게는 보이지 않습니다.</p></div>
+        <div className="wide section"><h2>관리</h2><p className="help">모든 사용자에게 적용됩니다.</p></div>
         <UsersCard />
 
         <div className="card">
           <h2>백테스트 기본값</h2>
-          <p className="help" style={{ marginTop: -6, marginBottom: 10 }}>백테스트 화면을 열 때 처음 채워지는 값입니다. 화면에서 실행할 때마다 바꿀 수도 있습니다.</p>
+          
           <label className="f">데이터
             <select value={bt.source} onChange={(e) => setBt({ ...bt, source: e.target.value as DataSource })}>
               <option value="naver">네이버 증권</option><option value="kis">한국투자증권 API</option>
@@ -285,8 +284,7 @@ export default function SettingsPage() {
             <label className="f">목표 연 수익률 %<input type="number" value={bt.targetCagr} onChange={(e) => setBt({ ...bt, targetCagr: e.target.value })} /></label>
             <label className="f">감당할 최대 낙폭 %<input type="number" value={bt.maxDrawdown} onChange={(e) => setBt({ ...bt, maxDrawdown: e.target.value })} /></label>
           </div>
-          <p className="help">목표 수익률과 최대 낙폭은 결과 화면의 달성 표시와 목표선에 쓰입니다. 장기 평균으로는 연 12~15%가 현실적인 범위이고 20%는 도전적인 목표입니다.</p>
-          <p className="help">수수료는 내 계좌의 실제 온라인 수수료율을 넣으세요. 매도세를 비우면 연도별 법정세율을 씁니다. 미국 종목은 거래세가 없고, 수수료(한국투자증권 기본 0.25%)와 환전 비용(살 때·팔 때 각각, 환율 우대에 따라 다름)을 씁니다.</p>
+          <p className="help">매도세를 비우면 연도별 법정세율을 씁니다.</p>
           <button style={{ marginTop: 10 }} onClick={() => save({
             backtest: { source: bt.source, cash: Number(bt.cash), commission: Number(bt.commission), slippage: Number(bt.slippage), sellTax: bt.sellTax.trim() === "" ? null : Number(bt.sellTax), usCommission: Number(bt.usCommission), usFx: Number(bt.usFx), universeSize: Number(bt.universeSize), targetCagr: Number(bt.targetCagr), maxDrawdown: Number(bt.maxDrawdown) },
           }, "백테스트 기본값을 저장했습니다")}>저장</button>
@@ -299,8 +297,9 @@ export default function SettingsPage() {
         <ServerStatusCard />
 
         <div className="card wide why">
-          <h2>어떤 건 화면에서, 어떤 건 환경변수로?</h2>
-          <table>
+          <details>
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>설정 저장 위치와 이유</summary>
+          <table style={{ marginTop: 8 }}>
             <thead><tr><th>항목</th><th>어디서</th><th>이유</th></tr></thead>
             <tbody>
               <tr><td>앱키·앱시크릿·계좌번호</td><td>화면</td><td>NAS 안의 파일(<code>nas/cache/config/settings.json</code>, 권한 600)에 저장되어 .env 파일과 보안 수준이 같습니다. 화면에는 다시 보여주지 않고(끝 4자리만) 바꾸거나 지우기만 됩니다.</td></tr>
@@ -312,7 +311,8 @@ export default function SettingsPage() {
               <tr><td>포트, 실행 사용자(PUID/PGID)</td><td>docker-compose</td><td>컨테이너가 뜨기 전에 정해져야 하는 값이라 앱이 바꿀 수 없습니다.</td></tr>
             </tbody>
           </table>
-          <p className="help">예전처럼 .env 로 넣은 값도 그대로 동작하고 화면 값보다 우선합니다(🔒 표시). 화면에서 관리하려면 .env 에서 그 줄을 지우고 컨테이너를 다시 시작하세요.</p>
+          </details>
+          <p className="help">.env 값(🔒)이 화면 값보다 우선합니다.</p>
         </div>
       </main>
     </>

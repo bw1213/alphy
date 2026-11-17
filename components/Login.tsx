@@ -47,7 +47,7 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
       <h2>{auth.setupNeeded ? "관리자 비밀번호 만들기" : title}</h2>
       {auth.setupNeeded ? (
         <>
-          <p className="desc">처음 한 번만 합니다. 이 비밀번호로 설정 화면과 주문·잔고를 엽니다.</p>
+          <p className="desc">처음 한 번만 비밀번호를 정합니다.</p>
           <p className="help">
             본인 확인용 <b>설정 코드</b>는 Container Manager → 컨테이너 → alphy → <b>로그</b>의 &quot;처음 설정 코드&quot; 줄,
             또는 File Station의 <code>nas/cache/config/setup-code.txt</code>에 있습니다.
@@ -64,7 +64,7 @@ export default function Login({ auth, onDone, title = "관리자 로그인" }: {
         </>
       ) : otpStep ? (
         <>
-          <p className="desc">비밀번호를 확인했습니다. 휴대폰 인증 앱에 보이는 6자리 숫자를 넣으세요.</p>
+          <p className="desc">인증 앱의 6자리 숫자를 넣으세요.</p>
           <label className="f">인증 앱 코드 (6자리)
             <input value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={7} autoFocus required />
           </label>

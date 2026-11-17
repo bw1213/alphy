@@ -44,13 +44,7 @@ export default function DiagTokenCard() {
       <h2>점검 키 (읽기 전용)</h2>
       {msg && (msg.ok ? <span className="saved">✓ {msg.text}</span> : <div className="error">{msg.text}</div>)}
       <p className="help">
-        Claude 에게 서버를 직접 점검하게 할 때 발급해서 넘겨 주는 키입니다. 비밀번호나 인증 코드를 알려 줄 필요가 없습니다.
-        이 키로는 <b>점검 화면(/api/diag)만</b> 볼 수 있습니다: 버전·배포 시각, 설정이 되어 있는지 여부(값은 안 보임), 저장한 전략, 시세 데이터 범위, 백테스트 다시 돌려 보기.
-        <b> 주문·잔고·설정 변경·전략 저장은 할 수 없고</b>, 앱키·계좌번호 같은 비밀값도 보이지 않습니다.
-      </p>
-      <p className="help">
-        키는 발급할 때 <b>한 번만</b> 보입니다. 점검이 끝나면 아래 목록에서 폐기하세요. 기간이 지나면 저절로 막히고,
-        비밀번호를 바꾸거나 &apos;모든 기기 로그아웃&apos;을 눌러도 모두 폐기됩니다.
+        Claude 점검용 키입니다. <b>점검(/api/diag)만</b> 되고 주문·설정 변경·비밀값 보기는 안 됩니다. 점검이 끝나면 폐기하세요.
       </p>
 
       <div className="row" style={{ alignItems: "flex-end" }}>
@@ -67,7 +61,7 @@ export default function DiagTokenCard() {
 
       {fresh && (
         <div className="lock" style={{ marginTop: 10 }}>
-          <p className="help" style={{ marginTop: 0 }}>이 키를 복사해서 Claude 스레드에 붙여 넣으세요. 이 화면을 벗어나면 다시 볼 수 없습니다.</p>
+          <p className="help" style={{ marginTop: 0 }}>지금 복사하세요. 다시 볼 수 없습니다.</p>
           <code style={{ wordBreak: "break-all", display: "block", userSelect: "all" }}>{fresh}</code>
           <div className="btns" style={{ marginTop: 8 }}>
             <button onClick={copy}>{copied ? "복사됨" : "복사"}</button>

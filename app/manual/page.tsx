@@ -69,7 +69,7 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
               <tr key={i}><td>{s.name}</td><td>{won(s.price)} {s.kind === "take_profit" ? "이상" : "이하"}</td><td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
             ))}</tbody>
           </table></div>
-          <p className="help">종가가 이 가격에 닿으면 그날 저녁 계산이 다음 날 매도할 수량을 안내합니다.</p>
+          
         </>
       )}
       {r.warnings.map((w, i) => <p key={i} className="help">※ {w}</p>)}
@@ -144,7 +144,7 @@ export default function ManualPage() {
     <>
       <header className="top">
         <h1>수동 매매</h1>
-        <p>자동 주문이 안 되는 계좌(토스·미래에셋 등)에 계좌마다 전략을 정해 두면, 평일 저녁에 다음 거래일에 직접 사고팔 종목과 수량을 알려 드립니다.</p>
+        <p>토스·미래에셋 등 계좌별 전략 · 평일 저녁 매매 안내</p>
         <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/">백테스트</a><a href="/auto">자동 매매</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
@@ -153,7 +153,7 @@ export default function ManualPage() {
             <h2 style={{ display: "flex", alignItems: "center" }}>내 수동 계좌
               <button style={{ marginLeft: "auto", fontWeight: 400 }} disabled={!!busy || !st} onClick={() => { setForm(emptyForm(st!.today)); setDelAsk(false); }}>+ 계좌 추가</button>
             </h2>
-            {!st ? <p className="help">불러오는 중…</p> : !st.accounts.length ? <p className="help">아직 계좌가 없습니다. "계좌 추가"로 토스·미래에셋 계좌의 예수금과 보유 종목을 넣어 주세요.</p> : (
+            {!st ? <p className="help">불러오는 중…</p> : !st.accounts.length ? <p className="help">아직 계좌가 없습니다.</p> : (
               <div style={{ display: "grid", gap: 6 }}>
                 {st.accounts.map((a) => {
                   const v = a.cash + a.positions.reduce((s, p) => s + p.qty * (price(p.ticker) ?? p.avgPrice), 0);
@@ -199,7 +199,7 @@ export default function ManualPage() {
               <div style={{ marginTop: 6 }}>
                 <StockSearch placeholder="보유 종목 이름으로 찾아 추가" exclude={form.positions.map((p) => p.ticker)} onPick={(s) => setForm((f) => f && ({ ...f, positions: [...f.positions, { ticker: s.code, name: s.name, qty: "", avgPrice: "" }] }))} />
               </div>
-              <p className="help">미국 종목의 평균단가는 원화로 바꾼 값(달러 단가 × 산 때 환율)으로 넣으세요.</p>
+              <p className="help">미국 종목 평균단가는 원화로 넣으세요.</p>
 
               <h3>전략</h3>
               <label className="f">적용할 전략
@@ -209,7 +209,7 @@ export default function ManualPage() {
                   <optgroup label="기본 전략">{STRATEGIES.map((s) => <option key={s.id} value={`builtin:${s.id}`}>{s.name}</option>)}</optgroup>
                 </select>
               </label>
-              {isCustom && !auth?.user?.owner && <p className="help">직접 작성한 코드 전략은 서버에서 매일 실행되므로 관리자만 쓸 수 있습니다.</p>}
+              {isCustom && !auth?.user?.owner && <p className="help">코드 전략은 관리자만 쓸 수 있습니다.</p>}
               {form.strategy && (
                 <>
                   <label className="f" style={{ marginTop: 10 }}>대상 종목 {picked?.cycle ? "(필수)" : "(비우면 전략 기본: 시총 상위 종목)"}
@@ -227,7 +227,7 @@ export default function ManualPage() {
                       onChange={(e) => setForm({ ...form, budget: e.target.value })} /></label>
                     <label className="f">운용 시작일<input type="date" value={form.startDate} max={st?.today} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
                   </div>
-                  <p className="help">운용 금액을 비우면 안 됩니다. 보통 이 계좌 평가액(칸에 흐리게 보이는 값)을 넣으세요. 시작일부터 운용 금액으로 전략을 돌린 것처럼 매일 계산하고, 사고팔 수량은 이 계좌에 기록한 보유와 비교해 정합니다.</p>
+                  <p className="help">운용 금액은 보통 계좌 평가액(흐린 값)을 넣습니다.</p>
                   <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 8 }}>
                     <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> 매일 저녁 계산·텔레그램 안내 켜기
                   </label>
@@ -248,7 +248,7 @@ export default function ManualPage() {
 
         <section className="stack">
           {!acc ? (
-            <div className="card"><p className="help">왼쪽에서 계좌를 고르거나 새로 추가하세요.</p></div>
+            <div className="card"><p className="help">계좌를 고르거나 추가하세요.</p></div>
           ) : (
             <>
               <div className="card">
@@ -285,8 +285,8 @@ export default function ManualPage() {
                     <button disabled={!!busy || !acc.plan} onClick={() => act("run", () => post({ action: "run", accountId: acc.id, notify: sendTg })).then(() => setOpen(0))}>{busy === "run" ? "계산 중…" : "지금 계산해 보기"}</button>
                   </span>
                 </h2>
-                {!acc.plan ? <p className="help">이 계좌에는 전략이 없습니다. "계좌·전략 고치기"에서 전략을 정하세요.</p>
-                  : !acc.log.length ? <p className="help">아직 계산 기록이 없습니다. 평일 저녁에 자동으로 계산하고, 지금 바로 보려면 "지금 계산해 보기"를 누르세요.</p> : (
+                {!acc.plan ? <p className="help">전략이 없습니다. "계좌·전략 고치기"에서 정하세요.</p>
+                  : !acc.log.length ? <p className="help">아직 계산 기록이 없습니다.</p> : (
                     <div style={{ display: "grid", gap: 8 }}>
                       {acc.log.map((r, i) => (
                         <div key={r.runDate + r.trigger + i} style={{ borderTop: i ? "1px solid var(--border)" : "none", paddingTop: i ? 8 : 0 }}>
@@ -298,7 +298,7 @@ export default function ManualPage() {
                       ))}
                     </div>
                   )}
-                <p className="help">주문은 증권사 앱에서 직접 하세요. 체결되면 "체결 기록"으로 실제 수량·가격을 넣으면 이 계좌의 보유와 예수금이 바뀌고, 다음 계산은 그 잔고로 합니다.</p>
+                <p className="help">증권사 앱에서 주문한 뒤 "체결 기록"으로 넣으세요.</p>
               </div>
 
               <div className="card">
@@ -322,7 +322,7 @@ export default function ManualPage() {
                       <label className="f">수수료·세금(원, 비우면 어림)<input type="number" min={0} value={trade.fee} onChange={(e) => setTrade({ ...trade, fee: e.target.value })} /></label>
                       <label className="f">체결일<input type="date" value={trade.date} max={st?.today} onChange={(e) => setTrade({ ...trade, date: e.target.value })} /></label>
                     </div>
-                    <p className="help" style={{ margin: 0 }}>안내의 가격은 오늘 종가입니다. 실제 체결 가격으로 바꿔 넣으세요. 미국 종목은 원화로 바꾼 금액(달러 × 환율)입니다. 수수료를 비우면 설정의 비용률로 어림합니다.</p>
+                    <p className="help" style={{ margin: 0 }}>실제 체결 가격(미국은 원화)으로 넣으세요. 수수료는 비우면 어림합니다.</p>
                     <div className="btns">
                       <button className="primary" disabled={!!busy || !trade.ticker || !trade.qty || !trade.price}
                         onClick={() => act("trade", () => post({ action: "trade", accountId: acc.id, ...trade }), "체결을 기록하고 계좌 잔고를 바꿨습니다.").then((ok) => { if (ok) setTrade(null); })}>{busy === "trade" ? "기록 중…" : "기록"}</button>

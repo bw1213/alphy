@@ -37,7 +37,7 @@ export default function StockListCard() {
     <div className="card">
       <h2>종목 목록 (이름 검색)</h2>
       <p className="help" style={{ marginTop: -6, marginBottom: 10 }}>
-        백테스트·매매 화면에서 종목 이름으로 코드를 찾을 때 쓰는 목록입니다. 한국투자증권이 공개하는 종목 마스터 파일(KOSPI·KOSDAQ 주식, ETF, ETN, 리츠)을 받아 저장해 두고, 7일마다 저절로 새로 받습니다.
+        종목 이름 검색용 목록 · 7일마다 새로 받습니다.
       </p>
       {st ? (
         <>
@@ -52,7 +52,7 @@ export default function StockListCard() {
       {tried && <p className="help">{tried.name} · {tried.code} · {tried.market}{tried.type ? ` · ${tried.type}` : ""}</p>}
 
       <h3>직접 추가</h3>
-      <p className="help" style={{ marginTop: -4, marginBottom: 6 }}>목록에 없는 종목(새로 상장된 종목, 상장폐지 종목 등)을 넣어 두면 검색에 나옵니다. 같은 코드가 있으면 여기 넣은 이름이 먼저 쓰입니다.</p>
+      <p className="help" style={{ marginTop: -4, marginBottom: 6 }}>목록에 없는 종목(신규 상장·상장폐지)을 추가합니다.</p>
       <div className="row3">
         <label className="f">종목코드<input value={add.code} placeholder="005930" onChange={(e) => setAdd({ ...add, code: e.target.value.trim().toUpperCase() })} /></label>
         <label className="f">이름<input value={add.name} placeholder="삼성전자" onChange={(e) => setAdd({ ...add, name: e.target.value })} /></label>

@@ -91,7 +91,7 @@ export default function TradePage() {
                 <li>로그인: {auth?.loggedIn ? <span className="badge ok">됨</span> : <span className="badge no">필요</span>}</li>
               </ul>
             )}
-            {status && !acctOk && <p className="help">앱키·계좌번호는 <a href="/settings">설정</a> 화면에서 넣습니다.</p>}
+            {status && !acctOk && <p className="help">앱키·계좌는 <a href="/settings">설정</a>에서 넣습니다.</p>}
           </div>
           {auth && !auth.loggedIn && <Login auth={auth} title="로그인 (관리자 비밀번호)" onDone={() => fetchAuth().then(setAuth)} />}
 
@@ -136,7 +136,7 @@ export default function TradePage() {
                 </div>
               )}
             </div>
-            <p className="help">장 시간(평일 09:00~15:30)에만 체결됩니다. 모의투자는 실제 시세로 가상 체결됩니다.</p>
+            <p className="help">평일 09:00~15:30에만 체결됩니다.</p>
           </div>
           {error && <div className="error">{error}</div>}
         </section>
