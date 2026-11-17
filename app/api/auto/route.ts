@@ -8,7 +8,7 @@ import { loadPerf, perfFor, rebase, savePerf, summarize } from "@/lib/auto/perf"
 import { loadNotify } from "@/lib/auto/telegram";
 import { checkPassword, clientIp, loginBlockedFor, recordFail } from "@/lib/settings/auth";
 import { tradeCredentialsFor } from "@/lib/kis/access";
-import { eveningFor, eveningTime, loadState, morningTimes } from "@/lib/auto/scheduler";
+import { accountSnapshot, eveningFor, eveningTime, loadState, morningTimes } from "@/lib/auto/scheduler";
 import { formatDay, loadDay, loadDays, saveDay, stopDay } from "@/lib/auto/morning";
 import { brokerFor } from "@/lib/auto/broker";
 import { loadIntradayDays } from "@/lib/auto/intraday";
@@ -19,6 +19,8 @@ import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
 import { tradeEnv } from "@/lib/kis/config";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import type { EveningReport } from "@/lib/auto/evening";
+import { hasKisAccount } from "@/lib/manual/kis";
+import { loadHistory } from "@/lib/manual/value";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +62,8 @@ export async function GET(req: Request) {
     market: plan ? planMarket(plan) : "KR",
     owner: user.id === OWNER_ID,
     today: kst().date,
+    // 지금 계좌: 대시보드가 마지막으로 읽은 한국투자증권 잔고 (새로 읽기는 POST /api/dashboard refresh)
+    ...(hasKisAccount(user) ? { accountView: loadHistory(user.id).kis ?? null } : {}),
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -136,10 +140,11 @@ export async function POST(req: Request) {
         // 입금·출금 뒤: 손익은 그대로 두고 성과 기준을 지금 계좌 평가액에 맞춤
         const plan = loadPlan(user.id);
         if (!plan) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
-        const b = brokerFor(user, process.env, planMarket(plan));
-        const perf = perfFor(loadPerf(user.id), plan, b.env);
-        const bal = await b.balance();
-        savePerf(rebase(perf, bal.totalValue, kst().date), user.id);
+        // 저녁 계산과 같은 계좌 평가액(국내+미국, 예수금 포함)으로
+        const snap = await accountSnapshot(user, planMarket(plan));
+        if (snap.total == null) return NextResponse.json({ error: `계좌 평가액을 정확히 읽지 못했습니다. ${snap.note ?? ""}`.trim() }, { status: 400 });
+        const perf = perfFor(loadPerf(user.id), plan, snap.env);
+        savePerf(rebase(perf, snap.total, kst().date), user.id);
         return NextResponse.json({ ok: true });
       }
       case "stop": {

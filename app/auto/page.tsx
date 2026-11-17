@@ -10,6 +10,7 @@ import type { MorningDay } from "@/lib/auto/morning";
 import type { IntradayDay } from "@/lib/auto/intraday";
 import { fetchJob } from "@/lib/client/fetchData";
 import type { PerfPoint, PerfSummary } from "@/lib/auto/perf";
+import type { KisView } from "@/lib/manual/value";
 
 interface PlanView {
   label: string; kind: "builtin" | "cycle" | "builder" | "custom"; strategyName: string | null; builtin: string | null;
@@ -22,6 +23,8 @@ interface AutoState {
   times: { morning: string; cutoff: string }; days: MorningDay[]; intradayDays?: IntradayDay[]; market?: "KR" | "US";
   perf: { base: { date: string; total: number } | null; budget: number; env: "real" | "mock"; points: PerfPoint[]; summary: PerfSummary | null } | null;
   real: { confirmedAt: string | null; lock: string | null; mockDays: number; telegram: boolean };
+  /** 마지막으로 읽은 실제 계좌 (대시보드와 같은 값). 계좌가 설정되지 않았으면 undefined */
+  accountView?: KisView | null;
 }
 const ST = { waiting: "대기", placed: "주문됨", partial: "일부 체결", filled: "체결", cancelled: "취소", failed: "실패", skipped: "건너뜀" } as const;
 interface TgState { botSet: boolean; bot: string | null; owner: boolean; linked: boolean; chatName: string | null; code: string | null }
@@ -70,13 +73,49 @@ function PerfChart({ points, budget }: { points: PerfPoint[]; budget: number }) 
   );
 }
 
+const kstTime = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/** 지금 실제 계좌 (한국투자증권 잔고 그대로, 국내+미국·예수금 포함) */
+function AccountCard({ v, busy, onRefresh }: { v: KisView | null; busy: boolean; onRefresh: () => void }) {
+  const stock = v ? v.positions.reduce((a, p) => a + p.value, 0) : 0;
+  return (
+    <div className="card">
+      <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>지금 계좌{v ? ` (${v.env === "real" ? "실전" : "모의투자"})` : ""}
+        <span style={{ marginLeft: "auto" }}><button disabled={busy} onClick={onRefresh}>{busy ? "읽는 중…" : "계좌 새로 읽기"}</button></span>
+      </h2>
+      {!v ? <p className="help">아직 계좌를 읽지 않았습니다. &quot;계좌 새로 읽기&quot;를 누르세요.</p> : (
+        <div style={{ display: "grid", gap: 10 }}>
+          <div className="kpis">
+            <div className="kpi"><div className="k">계좌 평가액</div><div className="v">{won(v.total)}</div><div className="s">{kstTime(v.at)} 기준</div></div>
+            <div className="kpi"><div className="k">예수금</div><div className="v">{won(v.cash)}</div><div className="s">원화·달러 합침</div></div>
+            <div className="kpi"><div className="k">주식</div><div className="v">{won(stock)}</div><div className="s">{v.positions.length}종목</div></div>
+          </div>
+          {v.positions.length > 0 && (
+            <div className="tablewrap"><table>
+              <thead><tr><th>종목</th><th>수량</th><th>평균단가</th><th>현재가</th><th>평가액</th><th>손익</th></tr></thead>
+              <tbody>{v.positions.map((p) => {
+                const pnl = p.value - p.qty * p.avgPrice;
+                return <tr key={p.ticker}><td>{p.name || p.ticker} <span className="help">{p.ticker}</span></td><td>{p.qty.toLocaleString("ko-KR")}주</td><td>{won(p.avgPrice)}</td><td>{won(p.price)}</td><td>{won(p.value)}</td>
+                  <td style={{ color: pnl >= 0 ? "var(--bad)" : "var(--accent)" }}>{signed(pnl)}</td></tr>;
+              })}</tbody>
+            </table></div>
+          )}
+          {v.note && <p className="help">※ {v.note}</p>}
+          <p className="help">증권사 잔고를 그대로 보여 줍니다 (국내·미국 주식, 원화·달러 예수금을 원화로). 저녁 계산 결과의 &quot;전략 계산 평가액&quot;은 운용 금액에서 출발해 전략대로 했다면 얼마인지 계산한 값이라 이 숫자와 다릅니다.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Report({ r }: { r: EveningReport }) {
   if (r.status === "error") return <div className="error">계산하지 못했습니다: {r.error}</div>;
   if (r.status === "holiday") return <p className="help">{r.warnings[0] ?? "휴장일로 보고 건너뛰었습니다."}</p>;
   return (
     <div style={{ display: "grid", gap: 10 }}>
       <div className="kpis">
-        <div className="kpi"><div className="k">전략 평가액</div><div className="v">{won(r.equity ?? 0)}</div><div className="s">현금 {won(r.cash ?? 0)} · 시세 {r.dataDate}</div></div>
+        {r.accountTotal != null && <div className="kpi"><div className="k">계좌 평가액 (계산 때)</div><div className="v">{won(r.accountTotal)}</div><div className="s">예수금 {won(r.accountCash ?? 0)} · 주식 {won(r.accountStock ?? 0)}</div></div>}
+        <div className="kpi"><div className="k">전략 계산 평가액 (가상)</div><div className="v">{won(r.equity ?? 0)}</div><div className="s">운용 금액에서 출발한 백테스트 · 시세 {r.dataDate}</div></div>
         <div className="kpi"><div className="k">내일 주문</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? "전략 신호 없음 (보유 유지)" : "전략이 사고팔기로 한 종목"}</div></div>
       </div>
       {r.orders.length > 0 && (
@@ -260,6 +299,7 @@ export default function AutoPage() {
         </section>
 
         <section className="stack">
+          {st?.accountView !== undefined && <AccountCard v={st.accountView} busy={busy === "account"} onRefresh={() => act("account", () => post("/api/dashboard", { action: "refresh" }))} />}
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>저녁 계산 결과
               <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", fontSize: 12, fontWeight: 400 }}>
