@@ -172,10 +172,12 @@ describe("대시보드 기록", () => {
     expect(h.points[KIS_ID]).toBeUndefined();
   });
 
-  it("해외 포함 총자산을 읽었으면 그걸 계좌 총액으로", () => {
+  it("계좌 총액 = 국내 총평가 + 미국 주식(원화). 총자산 조회값은 미국 종목을 원화로 못 바꿨을 때만", () => {
     const v = kisViewOf({ env: "real", kr: { cash: 0, total: 100, holdings: [] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 1, avgPrice: 1, price: 1, value: 1 }], totalAsset: 5000 } }, { at: "", map: { QQQ: { close: 1400, date: today } }, fx: 1400 }, 0);
-    expect(v.total).toBe(5000);
-    expect(v.cash).toBe(3600);
+    expect(v.total).toBe(1500);
+    expect(v.cash).toBe(100);
+    const noFx = kisViewOf({ env: "real", kr: { cash: 0, total: 100, holdings: [] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 1, avgPrice: 1, price: 1, value: 1 }], totalAsset: 5000 } }, null, 0);
+    expect(noFx.total).toBe(5000);
   });
 });
 
@@ -263,11 +265,8 @@ describe("수동 계좌: 목표 보유 기준", () => {
 });
 
 describe("한국투자증권 총자산 조회값 검사", () => {
-  it("총자산이 국내 총평가보다 작으면(일부 빠짐) 국내 총평가 + 미국 주식으로", () => {
-    const v = kisViewOf({ env: "mock", kr: { cash: 500_000_000, total: 500_000_000, holdings: [] }, us: { holdings: [], totalAsset: 171_762_571 } }, null, 0);
-    expect(v.total).toBe(500_000_000);
-    expect(v.note).toContain("총자산 조회값");
-    const ok = kisViewOf({ env: "real", kr: { cash: 0, total: 1_000_000, holdings: [] }, us: { holdings: [], totalAsset: 1_500_000 } }, null, 0);
-    expect(ok.total).toBe(1_500_000);
+  it("모의투자에서 엉뚱하게 큰 총자산 조회값(3억)은 쓰지 않음", () => {
+    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [], totalAsset: 338_236_500 } }, null, 0);
+    expect(v.total).toBe(9_999_071);
   });
 });

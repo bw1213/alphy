@@ -83,11 +83,13 @@ type DaysFile = Record<string, IntradayDay>;
 export function loadIntradayDays(user: string = OWNER_ID, e: Env = process.env): DaysFile {
   try { const j = JSON.parse(fs.readFileSync(userFile("auto-intraday.json", user, e), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; }
 }
-export function loadIntradayDay(date: string, user: string = OWNER_ID, e: Env = process.env): IntradayDay | null {
-  return loadIntradayDays(user, e)[date] ?? null;
+export function loadIntradayDay(date: string, user: string = OWNER_ID, e: Env = process.env, market: Market = "KR"): IntradayDay | null {
+  const all = loadIntradayDays(user, e);
+  const d = all[market === "US" ? `${date}:US` : date] ?? (market === "US" && all[date]?.market === "US" ? all[date] : null);
+  return d && (d.market ?? "KR") === market ? d : null;
 }
 export function saveIntradayDay(d: IntradayDay, user: string = OWNER_ID, e: Env = process.env) {
-  const all = { ...loadIntradayDays(user, e), [d.date]: d };
+  const all = { ...loadIntradayDays(user, e), [d.market === "US" ? `${d.date}:US` : d.date]: d };
   const keep = Object.keys(all).sort().slice(-MAX_DAYS);
   writeUserFile("auto-intraday.json", JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
 }

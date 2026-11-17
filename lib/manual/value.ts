@@ -122,13 +122,12 @@ export function kisViewOf(raw: KisRaw, prices: PriceBook | null, now: number): K
     usValue += value;
     positions.push({ ticker: h.code, name: h.name, qty: h.qty, avgPrice: h.avgPrice * fx, price: krw, value });
   }
-  // 총자산: 해외 포함 총자산을 읽었으면 그걸로, 아니면 국내 총평가 + 미국 주식
-  // 단, 총자산 조회값이 국내 총평가 + 미국 주식보다 작으면 일부가 빠진 값이라(모의투자 등) 쓰지 않음
+  // 평가액 = 국내 총평가 + 미국 주식(원화). 증권사 "총자산" 조회값은 모의투자에서 엉뚱한 값(수억 원)이 나온 적이 있어
+  // 미국 종목을 원화로 못 바꿨을 때만 대신 씀 (달러 예수금은 이 계산에 들어가지 않음)
   const sum = raw.kr.total + usValue;
+  const dropped = positions.length < raw.kr.holdings.length + (raw.us?.holdings.length ?? 0);
   const asset = raw.us?.totalAsset ?? 0;
-  const useAsset = asset > 0 && asset >= sum * 0.995;
-  if (asset > 0 && !useAsset) note = [note, `증권사 총자산 조회값(${Math.round(asset).toLocaleString("ko-KR")}원)이 국내 총평가와 미국 주식 합보다 작아 국내 총평가 + 미국 주식으로 계산했습니다.`].filter(Boolean).join(" ");
-  const total = useAsset ? asset : sum;
+  const total = dropped && asset > 0 ? asset : sum;
   const stock = positions.reduce((a, p) => a + p.value, 0);
   return { env: raw.env, cash: Math.max(0, Math.round(total - stock)), total: Math.round(total), positions, at: new Date(now).toISOString(), ...(note ? { note } : {}) };
 }

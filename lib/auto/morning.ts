@@ -99,11 +99,16 @@ type OrdersFile = Record<string, MorningDay>;
 export function loadDays(user: string = OWNER_ID, e: Env = process.env): OrdersFile {
   try { const j = JSON.parse(fs.readFileSync(userFile("auto-orders.json", user, e), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; }
 }
-export function loadDay(date: string, user: string = OWNER_ID, e: Env = process.env): MorningDay | null {
-  return loadDays(user, e)[date] ?? null;
+/** 저장 이름: 한국은 날짜, 미국은 "날짜:US" (같은 날짜에 한국 아침 기록과 미국 기록이 겹치지 않게) */
+export const dayKey = (date: string, market: Market = "KR") => (market === "US" ? `${date}:US` : date);
+export function loadDay(date: string, user: string = OWNER_ID, e: Env = process.env, market: Market = "KR"): MorningDay | null {
+  const all = loadDays(user, e);
+  // 예전 기록은 미국도 날짜만으로 저장했음
+  const d = all[dayKey(date, market)] ?? (market === "US" && all[date]?.market === "US" ? all[date] : null);
+  return d && (d.market ?? "KR") === market ? d : null;
 }
 export function saveDay(d: MorningDay, user: string = OWNER_ID, e: Env = process.env) {
-  const all = { ...loadDays(user, e), [d.date]: d };
+  const all = { ...loadDays(user, e), [dayKey(d.date, d.market)]: d };
   const keep = Object.keys(all).sort().slice(-MAX_DAYS);
   writeUserFile("auto-orders.json", JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
 }
