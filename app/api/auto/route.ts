@@ -4,7 +4,7 @@ import { OWNER_ID } from "@/lib/settings/userdir";
 import { updateSettings } from "@/lib/settings/store";
 import { loadStrategies } from "@/lib/strategies/library";
 import { cleanPlan, keepRealConfirm, loadLog, loadPlan, planKind, savePlan } from "@/lib/auto/store";
-import { loadPerf, perfFor, rebase, savePerf, summarize } from "@/lib/auto/perf";
+import { loadPerf, perfFor, rebase, resetBase, savePerf, summarize } from "@/lib/auto/perf";
 import { loadNotify } from "@/lib/auto/telegram";
 import { checkPassword, clientIp, loginBlockedFor, recordFail } from "@/lib/settings/auth";
 import { tradeCredentialsFor } from "@/lib/kis/access";
@@ -157,7 +157,7 @@ export async function POST(req: Request) {
         const snap = await accountSnapshot(user, planMarket(plan));
         if (snap.total == null) return NextResponse.json({ error: `계좌 평가액을 정확히 읽지 못했습니다. ${snap.note ?? ""}`.trim() }, { status: 400 });
         const perf = perfFor(loadPerf(user.id), plan, snap.env);
-        savePerf(rebase(perf, snap.total, kst().date), user.id);
+        savePerf(body.reset ? resetBase(perf, snap.total, kst().date) : rebase(perf, snap.total, kst().date), user.id);
         return NextResponse.json({ ok: true });
       }
       case "stop": {

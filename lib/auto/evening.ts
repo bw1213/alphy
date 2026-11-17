@@ -226,6 +226,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const loss = basis === "account" ? (-r.accountPnl! / plan.budget) * 100 : (1 - E / plan.budget) * 100;
   if (deps.maxLoss && deps.maxLoss > 0 && loss >= deps.maxLoss) {
     r.lossStop = { loss, limit: deps.maxLoss, basis };
+    if (basis === "account" && loss > 100) r.warnings.unshift("계좌 손익이 운용 금액보다 크게 줄었습니다. 계좌 평가액을 잘못 읽었을 수 있으니 자동 매매 화면의 성과 카드에서 \"손익 처음부터\"를 누르고 다시 켜세요.");
     r.warnings.unshift(`운용 금액 대비 ${loss.toFixed(1)}% 손실(${basis === "account" ? "실제 계좌" : "전략 계산"} 기준)로 손실 한도(${deps.maxLoss}%)에 닿아 자동 매매를 멈춥니다. 다시 켜려면 자동 매매 화면에서 켜고 저장하세요.`);
   }
   const curQty = (t: string) => (real ? real.get(t) ?? 0 : btQty.get(t) ?? 0);
