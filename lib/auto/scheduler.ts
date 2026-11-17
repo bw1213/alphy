@@ -30,7 +30,8 @@ import { brokerFor } from "./broker";
 import { addUsage, usedToday } from "../kis/limits";
 import { orderLimitFor } from "../kis/userkeys";
 import { loadLog } from "./store";
-import { intradayCheck, intradayStart, loadIntradayDay, saveIntradayDay, WATCH_FROM } from "./intraday";
+import { intradayCheck, intradayStart, loadIntradayDay, saveIntradayDay } from "./intraday";
+import { clockOf, krSession, planMarket, US_SESSION, type Market, type Session } from "./session";
 
 type Env = Record<string, string | undefined>;
 
@@ -59,6 +60,11 @@ export const morningTimes = (e: Env = process.env) => {
 
 const FOLLOW_MS = 3 * 60_000;
 
+/** 그 시장의 하루 일정 (한국은 관리자가 정한 시각) */
+export const sessionFor = (m: Market, e: Env = process.env): Session => (m === "US" ? US_SESSION : krSession(morningTimes(e)));
+/** 그 사람이 운용하는 시장 (운용이 없으면 한국) */
+const marketOfUser = (u: User, e: Env): Market => { const p = loadPlan(u.id, e); return p ? planMarket(p) : "KR"; };
+
 const limitsFor = (u: User, e: Env): MorningLimits => ({
   orderLimit: orderLimitFor(u.id, e),
   realCap: autoLimitFor(u.id, e).realBudget,
@@ -68,18 +74,23 @@ const limitsFor = (u: User, e: Env): MorningLimits => ({
 
 /** 한 사람의 아침 일: 시작 또는 이어 하기. 알림까지 */
 export async function morningFor(u: User, now: number, e: Env = process.env): Promise<void> {
-  const k = kst(now);
-  const { morning, cutoff } = morningTimes(e);
+  const market = marketOfUser(u, e);
+  const k = clockOf(market, now);
+  if (!isWeekday(k)) return;
+  const ses = sessionFor(market, e);
+  const cutoff = ses.cutoff;
+  if (k.hm < ses.orderAt || k.hm > ses.close) return;
+  const mk = market === "US" ? { market } : {};
   let d = loadDay(k.date, u.id, e);
   if (!d) {
-    if (k.hm < morning || k.hm >= cutoff) return;
+    if (k.hm >= cutoff) return;
     const plan = loadPlan(u.id, e);
     if (!plan || !plan.enabled) return;
-    const b = brokerFor(u, e);
+    const b = brokerFor(u, e, market);
     // 먼저 "시작함"을 적어 두어 같은 날 두 번 주문하지 않게
-    saveDay({ date: k.date, label: plan.label, env: b.env, phase: "placed", items: [], log: [`${k.hm} 시작`] }, u.id, e);
-    try { d = await morningStart(plan, loadLog(u.id, e), b, now, limitsFor(u, e)); }
-    catch (err) { d = { date: k.date, label: plan.label, env: b.env, phase: "skipped", items: [], reason: `시작 실패: ${(err as Error).message}`, log: [`${k.hm} 시작 실패: ${(err as Error).message}`] }; }
+    saveDay({ date: k.date, label: plan.label, env: b.env, ...mk, phase: "placed", items: [], log: [`${k.hm} 시작`] }, u.id, e);
+    try { d = await morningStart(plan, loadLog(u.id, e), b, now, limitsFor(u, e), market); }
+    catch (err) { d = { date: k.date, label: plan.label, env: b.env, ...mk, phase: "skipped", items: [], reason: `시작 실패: ${(err as Error).message}`, log: [`${k.hm} 시작 실패: ${(err as Error).message}`] }; }
     saveDay(d, u.id, e);
     if (d.items.some((x) => x.orderNo) || (d.phase === "skipped" && !/꺼져/.test(d.reason ?? ""))) {
       await notify(u.id, formatDay(d, false), e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
@@ -88,8 +99,9 @@ export async function morningFor(u: User, now: number, e: Env = process.env): Pr
     console.log(`[auto] ${k.date} 아침 주문 ${u.id}: ${d.phase} ${d.items.length}건 ${d.reason ?? ""}`);
     return;
   }
-  if ((d.phase === "placed" || d.phase === "buying") && k.hm >= "09:00" && (k.hm >= cutoff || now - (d.lastCheck ?? 0) >= FOLLOW_MS)) {
-    d = await morningFollow(d, brokerFor(u, e), now, cutoff, limitsFor(u, e));
+  if ((d.market ?? "KR") !== market) return; // 그날 기록이 다른 시장 것이면 건드리지 않음
+  if ((d.phase === "placed" || d.phase === "buying") && k.hm >= ses.followFrom && (k.hm >= cutoff || now - (d.lastCheck ?? 0) >= FOLLOW_MS)) {
+    d = await morningFollow(d, brokerFor(u, e, market), now, cutoff, limitsFor(u, e));
     saveDay(d, u.id, e);
   }
   if ((d.phase === "done" || d.phase === "stopped") && !d.notified && d.items.length) {
@@ -102,10 +114,8 @@ export async function morningFor(u: User, now: number, e: Env = process.env): Pr
 let morningRunning = false;
 
 export async function morningTick(now = Date.now(), e: Env = process.env): Promise<void> {
-  const k = kst(now);
-  if (!isWeekday(k) || morningRunning) return;
-  const { morning } = morningTimes(e);
-  if (k.hm < morning || k.hm > "15:30") return;
+  // 시장마다 시간이 달라(한국 아침, 미국은 한국 밤) 요일·시각은 사람별로 morningFor 가 봄
+  if (morningRunning) return;
   morningRunning = true;
   try {
     for (const u of listUsers(e)) {
@@ -116,25 +126,34 @@ export async function morningTick(now = Date.now(), e: Env = process.env): Promi
   } finally { morningRunning = false; }
 }
 
+/** "15:30" 에 n 분 더한 시각 */
+const minutesAfter = (hm: string, n: number) => {
+  const t = Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3)) + n;
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+};
+
 /** 한 사람의 장중 감시 한 번 */
 export async function intradayFor(u: User, now: number, e: Env = process.env): Promise<void> {
-  const k = kst(now);
+  const market = marketOfUser(u, e);
+  const k = clockOf(market, now);
+  const ses = sessionFor(market, e);
+  if (!isWeekday(k) || k.hm < ses.watchFrom || k.hm > minutesAfter(ses.close, 10)) return;
   let d = loadIntradayDay(k.date, u.id, e);
   const plan = loadPlan(u.id, e);
   if (!d) {
     if (!plan) return;
-    d = await intradayStart(plan, loadLog(u.id, e), brokerFor(u, e), now);
+    d = await intradayStart(plan, loadLog(u.id, e), brokerFor(u, e, market), now, market);
     saveIntradayDay(d, u.id, e);
     console.log(`[auto] ${k.date} 장중 감시 ${u.id}: ${d.done ? d.reason : `${d.levels.length}개 가격`}`);
   }
-  if (d.done) return;
+  if (d.done || (d.market ?? "KR") !== market) return;
   // 운용을 끄거나 긴급 정지하면 그날 감시도 멈춤 (이미 낸 주문의 체결 확인은 계속)
   if (!plan?.enabled && !d.sells.some((s) => s.orderNo && !s.told)) {
     d = { ...d, done: true, reason: "운용이 꺼져 감시를 멈췄습니다.", log: [...d.log, `${k.hm} 운용이 꺼져 감시를 멈춤`] };
     saveIntradayDay(d, u.id, e);
     return;
   }
-  const b = brokerFor(u, e);
+  const b = brokerFor(u, e, market);
   const { day, messages } = await intradayCheck(plan?.enabled ? d : { ...d, levels: [] }, b, now, limitsFor(u, e));
   saveIntradayDay(day, u.id, e);
   for (const m of messages) await notify(u.id, m, e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
@@ -143,8 +162,7 @@ export async function intradayFor(u: User, now: number, e: Env = process.env): P
 let intradayRunning = false;
 
 export async function intradayTick(now = Date.now(), e: Env = process.env): Promise<void> {
-  const k = kst(now);
-  if (!isWeekday(k) || intradayRunning || k.hm < WATCH_FROM || k.hm > "15:40") return;
+  if (intradayRunning) return;
   intradayRunning = true;
   try {
     for (const u of listUsers(e)) {
@@ -165,8 +183,12 @@ export function eveningDue(now: number, st: SchedState, time: string): boolean {
   return now - ev.lastTry >= RETRY_MS;
 }
 
-/** 계좌 보유 읽기 (그 사람의 주문용 앱키·계좌) */
-export const accountHoldings = (u: User) => async () => {
+/** 계좌 보유 읽기 (그 사람의 주문용 앱키·계좌). 미국 운용이면 해외 잔고와 원화로 합친 총자산 */
+export const accountHoldings = (u: User, market: Market = "KR", e: Env = process.env) => async () => {
+  if (market === "US") {
+    const b = await brokerFor(u, e, "US").balance();
+    return { env: b.env, holdings: b.holdings, ...(b.totalValue > 0 ? { total: b.totalValue } : {}) };
+  }
   const b = await getBalance(getClient(tradeCredentialsFor(u)));
   return { env: b.env, holdings: b.holdings, total: b.totalValue, cash: b.cash, stock: b.stockValue };
 };
@@ -178,7 +200,10 @@ export async function eveningFor(u: User, trigger: EveningReport["trigger"], opt
   if (!plan) return null;
   if (trigger === "schedule" && !plan.enabled) return null;
   const perf = perfFor(loadPerf(u.id, e), plan, tradeEnv(kisEnvFor(u, e)));
-  const r = await runEvening(plan, trigger, { holdings: accountHoldings(u), env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base?.total });
+  const market = planMarket(plan);
+  // 미국: 지난 정상 계산 뒤로 새 시세가 없으면(미국 휴장) 건너뜀. 직접 "지금 계산해 보기"는 그대로 계산
+  const prevDataDate = market === "US" && trigger === "schedule" ? loadLog(u.id, e).find((x) => x.status === "ok" && x.label === plan.label && x.market === "US" && !(plan.updatedAt && plan.updatedAt > x.ranAt))?.dataDate : undefined;
+  const r = await runEvening(plan, trigger, { holdings: accountHoldings(u, market, e), env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base?.total, prevDataDate });
   appendLog(r, u.id, e);
   // 매일 성과 기록: 계좌 평가액과 전략 평가액 (첫날의 계좌 평가액이 기준이 됨)
   if (r.status === "ok" && r.equity != null) {

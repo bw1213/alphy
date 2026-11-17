@@ -12,6 +12,7 @@ import { eveningFor, eveningTime, loadState, morningTimes } from "@/lib/auto/sch
 import { formatDay, loadDay, loadDays, saveDay, stopDay } from "@/lib/auto/morning";
 import { brokerFor } from "@/lib/auto/broker";
 import { loadIntradayDays } from "@/lib/auto/intraday";
+import { clockOf, planMarket } from "@/lib/auto/session";
 import { notify } from "@/lib/auto/telegram";
 import { cleanHm, kst } from "@/lib/auto/time";
 import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
@@ -56,6 +57,7 @@ export async function GET(req: Request) {
     days: Object.values(days).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
     intradayDays: Object.values(loadIntradayDays(user.id)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
     account,
+    market: plan ? planMarket(plan) : "KR",
     owner: user.id === OWNER_ID,
     today: kst().date,
   }, { headers: { "Cache-Control": "no-store" } });
@@ -134,7 +136,7 @@ export async function POST(req: Request) {
         // 입금·출금 뒤: 손익은 그대로 두고 성과 기준을 지금 계좌 평가액에 맞춤
         const plan = loadPlan(user.id);
         if (!plan) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
-        const b = brokerFor(user);
+        const b = brokerFor(user, process.env, planMarket(plan));
         const perf = perfFor(loadPerf(user.id), plan, b.env);
         const bal = await b.balance();
         savePerf(rebase(perf, bal.totalValue, kst().date), user.id);
@@ -143,10 +145,11 @@ export async function POST(req: Request) {
       case "stop": {
         const plan = loadPlan(user.id);
         if (plan?.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, user.id);
-        const today = kst().date;
+        const market = plan ? planMarket(plan) : "KR";
+        const today = clockOf(market).date;
         let d = loadDay(today, user.id);
         if (d && ["placed", "buying"].includes(d.phase)) {
-          d = await stopDay(d, brokerFor(user), Date.now());
+          d = await stopDay(d, brokerFor(user, process.env, d.market ?? "KR"), Date.now());
           d.notified = true;
           saveDay(d, user.id);
           await notify(user.id, formatDay(d, true)).catch(() => false);

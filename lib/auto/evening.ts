@@ -19,6 +19,7 @@ import { compileStrategy, STRATEGIES, type Params } from "../strategies";
 import { loadSettings } from "../settings/store";
 import { intradayOn, planKind, type AutoPlan } from "./store";
 import { kst, minusDays } from "./time";
+import { planMarket, type Market } from "./session";
 
 type Env = Record<string, string | undefined>;
 
@@ -48,6 +49,8 @@ export interface SellLevel {
   label: string;
   /** 장중 실시간 매도에서 팔 수량 (손절·익절은 그때 계좌의 전부). 없으면 알림용 기준 가격 */
   qty?: number;
+  /** 미국: 달러로 바꾼 가격 (price ÷ 마지막 환율). 장중 감시는 달러 현재가와 이 값을 비교 */
+  usd?: number;
 }
 
 export interface EveningReport {
@@ -75,6 +78,10 @@ export interface EveningReport {
   sellLevels: SellLevel[];
   /** 장중 실시간 매도: sellLevels 를 다음 거래일 장중에 감시해 닿으면 판다 */
   intraday?: boolean;
+  /** 미국 종목 운용이면 "US" (없으면 한국). 미국은 한국 저녁에 계산해 그날 밤 미국 장 시작에 주문 */
+  market?: Market;
+  /** 미국: 계산에 쓴 마지막 원/달러 환율 */
+  fx?: number;
   /** 보유 수량을 어디서 가져왔는지: 실제 계좌 / 계좌를 못 읽어 백테스트상 보유 */
   holdingsFrom?: "account" | "backtest";
   account?: "real" | "mock";
@@ -119,6 +126,8 @@ export interface EveningDeps {
   env?: Env;
   /** 손실 한도 % (운용 금액 대비). 0 이면 안 봄 */
   maxLoss?: number;
+  /** 미국: 지난번 정상 계산에 쓴 마지막 시세 날짜. 그 뒤로 새 시세가 없으면(미국 휴장) 건너뜀 */
+  prevDataDate?: string;
 }
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
@@ -145,7 +154,17 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const dataDate = [...lastDates, d.benchmark?.at(-1)?.date ?? ""].sort().at(-1) ?? "";
   if (!dataDate) throw new Error("시세를 받지 못했습니다.");
   r.dataDate = dataDate;
-  if (dataDate < r.runDate) {
+  const market = planMarket(plan);
+  if (market === "US") {
+    // 미국: 한국 저녁에는 전날 밤(미국) 장의 시세가 마지막. 지난 계산 뒤로 새 시세가 없으면 미국 휴장 → 같은 신호로 두 번 주문하지 않게 건너뜀
+    r.market = "US";
+    const us = plan.tickers.map((t) => d.data[t]?.at(-1)?.date ?? "").sort().at(-1) ?? "";
+    r.dataDate = us || dataDate;
+    if (!us || (deps.prevDataDate && us <= deps.prevDataDate)) {
+      return { ...r, status: "holiday", warnings: [`지난 계산 뒤로 새 미국 시세가 없어 건너뜁니다. 마지막 시세 ${us || "없음"}.`] };
+    }
+    r.fx = d.fx?.at(-1)?.close;
+  } else if (dataDate < r.runDate) {
     // 오늘 시세가 없음 = 휴장일 (또는 시세가 아직 안 올라옴)
     return { ...r, status: "holiday", warnings: [`오늘(${r.runDate}) 시세가 없어 휴장일로 보고 건너뜁니다. 마지막 시세 ${dataDate}.`] };
   }
@@ -249,6 +268,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       .map((t) => `${name(t)} 계좌 ${real!.get(t) ?? 0}주 / 전략 ${btQty.get(t) ?? 0}주`);
     if (diffs.length) r.warnings.push(`실제 계좌와 전략의 보유 수량이 다릅니다 (아직 자동 주문 전이라 정상일 수 있음): ${diffs.slice(0, 5).join(", ")}${diffs.length > 5 ? " 외" : ""}`);
   }
+  if (r.market === "US" && r.fx && r.fx > 0) for (const l of r.sellLevels) l.usd = Math.round((l.price / r.fx) * 100) / 100;
   if (planKind(plan) === "custom") r.warnings.push("직접 작성한 코드 전략입니다. 코드를 고치면 운용 화면에서 다시 저장해야 반영됩니다.");
   return r;
 }
@@ -264,7 +284,7 @@ export function formatReport(r: EveningReport): string {
   if (r.accountPnl != null) lines.push(`실제 계좌 손익 ${r.accountPnl >= 0 ? "+" : "-"}${won(Math.abs(r.accountPnl))} (계좌 총평가액 ${won(r.accountTotal ?? 0)})`);
   if (!r.orders.length) lines.push(r.kept ? "내일 주문: 없음 (보유 유지)" : "내일 주문: 없음");
   else {
-    lines.push(`내일 아침 주문 ${r.orders.length}건:`);
+    lines.push(`${r.market === "US" ? "오늘 밤 미국 장 시작 주문" : "내일 아침 주문"} ${r.orders.length}건:`);
     for (const o of r.orders) lines.push(`- ${o.side === "buy" ? "매수" : "매도"} ${o.name} ${o.qty}주 (약 ${won(o.amount)})${o.note ? ` · ${o.note}` : ""}`);
   }
   if (r.sellLevels.length) {
@@ -273,7 +293,9 @@ export function formatReport(r: EveningReport): string {
   }
   if (r.holdingsFrom === "backtest") lines.push("※ 계좌를 읽지 못해 전략상 보유로 계산했습니다.");
   for (const w of r.warnings.slice(0, 3)) lines.push(`※ ${w}`);
-  if (r.orders.length) lines.push("이 주문은 다음 거래일 아침에 자동으로 냅니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요.");
-  if (r.sellLevels.length) lines.push(r.intraday ? "다음 거래일 장중(09:00~15:20)에 이 가격에 닿으면 바로 시장가로 팝니다." : "장중 실시간 매도가 꺼져 있어 이 가격은 알림용입니다 (종가로 확인해 다음 날 아침에 팝니다).");
+  if (r.orders.length) lines.push(r.market === "US"
+    ? "이 주문은 오늘 밤 미국 장이 열리면(뉴욕 09:32) 현재가 ±1% 지정가로 자동으로 냅니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요."
+    : "이 주문은 다음 거래일 아침에 자동으로 냅니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요.");
+  if (r.sellLevels.length) lines.push(r.intraday ? (r.market === "US" ? "오늘 밤 미국 장중(뉴욕 09:35~15:50)에 이 가격(달러로 바꾼 값)에 닿으면 바로 팝니다." : "다음 거래일 장중(09:00~15:20)에 이 가격에 닿으면 바로 시장가로 팝니다.") : "장중 실시간 매도가 꺼져 있어 이 가격은 알림용입니다 (종가로 확인해 다음 날 아침에 팝니다).");
   return lines.join("\n");
 }
