@@ -31,6 +31,10 @@ import { addUsage, usedToday } from "../kis/limits";
 import { orderLimitFor } from "../kis/userkeys";
 import { loadLog } from "./store";
 import { intradayCheck, intradayStart, loadIntradayDay, saveIntradayDay } from "./intraday";
+import { manualEveningFor } from "../manual/evening";
+import { loadAccounts } from "../manual/store";
+import { KIS_ID, refreshHistory } from "../manual/value";
+import { hasKisAccount, kisReader } from "../manual/kis";
 import { clockOf, krSession, planMarket, US_SESSION, type Market, type Session } from "./session";
 
 type Env = Record<string, string | undefined>;
@@ -233,12 +237,30 @@ export async function tick(now = Date.now(), e: Env = process.env): Promise<void
     let ok = 0, fail = 0;
     for (const u of listUsers(e)) {
       if (u.disabled) continue;
+      const user = getUser(u.id, e) ?? u;
+      const strategy: Record<string, number | undefined> = {};
       try {
-        const r = await eveningFor(getUser(u.id, e) ?? u, "schedule", { e });
-        if (!r) continue;
-        if (r.status === "error") fail++; else ok++;
-        console.log(`[auto] ${k.date} 저녁 계산 ${u.id}: ${r.status}${r.error ? ` ${r.error}` : ""} 주문 ${r.orders.length}건`);
+        const r = await eveningFor(user, "schedule", { e });
+        if (r) {
+          if (r.status === "error") fail++; else ok++;
+          if (r.status === "ok") strategy[KIS_ID] = r.equity;
+          console.log(`[auto] ${k.date} 저녁 계산 ${u.id}: ${r.status}${r.error ? ` ${r.error}` : ""} 주문 ${r.orders.length}건`);
+        }
       } catch (err) { fail++; console.error(`[auto] ${u.id} 저녁 계산 오류: ${(err as Error).message}`); }
+      // 수동 계좌 (토스·미래에셋 등): 계산·안내만
+      try {
+        const m = await manualEveningFor(u.id, "schedule", { e });
+        ok += m.ok; fail += m.fail;
+        for (const [id, r] of Object.entries(m.reports)) if (r.status === "ok") strategy[id] = r.equity;
+        if (m.ok + m.fail) console.log(`[manual] ${k.date} 저녁 계산 ${u.id}: ${m.ok + m.fail}개 계좌 (실패 ${m.fail})`);
+      } catch (err) { fail++; console.error(`[manual] ${u.id} 저녁 계산 오류: ${(err as Error).message}`); }
+      // 대시보드 기록: 수동 계좌 평가액 + 한국투자증권 잔고 (하루 한 점)
+      try {
+        if (loadAccounts(u.id, e).length || hasKisAccount(user, e)) {
+          const h = await refreshHistory(u.id, { e, strategy, kis: hasKisAccount(user, e) ? kisReader(user, e) : undefined });
+          for (const w of h.warnings) console.log(`[dashboard] ${u.id}: ${w}`);
+        }
+      } catch (err) { console.error(`[dashboard] ${u.id} 기록 오류: ${(err as Error).message}`); }
     }
     const cur = loadState(e);
     const attempts = cur.evening?.attempts ?? 1;

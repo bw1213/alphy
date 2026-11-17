@@ -91,7 +91,7 @@ export default function SettingsPage() {
       <h1>알피 설정</h1>
       <p>여기서 바꾼 값은 NAS에 저장되어 업데이트 후에도 유지됩니다.{auth?.user && auth.multiUser ? ` · ${auth.user.name}(${auth.user.id})` : ""}</p>
       <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}>
-        <a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/auto">자동 매매</a>
+        <a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/auto">자동 매매</a><a href="/manual">수동 매매</a><a href="/dashboard">전체 계좌</a>
         {auth?.loggedIn && <button className="link" onClick={logout}>로그아웃</button>}
       </span>
     </header>
