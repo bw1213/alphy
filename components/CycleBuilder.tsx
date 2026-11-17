@@ -25,7 +25,7 @@ export default function CycleBuilder({ spec, onChange }: { spec: CycleSpec; onCh
 
   return (
     <div className="builder">
-      <p className="help">아래 &quot;기간 · 종목&quot;의 <b>종목 직접 입력</b>에 넣은 종목마다 따로 적용됩니다(예: KODEX 200 = 069500). 매일 종가로 판단하고 다음 거래일 시가에 매매합니다.</p>
+      <p className="help">아래 <b>종목 직접 입력</b>의 종목마다 따로 적용됩니다.</p>
 
       <h3>1. 적립 매수</h3>
       <div style={row}>
@@ -74,12 +74,12 @@ export default function CycleBuilder({ spec, onChange }: { spec: CycleSpec; onCh
         </select>
         주가가 올라 이 비율을 넘었으면 팔아서 맞춤
       </div>
-      <p className="help" style={{ margin: "2px 0 0" }}>적립 매수는 이 비율까지만 하고, 리밸런싱을 켜면 정한 주기의 첫 거래일에 넘친 만큼을 종목별로 같은 비율로 팝니다.</p>
+      <p className="help" style={{ margin: "2px 0 0" }}>리밸런싱을 켜면 넘친 만큼을 주기 첫 거래일에 팝니다.</p>
 
       <div className="notice" style={{ marginTop: 12 }}>
         <b>이 전략은 이렇게 움직입니다</b>
         <ul>{describeCycle(spec).map((t, k) => <li key={k}>{t}</li>)}</ul>
-        <p className="help" style={{ margin: 0 }}>매수는 현금 안에서 합니다. 매달 새 돈을 넣으려면 아래 &quot;자금 · 비용&quot;의 <b>매달 추가 입금</b>을 쓰세요. 현금이 다 떨어지면 적립은 쉬고, 입금이나 매도로 현금이 생기면 다시 삽니다.</p>
+        <p className="help" style={{ margin: 0 }}>현금이 떨어지면 적립은 쉽니다(매달 추가 입금 가능).</p>
       </div>
     </div>
   );

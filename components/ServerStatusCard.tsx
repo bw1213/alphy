@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Info from "@/components/Info";
 
 interface Status {
   users: { total: number; admins: number; disabled: number; totpEnabled: number; realOrdersAllowed: number; pendingInvites: number };
@@ -32,14 +33,11 @@ export default function ServerStatusCard() {
         <li>다른 사람 앱키 암호화 키: {st.secretFromEnv ? <span className="badge ok">환경변수(ALPHY_SECRET_KEY)</span> : <>자동 생성 파일(<code>secret.key</code>)</>}</li>
       </ul>
       <p className="help" style={{ marginTop: 8 }}>
-        NAS가 느려서 시세 받기는 한 번에 {st.load.maxActive}건만 처리하고 나머지는 줄을 세웁니다. 백테스트 계산 자체는 각자의 브라우저에서 돌기 때문에 사람이 늘어도 NAS 부담은 시세 받기뿐입니다.
-      </p>
-      <p className="help">
-        <b>백업</b>: 계정·초대·전략·한국투자증권 키가 모두 <code>docker/alphy/nas/cache/config</code> 폴더에 있습니다. DSM의 Hyper Backup으로 이 폴더를 주 1회 이상, 암호화를 켜서 백업해 두세요.
+        <b>백업</b>: <code>docker/alphy/nas/cache/config</code> 폴더를 Hyper Backup으로 암호화해 백업하세요.<Info>계정·초대·전략·한국투자증권 키가 모두 이 폴더에 있습니다.
         {st.secretFromEnv
           ? <> 암호화 키는 NAS <code>.env</code> 에 있으므로 <code>.env</code> 도 따로 보관해야 복원할 수 있습니다.</>
           : <> 이 폴더 안의 <code>secret.key</code> 가 없으면 다른 사람이 넣은 앱키를 풀 수 없으니 함께 백업됩니다.</>}
-        {" "}시세 캐시(<code>nas/cache</code> 의 나머지)는 다시 받을 수 있어 백업하지 않아도 됩니다.
+        {" "}시세 캐시는 백업하지 않아도 됩니다.</Info>
       </p>
     </div>
   );

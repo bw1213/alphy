@@ -150,14 +150,14 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
       {s.deposits > 0 && (
         <div className="notice">
           <b>매달 추가 입금 포함</b>: 넣은 돈 {won(s.contributed)} (시작 {won(s.initial)} + 추가 {won(s.deposits)}) → 최종자산 {won(s.final)}, 손익 {won(s.final - s.contributed)}.
-          {" "}수익률·낙폭·그래프는 입금으로 늘어난 금액을 빼고 계산한 값(펀드 기준가처럼 계산한 시간가중 수익률)입니다.
+          {" "}수익률·낙폭은 입금 효과를 뺀 값입니다.
         </div>
       )}
 
       {s.hasDividendData && (
         <div className="notice">
-          <b>배당금·분배금 반영</b>: 기간 중 {s.nDividends}번, 세후 {won(s.dividendsNet)}을 받았습니다(세금 {won(s.dividendTax)}). 추가 입금처럼 현금으로 들어와 매수에 쓰이지만, 넣은 돈이 아니라 수익으로 계산해 수익률·자산 그래프에 들어가 있습니다.
-          {s.nDividends === 0 && " 이 기간에 보유 중 배당락일이 없었거나 배당 이력을 못 받았습니다."}
+          <b>배당금·분배금 반영</b>: 기간 중 {s.nDividends}번, 세후 {won(s.dividendsNet)}을 받았습니다(세금 {won(s.dividendTax)}).
+          {s.nDividends === 0 && " 받은 배당이 없습니다."}
         </div>
       )}
 
@@ -219,14 +219,14 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
         </div>
 
         {tab === "signal" && (
-          !res.signal ? <p className="help">데이터가 모자라 추천 종목을 계산하지 못했습니다(워밍업 기간 부족).</p> : (
+          !res.signal ? <p className="help">데이터가 모자라 계산하지 못했습니다.</p> : (
             <>
               <p className="help">
-                <b>{res.signal.date}</b> 종가까지의 데이터로 이 전략이 고른 종목과 비중입니다. 다음 거래일에 이 비중으로 맞춘다는 뜻이고, 리밸런싱 주기와 상관없이 &quot;오늘 새로 시작한다면&quot; 기준으로 계산합니다.
-                {res.signal.kept && " 전략이 '이번엔 매매 안 함'을 돌려줘서 백테스트상 보유 종목을 그대로 보여 줍니다."}
-                {res.signal.date >= new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10) && " 오늘 장이 끝나기 전이면 마지막 봉이 장중 가격이라 장 마감 후 결과와 다를 수 있습니다."}
+                <b>{res.signal.date}</b> 종가 기준, 오늘 새로 시작한다면의 종목과 비중입니다.
+                {res.signal.kept && " (이번엔 매매 안 함: 지금 보유 그대로)"}
+                {res.signal.date >= new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10) && " 장중 가격이라 마감 후와 다를 수 있습니다."}
               </p>
-              {res.signal.picks.length === 0 ? <p className="help"><b>전량 현금</b>: 지금은 조건에 맞는 종목이 없거나 시장 필터에 걸렸습니다.</p> : (
+              {res.signal.picks.length === 0 ? <p className="help"><b>전량 현금</b>: 조건에 맞는 종목이 없습니다.</p> : (
                 <div className="tablewrap">
                   <table>
                     <thead><tr><th className="l">종목</th><th>목표 비중</th><th>기준일 종가</th><th>백테스트 초기 자금 기준 금액</th></tr></thead>
@@ -254,14 +254,14 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                   window.location.href = "/trade#plan";
                 }}>이 비중으로 주문 목록 만들기 →</button>
               </div>
-              <p className="help">주문 화면에서 내 잔고와 비교해 살 종목·팔 종목 목록을 만듭니다. 목록을 확인하고 실행을 눌러야 주문이 나갑니다. 과거 성과가 미래 수익을 보장하지 않습니다.</p>
+              <p className="help">목록을 확인하고 실행을 눌러야 주문이 나갑니다.</p>
             </>
           )
         )}
 
         {tab === "check" && (
           <>
-            <p className="help">파라미터를 이리저리 바꾸다 보면 과거에만 잘 맞는 조합을 고르기 쉽습니다(과최적화). 아래 세 가지가 모두 괜찮아야 믿을 만합니다.</p>
+            <p className="help">과거에만 맞춘 설정(과최적화)인지 봅니다. 셋 다 괜찮아야 믿을 만합니다.</p>
 
             <h3>1. 앞 기간과 뒤 기간</h3>
             {!split ? <p className="help">기간이 짧아 나눌 수 없습니다(각 구간 60영업일 이상 필요).</p> : (
@@ -282,7 +282,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                   </table>
                 </div>
                 <p className="help">
-                  파라미터는 앞 구간 성과만 보고 정하고, 뒤 구간은 마지막에 한 번만 확인하세요. 뒤 구간을 보면서 계속 고치면 뒤 구간도 맞춘 것이 됩니다.
+                  뒤 구간은 마지막에 한 번만 확인하세요.
                   {split.second.cagr < split.first.cagr * 0.5 && split.first.cagr > 0 && <b> 뒤 구간 수익률이 앞 구간의 절반에 못 미칩니다. 과최적화를 의심하세요.</b>}
                 </p>
               </>
@@ -299,7 +299,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
             )}
 
             <h3>3. 파라미터를 조금 바꿔도 비슷한가</h3>
-            <p className="help">숫자 파라미터를 하나씩 20% 줄이고 늘려서 다시 돌립니다. 조금만 바꿔도 수익률이 크게 떨어지면 우연히 맞은 값일 가능성이 큽니다.</p>
+            <p className="help">파라미터를 하나씩 ±20% 바꿔 다시 돌립니다.</p>
             {onSensitivity && <button disabled={!!sensBusy} onClick={runSens}>{sensBusy || "파라미터 민감도 검사"}</button>}
             {sensErr && <div className="error" style={{ marginTop: 8 }}>{sensErr}</div>}
             {sens && (
@@ -377,7 +377,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
           <>
             <div className="btns" style={{ marginBottom: 8 }}>
               <button onClick={download}>CSV 다운로드</button>
-              <span className="help">최근 300건 표시 · 청산 {sells.length}건 · 잔고·예수금은 거래 직후, 평가금액은 그날 장 마감 기준</span>
+              <span className="help">최근 300건 · 청산 {sells.length}건</span>
             </div>
             <div className="tablewrap">
               <table>
@@ -407,7 +407,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
 
         {tab === "dividends" && res.dividends && (
           <>
-            <p className="help" style={{ marginBottom: 8 }}>배당락일 전날 종가 기준으로 들고 있던 수량만큼 받습니다. 금액은 1주당 세전 배당 × 수량, 세금을 뗀 금액이 현금으로 들어옵니다. 최근 300건 표시.</p>
+            <p className="help" style={{ marginBottom: 8 }}>최근 300건.</p>
             {res.dividends.length === 0 ? <p className="help">기간 중 받은 배당이 없습니다.</p> : (
               <div className="tablewrap">
                 <table>
@@ -475,9 +475,8 @@ function HoldCard({ s, hold, names, B }: { s: Summary; hold: HoldCompare; names:
     <div className="card">
       <h2>매수 후 보유와 비교</h2>
       <p className="help">
-        같은 기간·같은 돈(시작 자금{s.deposits > 0 ? "과 매달 추가 입금" : ""})·같은 수수료로 <b>{shown}</b>{list.length > 1 ? "을(를) 똑같은 금액으로 나눠" : "을(를)"} 첫날 시가에 전부 사고, 팔지 않고 들고 있었다면의 결과입니다.
-        {s.deposits > 0 && " 추가 입금도 들어온 날 시가에 같은 비율로 바로 삽니다."}
-        {hold.basis === "traded" && " 종목을 직접 정하지 않아서, 전략이 기간 중 한 번이라도 산 종목으로 비교합니다(나중에 산 종목도 첫날부터 샀다고 보므로 참고용)."}
+        같은 돈으로 <b>{shown}</b>{list.length > 1 ? "을(를) 똑같이 나눠" : "을(를)"} 첫날 사서 들고만 있었다면의 결과입니다.
+        {hold.basis === "traded" && " (전략이 한 번이라도 산 종목 기준, 참고용)"}
       </p>
       <div className="tablewrap">
         <table>
@@ -512,8 +511,6 @@ function HoldCard({ s, hold, names, B }: { s: Summary; hold: HoldCompare; names:
           ? <>전략이 매수 후 보유보다 연 <b>{(beat * 100).toFixed(1)}%p</b> 더 벌었습니다.</>
           : <>전략이 매수 후 보유보다 연 <b>{(-beat * 100).toFixed(1)}%p</b> 덜 벌었습니다. 사고파는 수고와 비용을 들일 만한지 따져 보세요.</>)}
         {" "}{Number.isFinite(s.mdd - h.mdd) && (s.mdd >= h.mdd ? `최대 낙폭은 ${((s.mdd - h.mdd) * 100).toFixed(1)}%p 작았습니다.` : `최대 낙폭은 ${((h.mdd - s.mdd) * 100).toFixed(1)}%p 컸습니다.`)}
-        {s.hasDividendData && " 매수 후 보유는 받은 배당을 추가 입금처럼 종목별로 똑같이 나눠 다시 삽니다."}
-        {" "}{B} 지수는 수수료·입금·배당 없이 지수만 본 값이라, 같은 돈으로 실제로 샀을 때와 비교하려면 매수 후 보유 열을 보세요.
       </p>
     </div>
   );

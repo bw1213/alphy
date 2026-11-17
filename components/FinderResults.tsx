@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { FAMILIES, type Candidate } from "@/lib/finder/candidates";
-import { OBJECTIVES, type FinderReport } from "@/lib/finder/search";
+import { type FinderReport } from "@/lib/finder/search";
 
 const pct = (x: number | null | undefined, d = 1) => (x == null || !Number.isFinite(x) ? "–" : `${(x * 100).toFixed(d)}%`);
 const VERDICT = {
@@ -34,7 +34,7 @@ export default function FinderResults({ report, holdName, onApply, onClose }: {
         <button className="link" style={{ marginLeft: "auto" }} onClick={onClose}>닫기</button>
       </div>
       <p className="desc" style={{ fontSize: 15, color: "var(--text)", marginTop: 8 }}><b>{b.c.name}</b></p>
-      <p className="help">{FAMILIES[b.c.family].help} 후보 {r.tried}개를 시험해 &quot;고르는 구간&quot; 성적으로 1등을 골랐습니다 (기준: {OBJECTIVES.find((o) => o.id === r.objective)?.label}).</p>
+      <p className="help">{FAMILIES[b.c.family].help} 후보 {r.tried}개 중 1등.</p>
 
       <div className="tablewrap" style={{ marginTop: 10 }}>
         <table>
@@ -48,7 +48,7 @@ export default function FinderResults({ report, holdName, onApply, onClose }: {
           </tbody>
         </table>
       </div>
-      <p className="help">확인 구간은 전략을 고를 때 보지 않은 기간입니다. 앞으로 기대할 수 있는 성과는 &quot;고르는 구간&quot;보다 &quot;확인 구간&quot; 쪽에 가깝습니다. 매수 후 보유({holdName})는 같은 돈으로 시작일에 똑같이 나눠 사서 팔지 않고 들고만 있은 결과입니다 (같은 비용·배당).</p>
+      <p className="help">앞으로의 성과는 확인 구간 쪽에 가깝습니다.</p>
 
       {beatsHold === false && (
         <div className="notice" style={{ marginTop: 10 }}>
@@ -66,7 +66,7 @@ export default function FinderResults({ report, holdName, onApply, onClose }: {
       {r.walk && (
         <details style={{ marginTop: 8 }}>
           <summary>해마다 다시 고르기 결과 ({r.walk.years.length}년): 연 {pct(r.walk.cagr)}{r.walk.holdCagr != null && <> · 보유 연 {pct(r.walk.holdCagr)}</>}</summary>
-          <p className="help">매년 1월 첫 거래일에 그 전까지의 데이터로만 1등을 골라 그 해 1년 동안 썼다면의 결과입니다. 실제로 이 방법을 썼을 때와 가장 비슷합니다(전략을 갈아탈 때 드는 매매 비용은 빠져 있음).</p>
+          <p className="help">매년 1월 그때까지의 데이터로 1등을 골라 1년 썼다면의 결과입니다.</p>
           <div className="tablewrap">
             <table>
               <thead><tr><th>연도</th><th className="l">그해 고른 전략</th><th>수익률</th><th>보유</th></tr></thead>
@@ -83,7 +83,7 @@ export default function FinderResults({ report, holdName, onApply, onClose }: {
       <div className="btns" style={{ marginTop: 12 }}>
         <button className="primary" style={{ width: "auto" }} onClick={() => onApply(b.c)}>이 전략으로 백테스트 열기</button>
       </div>
-      <p className="help">왼쪽 전략 화면에 이 설정이 들어가고 바로 백테스트가 실행됩니다. 마음에 들면 거기서 이름을 붙여 저장하세요.</p>
+      
 
       <h3>후보 순위 (고르는 구간 기준)</h3>
       <div className="tablewrap">

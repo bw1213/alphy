@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useShowMore } from "@/components/ShowMore";
+import Info from "@/components/Info";
 
 interface LogRow { t: number; ip: string; event: string; ua?: string; user?: string }
 interface SecState { totpEnabled: boolean; log: LogRow[]; you: string; admin?: boolean; owner?: boolean }
@@ -59,8 +60,7 @@ export default function SecurityCard() {
 
       <h3 style={{ marginTop: 10 }}>2단계 인증 {st.totpEnabled ? <span className="badge ok">켜짐</span> : <span className="badge no">꺼짐</span>}</h3>
       <p className="help">
-        켜 두면 로그인할 때 비밀번호와 함께 휴대폰 인증 앱(Google Authenticator, Microsoft Authenticator 등)의 6자리 숫자가 필요합니다.
-        인터넷에서 접속할 수 있게 열어 둘 거라면 <b>꼭 켜 두세요.</b> 비밀번호가 새도 휴대폰이 없으면 들어올 수 없습니다.
+        밖에서 접속한다면 <b>꼭 켜 두세요.</b> 로그인 때 인증 앱의 6자리 숫자가 필요합니다.
       </p>
       {!st.totpEnabled && !setup && (
         <button onClick={() => run(async () => { const j = await post({ action: "totp-begin" }); setSetup({ secret: j.secret, qr: j.qr }); setCode(""); return "인증 앱으로 QR 코드를 찍으세요"; })}>QR 코드 만들기</button>
@@ -87,17 +87,16 @@ export default function SecurityCard() {
           <button onClick={() => run(async () => { await post({ action: "totp-disable", code }); setCode(""); return "2단계 인증을 껐습니다"; })}>2단계 인증 끄기</button>
         </div>
       )}
-      {st.owner === false ? <p className="help">휴대폰을 잃어버렸으면 관리자에게 2단계 인증 초기화를 부탁하세요.</p> : <p className="help">
-        휴대폰을 잃어버렸으면: File Station에서 <code>nas/cache/config</code> 폴더에 <code>disable-2fa.txt</code> 라는 빈 파일을 올리세요.
-        다음 접속 때 owner 계정의 2단계 인증이 꺼집니다(NAS 파일에 손댈 수 있는 사람만 가능).
+      {st.owner === false ? <p className="help">휴대폰을 잃어버렸으면 관리자에게 초기화를 부탁하세요.</p> : <p className="help">
+        휴대폰을 잃어버렸으면<Info>File Station에서 <code>nas/cache/config</code> 폴더에 <code>disable-2fa.txt</code> 빈 파일을 올리면 다음 접속 때 owner 계정의 2단계 인증이 꺼집니다.</Info>
       </p>}
 
       <h3 style={{ marginTop: 16 }}>다른 기기 로그아웃</h3>
-      <p className="help">다른 곳(PC방, 남의 휴대폰 등)에서 로그인한 채로 두었거나, 모르는 로그인이 보이면 누르세요. 내 계정의 다른 기기만 끊기고, 이 기기는 로그인이 유지됩니다.</p>
+      <p className="help">이 기기만 남기고 내 다른 기기의 로그인을 끊습니다.</p>
       <button onClick={() => run(async () => { await post({ action: "logout-all" }); return "다른 기기의 로그인을 모두 끊었습니다"; })}>모든 기기 로그아웃</button>
 
       <h3 style={{ marginTop: 16 }}>최근 로그인 기록</h3>
-      <p className="help">지금 이 기기의 주소: <code>{st.you}</code>. 모르는 주소에서 &apos;로그인&apos;이 있으면 비밀번호를 바꾸고 모든 기기 로그아웃을 누르세요.</p>
+      <p className="help">이 기기: <code>{st.you}</code> · 모르는 로그인이 있으면 비밀번호를 바꾸세요.</p>
       {st.log.length === 0 ? <p className="help">기록이 없습니다.</p> : (
         <div style={{ overflowX: "auto" }}>
           <table>

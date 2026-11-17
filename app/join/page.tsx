@@ -45,7 +45,7 @@ function JoinInner() {
   return (
     <form className="card" onSubmit={submit} style={{ maxWidth: 420 }}>
       <h2>알피 가입</h2>
-      <p className="desc">초대받은 분만 가입할 수 있습니다. 이 링크는 한 번만 쓸 수 있고 {new Date(info.invite.expiresAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", dateStyle: "medium", timeStyle: "short" })}까지 유효합니다.</p>
+      <p className="desc">{new Date(info.invite.expiresAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", dateStyle: "medium", timeStyle: "short" })}까지 유효한 초대입니다.</p>
       <label className="f">아이디 (영문 소문자·숫자, 로그인할 때 씀)
         <input value={f.id} onChange={(e) => setF({ ...f, id: e.target.value.toLowerCase() })} autoComplete="username" autoCapitalize="none" spellCheck={false} maxLength={32} pattern="[a-z0-9][a-z0-9_-]*" required autoFocus />
       </label>
@@ -58,7 +58,7 @@ function JoinInner() {
       <label className="f" style={{ marginTop: 8 }}>비밀번호 확인
         <input type="password" value={f.password2} onChange={(e) => setF({ ...f, password2: e.target.value })} autoComplete="new-password" required />
       </label>
-      <p className="help" style={{ marginTop: 10 }}>가입한 뒤 설정 화면에서 <b>2단계 인증</b>을 켜 두시길 권합니다. 백테스트 결과와 추천은 과거 자료를 바탕으로 한 참고용이며, 투자 판단과 책임은 본인에게 있습니다.</p>
+      <p className="help" style={{ marginTop: 10 }}>가입 후 <b>2단계 인증</b>을 켜 두세요. 결과와 추천은 참고용이며 투자 책임은 본인에게 있습니다.</p>
       <button className="primary" style={{ marginTop: 12 }} disabled={busy}>가입하고 시작</button>
       {error && <div className="error" style={{ marginTop: 10 }}>{error}</div>}
     </form>
@@ -68,7 +68,7 @@ function JoinInner() {
 export default function JoinPage() {
   return (
     <>
-      <header className="top"><h1>알피</h1><p>초대받은 분의 가입 화면입니다.</p></header>
+      <header className="top"><h1>알피</h1><p>가입</p></header>
       <main className="settings" style={{ display: "flex", justifyContent: "center", paddingTop: 60 }}>
         <Suspense><JoinInner /></Suspense>
       </main>

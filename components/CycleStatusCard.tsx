@@ -50,7 +50,7 @@ export default function CycleStatusCard({ res, names }: { res: BacktestResult; n
           );
         })}
       </ul>
-      {allCash && <p style={{ margin: "6px 0 0" }}>지금은 주식이 하나도 없고 현금만 있어서, 주가가 움직여도 평가 금액이 바뀌지 않습니다.</p>}
+      {allCash && <p style={{ margin: "6px 0 0" }}>지금은 전량 현금이라 평가 금액이 바뀌지 않습니다.</p>}
     </div>
   );
 }
