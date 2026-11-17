@@ -79,3 +79,41 @@ describe("화면의 시세 받기", () => {
     await expect(fetchData({}, undefined, async () => replies.shift()!)).rejects.toThrow("한국투자증권 앱키가 없습니다");
   });
 });
+
+describe("오래 걸리는 API 공통 도우미 (프록시 60초 제한)", () => {
+  it("기다리는 시간 안에 끝나면 결과, 아니면 202 + 작업 id 뒤 이어 묻기", async () => {
+    const { namedJobs, startJob, pollJob } = await import("@/lib/server/jobReply");
+    const store = namedJobs<{ v: number }>("test-" + Math.random());
+    const fast = await startJob(store, "u", "a", async () => ({ v: 1 }), { waitMs: 200 });
+    expect(fast.status).toBe(200);
+    expect(await fast.json()).toEqual({ v: 1 });
+
+    let finish!: () => void;
+    const slow = await startJob(store, "u", "b", (p) => { p(1, 3); return new Promise((ok) => { finish = () => ok({ v: 2 }); }); }, { waitMs: 10 });
+    expect(slow.status).toBe(202);
+    const { job, progress } = await slow.json();
+    expect(progress).toEqual({ done: 1, total: 3 });
+    expect((await pollJob(store, "u", job, 10)).status).toBe(202);
+    expect((await pollJob(store, "other", job, 10)).status).toBe(404);
+    finish();
+    const done = await pollJob(store, "u", job, 200);
+    expect(await done.json()).toEqual({ v: 2 });
+    expect((await pollJob(store, "u", job, 10)).status).toBe(404);
+  });
+
+  it("오류는 정한 상태 코드로", async () => {
+    const { namedJobs, startJob } = await import("@/lib/server/jobReply");
+    const r = await startJob(namedJobs("test-" + Math.random()), "u", "a", async () => { throw new Error("안 됨"); }, { errStatus: () => 400, waitMs: 200 });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: "안 됨" });
+  });
+
+  it("fetchJob: 주소에 ?job= 을 붙여 끝날 때까지 물어봄", async () => {
+    const { fetchJob } = await import("@/lib/client/fetchData");
+    const calls: string[] = [];
+    const replies = [new Response(JSON.stringify({ job: "j1" }), { status: 202 }), new Response(JSON.stringify({ job: "j1" }), { status: 202 }), new Response(JSON.stringify({ ok: true }), { status: 200 })];
+    const r = await fetchJob("/api/x?env=real", { method: "POST" }, undefined, async (u) => { calls.push(u); return replies.shift()!; }, 10, 0);
+    expect(r).toEqual({ ok: true });
+    expect(calls).toEqual(["/api/x?env=real", "/api/x?env=real&job=j1", "/api/x?env=real&job=j1"]);
+  });
+});

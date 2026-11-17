@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { StockSearch } from "./StockSearch";
+import { fetchJob } from "@/lib/client/fetchData";
 
 interface Entry { code: string; name: string; market: string; type?: string }
 interface Status { count: number; downloaded: number; updated: string | null; custom: Entry[]; error: string | null; errorAt: string | null }
@@ -25,9 +26,7 @@ export default function StockListCard() {
   const post = async (body: unknown, ok: string) => {
     setBusy(true); setMsg(null);
     try {
-      const r = await fetch("/api/stocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      const j = await fetchJob("/api/stocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       setSt(j);
       setMsg(j.error && (body as any).action === "refresh" ? { ok: false, text: `일부를 받지 못했습니다: ${j.error}` } : { ok: true, text: ok });
       return true;
