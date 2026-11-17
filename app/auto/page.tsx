@@ -163,7 +163,7 @@ export default function AutoPage() {
       <header className="top">
         <h1>자동 매매</h1>
         <p>운용 전략을 정해 두면 평일 저녁 {st?.eveningTime ?? "18:00"}에 오늘 종가로 계산해 내일 주문과 장중 매도 가격을 텔레그램으로 알려 드립니다.</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/manual">수동 매매</a><a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">

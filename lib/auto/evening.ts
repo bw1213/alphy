@@ -84,7 +84,8 @@ export interface EveningReport {
   fx?: number;
   /** 보유 수량을 어디서 가져왔는지: 실제 계좌 / 계좌를 못 읽어 백테스트상 보유 */
   holdingsFrom?: "account" | "backtest";
-  account?: "real" | "mock";
+  /** manual = 직접 입력한 수동 계좌 (lib/manual) */
+  account?: "real" | "mock" | "manual";
   warnings: string[];
   error?: string;
 }
@@ -119,7 +120,7 @@ export function preparePlan(plan: AutoPlan): Prepared {
 export interface EveningDeps {
   load?: (q: DataRequest) => Promise<DataResponse>;
   /** 실제 계좌 보유 (못 읽으면 throw) */
-  holdings?: () => Promise<{ env: "real" | "mock"; holdings: Holding[]; total?: number; cash?: number; stock?: number }>;
+  holdings?: () => Promise<{ env: "real" | "mock" | "manual"; holdings: Holding[]; total?: number; cash?: number; stock?: number }>;
   /** 운용을 시작한 날의 계좌 총평가액. 주면 손실 한도를 실제 계좌 손익으로 봄 (없거나 계좌를 못 읽으면 백테스트 평가액으로) */
   accountBase?: number;
   now?: number;
@@ -193,6 +194,11 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const h = await deps.holdings();
       real = new Map(h.holdings.map((x) => [x.code, x.qty]));
       r.holdingsFrom = "account"; r.account = h.env;
+      if (h.total == null && h.cash != null) {
+        // 수동 계좌: 평가액을 오늘 종가로 계산 (시세가 없는 종목은 입력한 평균단가로)
+        const stock = h.holdings.reduce((a, x) => a + x.qty * (close(x.code) > 0 ? close(x.code) : x.avgPrice), 0);
+        h.total = h.cash + stock; h.stock = stock;
+      }
       if (h.total != null) {
         r.accountTotal = Math.round(h.total); r.accountCash = Math.round(h.cash ?? 0); r.accountStock = Math.round(h.stock ?? 0);
         if (deps.accountBase != null) r.accountPnl = Math.round(h.total - deps.accountBase);
@@ -268,7 +274,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     const all = new Set([...btQty.keys(), ...(plan.tickers.length ? plan.tickers : [])]);
     const diffs = [...all].filter((t) => (real!.get(t) ?? 0) !== (btQty.get(t) ?? 0))
       .map((t) => `${name(t)} 계좌 ${real!.get(t) ?? 0}주 / 전략 ${btQty.get(t) ?? 0}주`);
-    if (diffs.length) r.warnings.push(`실제 계좌와 전략의 보유 수량이 다릅니다 (아직 자동 주문 전이라 정상일 수 있음): ${diffs.slice(0, 5).join(", ")}${diffs.length > 5 ? " 외" : ""}`);
+    if (diffs.length) r.warnings.push(`${r.account === "manual" ? "계좌에 기록한 수량과 전략의 보유 수량이 다릅니다 (아직 안내대로 사고팔기 전이거나 체결 가격 차이면 정상)" : "실제 계좌와 전략의 보유 수량이 다릅니다 (아직 자동 주문 전이라 정상일 수 있음)"}: ${diffs.slice(0, 5).join(", ")}${diffs.length > 5 ? " 외" : ""}`);
   }
   if (r.market === "US" && r.fx && r.fx > 0) for (const l of r.sellLevels) l.usd = Math.round((l.price / r.fx) * 100) / 100;
   if (planKind(plan) === "custom") r.warnings.push("직접 작성한 코드 전략입니다. 코드를 고치면 운용 화면에서 다시 저장해야 반영됩니다.");
