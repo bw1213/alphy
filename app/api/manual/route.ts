@@ -7,8 +7,8 @@ import { planKind } from "@/lib/auto/store";
 import { kst } from "@/lib/auto/time";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { manualEveningFor } from "@/lib/manual/evening";
-import { BROKERS, MAX_ACCOUNTS, cleanAccount, loadAccounts, loadManualLog, loadTrades, recordTrade, saveAccounts, undoLastTrade, type FeeRates } from "@/lib/manual/store";
-import { loadHistory } from "@/lib/manual/value";
+import { MAX_ACCOUNTS, brokerList, cleanAccount, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, saveAccounts, undoLastTrade, type FeeRates } from "@/lib/manual/store";
+import { fetchPrices, loadHistory, refreshHistory } from "@/lib/manual/value";
 import type { EveningReport } from "@/lib/auto/evening";
 
 export const runtime = "nodejs";
@@ -17,6 +17,8 @@ export const maxDuration = 300;
 
 /** "지금 계산해 보기"는 시세를 받느라 오래 걸릴 수 있어 작업으로 (프록시 60초 제한) */
 const runJobs = namedJobs<Record<string, EveningReport>>("manual-run");
+/** 기준 다시 잡기는 종가를 새로 받느라 오래 걸릴 수 있어 작업으로 */
+const resetJobs = namedJobs<{ budget: number; startDate: string; warning?: string }>("manual-reset");
 
 const rates = (): FeeRates => {
   const b = loadSettings().backtest;
@@ -31,7 +33,7 @@ export async function GET(req: Request) {
   const { user, denied } = requireUser(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   const job = new URL(req.url).searchParams.get("job");
-  if (job) return pollJob(runJobs, user.id, job);
+  if (job) return new URL(req.url).searchParams.get("kind") === "reset" ? pollJob(resetJobs, user.id, job) : pollJob(runJobs, user.id, job);
   const accounts = loadAccounts(user.id);
   const logs = loadManualLog(user.id);
   const h = loadHistory(user.id);
@@ -43,7 +45,7 @@ export async function GET(req: Request) {
     })),
     prices: h.prices,
     trades: loadTrades(user.id).slice(0, 200),
-    brokers: BROKERS,
+    brokers: brokerList(user.id),
     rates: rates(),
     today: kst().date,
   }, { headers: { "Cache-Control": "no-store" } });
@@ -55,6 +57,8 @@ export async function GET(req: Request) {
  * { action: "trade", accountId, ticker, name?, side, qty, price, fee?, date? }   체결 기록
  * { action: "undo", accountId }   그 계좌의 마지막 체결 기록 되돌리기
  * { action: "run", accountId?, notify? }   지금 계산해 보기
+ * { action: "reset", accountId }   전략 기준 다시 잡기 (시작일=오늘, 운용 금액=지금 평가액). 결과는 ?kind=reset&job=
+ * { action: "forgetBroker", name }   직접 입력한 증권사를 목록에서 지움
  */
 export async function POST(req: Request) {
   const { user, denied } = requireUser(req);
@@ -88,6 +92,29 @@ export async function POST(req: Request) {
       case "undo": {
         const t = undoLastTrade(user.id, String(body.accountId ?? ""));
         return NextResponse.json({ ok: true, trade: t });
+      }
+      case "reset": {
+        // 전략 기준 다시 잡기: 시작일=오늘, 운용 금액=지금 계좌 평가액 (종가를 새로 받아서, 못 받으면 지난 시세·평균단가)
+        const id = String(body.accountId ?? "");
+        const a = loadAccounts(user.id).find((x) => x.id === id);
+        if (!a) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
+        if (!a.plan) return NextResponse.json({ error: "이 계좌에는 전략이 없습니다. 먼저 전략을 정하세요." }, { status: 400 });
+        return startJob(resetJobs, user.id, `reset:${id}`, async () => {
+          const old = loadHistory(user.id).prices;
+          let warning: string | undefined;
+          let fresh: Awaited<ReturnType<typeof fetchPrices>> | null = null;
+          try { fresh = await fetchPrices(a.positions.map((p) => p.ticker)); }
+          catch (e) { warning = `종가를 받지 못해 ${old ? "지난번 시세" : "평균단가"}로 계산했습니다: ${(e as Error).message}`; }
+          const price = (t: string) => fresh?.map[t]?.close ?? old?.map[t]?.close;
+          const next = resetBasis(user.id, id, kst().date, price);
+          // 대시보드의 오늘 점도 새 기준으로 (전략 평가액 = 운용 금액)
+          await refreshHistory(user.id, { strategy: { [id]: next.plan!.budget } }).catch(() => null);
+          return { budget: next.plan!.budget, startDate: next.plan!.startDate, ...(warning ? { warning } : {}) };
+        }, { errStatus: () => 400 });
+      }
+      case "forgetBroker": {
+        forgetBroker(String(body.name ?? ""), user.id);
+        return NextResponse.json({ ok: true });
       }
       case "run": {
         const only = body.accountId ? String(body.accountId) : undefined;
