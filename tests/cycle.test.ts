@@ -304,3 +304,35 @@ it("현금은 충분한데 적립 금액이 1주 값보다 작으면 이유가 '
   expect(st.skipped?.reason).toBe("share");
   expect(st.skipped?.saved).toBe(100_000); // 두 달치 모음
 });
+
+describe("적립 매수 신호는 매도로 뒤집히지 않음", () => {
+  it("현금이 거의 바닥나고 시가가 갭으로 오르는 날에도 '적립 매수' 매도가 생기지 않는다", () => {
+    const dates = businessDays("2024-01-01", "2030-12-31").slice(0, 120);
+    // 꾸준히 오르고, 매 거래일 시가가 전일 종가보다 3% 높게 시작
+    const bars: Bar[] = dates.map((d, k) => {
+      const c = 10000 + k * 30, o = k ? (10000 + (k - 1) * 30) * 1.03 : c;
+      return { date: d, open: o, high: Math.max(o, c), low: Math.min(o, c), close: c, volume: 1000 };
+    });
+    const spec = normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "W", days: 5, unit: "pct", value: 20 } });
+    const fn = compileStrategy(CYCLE_CODE);
+    const p = cycleParams(spec);
+    const res = runBacktest({ data: { A: bars }, initialCash: 100_000_000,
+      settings: { rebalance: "D", stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: cycleWarmup(spec) },
+      costs: { commission: 0.00015, slippage: 0.001, sellTax: 0.0018 }, strategy: (c) => fn(c, p) });
+    expect(res.trades.some((t) => t.side === "BUY")).toBe(true);
+    expect(res.trades.filter((t) => t.side === "SELL" && t.note?.includes("적립"))).toHaveLength(0);
+  });
+});
+
+describe("매매 내역의 잔고·예수금", () => {
+  it("거래마다 거래 직후 보유 수량과 현금이 붙고, 마지막 값이 최종 보유와 맞는다", () => {
+    const res = run(normalizeCycleSpec({ ...defaultCycleSpec(), buy: { period: "M", days: 20, unit: "pct", value: 30 }, sell: { unit: "pct", value: 15 } }));
+    let q = 0;
+    for (const t of res.trades) {
+      q += t.side === "BUY" ? t.qty : -t.qty;
+      expect(t.held).toBe(q);
+      expect(t.cash).toBeGreaterThanOrEqual(0);
+    }
+    expect(res.finalPositions.find((p) => p.ticker === "A")?.qty ?? 0).toBe(q);
+  });
+});

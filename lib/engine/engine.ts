@@ -86,6 +86,8 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   let pending: Weights | null = null;
   let pendingExact = false;
   let pendingNotes: Record<string, string> = {};
+  /** 정확히 따르는 신호(ctx.exact)일 때 신호 낸 날 종가 기준 비중: 사려던 종목은 사기만, 팔려던 종목은 팔기만 하게 */
+  let pendingFrom: Record<string, number> = {};
   const memo: Record<string, any> = {};
   let forced = new Map<string, Trade["reason"]>();
   let signal: Signal | null = null;
@@ -117,6 +119,8 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   };
 
   const col = (t: string) => P.index.get(t)!;
+  /** 방금 넣은 거래에 거래 직후 예수금·그 종목 잔고(보유 수량)를 적어 둠 */
+  const stampLast = (t: string) => { const x = trades[trades.length - 1]; x.cash = cash; x.held = pos[t] ?? 0; };
 
   // 종목별 마지막 시세 날짜 (상장폐지 판단용)
   const lastIdx = new Map<string, number>();
@@ -180,6 +184,15 @@ export function runBacktest(opt: RunOptions): BacktestResult {
           }
           const px = o * (1 + costs.slippage) * (1 + buyFeeRate(costs, t));
           target[t] = Math.floor((eqOpen * w) / px);
+          const from = pendingExact ? pendingFrom[t] : undefined;
+          if (from !== undefined) {
+            const q = pos[t] ?? 0;
+            // 시가가 갭으로 뛰거나 비용 몫 때문에 비중 계산이 어긋나도 매수 신호가 매도로 뒤집히지 않게:
+            // 사려던 종목은 신호 때 늘리려던 비중만큼만 더 사고, 팔려던 종목은 지금보다 늘리지 않음
+            if (w > from + 1e-9) target[t] = q + Math.max(0, Math.floor((eqOpen * (w - from)) / px));
+            else if (w < from - 1e-9) target[t] = Math.min(target[t], q);
+            else target[t] = q;
+          }
         }
         for (const t of Object.keys(pos)) if (!tradable(t)) target[t] = pos[t];
       }
@@ -199,6 +212,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
             pnl: (px - avg[t]) * n - fee, ret: px / avg[t] - 1, reason: forced.get(t) ?? "rebalance",
             ...(!forced.has(t) && pendingNotes[t] ? { note: pendingNotes[t] } : {}) });
           if (tgt === 0) { delete pos[t]; delete avg[t]; } else pos[t] = tgt;
+          stampLast(t);
         }
       }
       // 매수 (현금 부족 시 가능한 만큼)
@@ -215,11 +229,13 @@ export function runBacktest(opt: RunOptions): BacktestResult {
           pos[t] = q + n;
           trades.push({ date: d, ticker: t, side: "BUY", qty: n, price: px, fee, pnl: null, ret: null, reason: "rebalance",
             ...(pendingNotes[t] ? { note: pendingNotes[t] } : {}) });
+          stampLast(t);
         }
       }
       pending = null;
       pendingExact = false;
       pendingNotes = {};
+      pendingFrom = {};
       forced = new Map();
     }
 
@@ -234,6 +250,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         cash += gross - fee;
         trades.push({ date: d, ticker: t, side: "SELL", qty: n, price: px, fee, pnl: (px - avg[t]) * n - fee, ret: px / avg[t] - 1, reason, ...(note ? { note } : {}) });
         if (pos[t] - n <= 0) { delete pos[t]; delete avg[t]; } else pos[t] -= n;
+        stampLast(t);
       };
       for (const t of Object.keys(pos)) {
         const k = col(t);
@@ -273,6 +290,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         cash += gross - fee;
         trades.push({ date: d, ticker: t, side: "SELL", qty: q, price: px, fee, pnl: (px - avg[t]) * q - fee, ret: px / avg[t] - 1, reason: "delisted" });
         delete pos[t]; delete avg[t];
+        stampLast(t);
         forced.delete(t);
       }
     }
@@ -322,6 +340,8 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         pending = clean;
         pendingExact = ctx.exact;
         pendingNotes = { ...ctx.notes };
+        pendingFrom = ctx.exact && eq > 0
+          ? Object.fromEntries(Object.keys(clean).map((t) => [t, ((pos[t] ?? 0) * P.closeFilled[col(t)][i]) / eq])) : {};
         for (const t in clean) forced.delete(t); // 새 목표에 포함되면 리밸런싱 규칙을 따름
       }
     }

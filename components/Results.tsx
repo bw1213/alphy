@@ -109,11 +109,14 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
   const annual = s.annual.map((a) => ({ year: String(a.year), strategy: a.ret * 100, hold: holdYear.has(a.year) ? holdYear.get(a.year)! * 100 : null, kospi: a.bench == null ? null : a.bench * 100 }));
   const holdName = hold ? (hold.tickers.length === 1 ? (names[hold.tickers[0]] ?? hold.tickers[0]) : `${hold.tickers.length}종목 똑같이`) : "";
   const sells = res.trades.filter((t) => t.side === "SELL");
+  const eqByDate = new Map(res.equity.map((e) => [e.date, e.equity]));
+  const won0 = (v: number | undefined) => (v == null ? "" : Math.round(v).toLocaleString());
 
   const download = () => {
-    const head = "date,ticker,name,side,qty,price,fee,pnl,ret,reason,note";
+    const head = "date,ticker,name,side,qty,price,fee,pnl,ret,reason,note,held,cash,equity";
     const rows = res.trades.map((t) => [t.date, t.ticker, names[t.ticker] ?? "", t.side, t.qty, t.price.toFixed(0),
-      t.fee.toFixed(0), t.pnl?.toFixed(0) ?? "", t.ret?.toFixed(4) ?? "", t.reason, (t.note ?? "").replace(/,/g, " ")].join(","));
+      t.fee.toFixed(0), t.pnl?.toFixed(0) ?? "", t.ret?.toFixed(4) ?? "", t.reason, (t.note ?? "").replace(/,/g, " "),
+      t.held ?? "", t.cash?.toFixed(0) ?? "", eqByDate.get(t.date)?.toFixed(0) ?? ""].join(","));
     const blob = new Blob(["﻿" + [head, ...rows].join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -374,11 +377,11 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
           <>
             <div className="btns" style={{ marginBottom: 8 }}>
               <button onClick={download}>CSV 다운로드</button>
-              <span className="help">최근 300건 표시 · 청산 {sells.length}건</span>
+              <span className="help">최근 300건 표시 · 청산 {sells.length}건 · 잔고·예수금은 거래 직후, 평가금액은 그날 장 마감 기준</span>
             </div>
             <div className="tablewrap">
               <table>
-                <thead><tr><th>날짜</th><th className="l">종목</th><th>구분</th><th>수량</th><th>체결가</th><th>비용</th><th>손익</th><th>수익률</th><th className="l">사유</th></tr></thead>
+                <thead><tr><th>날짜</th><th className="l">종목</th><th>구분</th><th>수량</th><th>체결가</th><th>비용</th><th>손익</th><th>수익률</th><th className="l">사유</th><th title="거래 직후 이 종목 보유 수량">잔고</th><th title="거래 직후 현금">예수금</th><th title="그날 장 마감 기준 현금 + 주식">평가금액</th></tr></thead>
                 <tbody>
                   {res.trades.slice(-300).reverse().map((t, k) => (
                     <tr key={k}>
@@ -391,6 +394,9 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                       <td>{t.pnl == null ? "" : Math.round(t.pnl).toLocaleString()}</td>
                       <td>{t.ret == null ? "" : pct(t.ret)}</td>
                       <td className="l">{t.note ?? { rebalance: "리밸런싱", stop_loss: "손절", take_profit: "익절", delisted: "상장폐지" }[t.reason]}</td>
+                      <td>{t.held == null ? "" : t.held.toLocaleString()}</td>
+                      <td>{won0(t.cash)}</td>
+                      <td>{won0(eqByDate.get(t.date))}</td>
                     </tr>
                   ))}
                 </tbody>

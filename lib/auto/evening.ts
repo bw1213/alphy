@@ -228,6 +228,8 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const tq = Math.max(0, Math.floor((E * w) / px));
       const diff = tq - cur;
       if (!diff) continue;
+      // 사라는 신호가 매도 주문이 되거나 팔라는 신호가 매수 주문이 되지 않게 (실제 계좌 수량이 전략 계산과 달라도)
+      if ((w > nowW(t)) !== (diff > 0)) continue;
       r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq, note: notes[t] });
     }
     r.orders.sort((a, b) => (a.side === b.side ? b.amount - a.amount : a.side === "sell" ? -1 : 1));

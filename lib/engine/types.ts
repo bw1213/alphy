@@ -72,6 +72,10 @@ export interface Trade {
   reason: "rebalance" | "stop_loss" | "take_profit" | "delisted";
   /** 전략이 남긴 매매 이유 (예: "적립 매수", "하락 매도 1단계"). 있으면 화면에 reason 대신 보여 줌 */
   note?: string;
+  /** 거래 직후 예수금(현금) */
+  cash?: number;
+  /** 거래 직후 이 종목 잔고(보유 수량) */
+  held?: number;
 }
 
 export interface EquityPoint {
