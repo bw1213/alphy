@@ -74,6 +74,8 @@ export interface EveningReport {
   accountPnl?: number;
   /** 전략이 오늘 아무것도 안 하기로 함 */
   kept?: boolean;
+  /** 수동 계좌: 전략상 목표 보유 (종목별 목표 수량과 지금 수량). outside = 전략에 없는 보유 종목 */
+  targets?: { ticker: string; name: string; targetQty: number; curQty: number; price: number; weight: number; outside?: boolean }[];
   orders: AutoOrder[];
   sellLevels: SellLevel[];
   /** 장중 실시간 매도: sellLevels 를 다음 거래일 장중에 감시해 닿으면 판다 */
@@ -240,7 +242,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const outsideValue = outside.reduce((a, [t, q]) => a + q * (pxOf(t) || 0), 0);
   // 비중을 곱할 금액: 자동 매매는 백테스트 평가액, 수동 계좌는 지금 계좌 평가액 (전략 밖 종목을 둔다면 그만큼 뺌)
   const base = man && r.accountTotal != null ? Math.max(0, r.accountTotal - (man.others === "keep" ? outsideValue : 0)) : E;
-  if (sig && !sig.kept) {
+  if (sig && !sig.kept && !man) {
     const nowW = (t: string) => (E > 0 ? ((btQty.get(t) ?? 0) * close(t)) / E : 0);
     const target = new Map(sig.picks.map((x) => [x.ticker, x.weight]));
     for (const t of btQty.keys()) if (!target.has(t)) target.set(t, 0);
@@ -259,6 +261,30 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     }
   }
   if (man && sig) {
+    // 수동 계좌: 매일 전략상 목표 보유를 만들고 지금 잔고와의 차이를 모두 안내 (오늘 신호가 없어도 맞춤)
+    //   비중: 오늘 신호가 있으면 신호 뒤 비중, 없으면(유지) 전략 계산이 지금 들고 있는 비중
+    const weights = new Map<string, number>(
+      !sig.kept ? sig.picks.map((x) => [x.ticker, x.weight] as [string, number])
+        : [...btQty.entries()].map(([t, q]) => [t, E > 0 ? (q * close(t)) / E : 0] as [string, number]));
+    for (const t of btQty.keys()) if (!weights.has(t)) weights.set(t, 0);
+    for (const [t, q] of real!) if (q > 0 && strategyTickers.has(t) && !weights.has(t)) weights.set(t, 0);
+    const notes = sig.notes ?? {};
+    // 너무 작은 차이(평가액의 1% 미만)는 매일 조금씩 사고팔지 않게 건너뜀
+    const minAmount = base * 0.01;
+    r.targets = [];
+    for (const [t, w] of weights) {
+      const px = close(t);
+      if (!(px > 0)) { r.warnings.push(`${name(t)}(${t}) 가격을 몰라 목표 보유에서 뺐습니다.`); continue; }
+      const cur = curQty(t);
+      const tq = Math.max(0, Math.floor((base * w) / px));
+      if (tq > 0 || cur > 0) r.targets.push({ ticker: t, name: name(t), targetQty: tq, curQty: cur, price: px, weight: w });
+      const diff = tq - cur;
+      if (!diff || (Math.abs(diff) * px < minAmount && tq > 0)) continue;
+      r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq,
+        note: notes[t] ?? (diff > 0 ? "목표 보유보다 적어 매수" : "목표 보유보다 많아 매도") });
+    }
+    for (const [t, q] of outside) r.targets.push({ ticker: t, name: d.names[t] ?? acctPx.get(t)?.name ?? t, targetQty: man.others === "sell" ? 0 : q, curQty: q, price: pxOf(t) || 0, weight: 0, outside: true });
+    r.kept = !r.orders.length && !(man.others === "sell" && outside.length);
     // 전략 밖 보유 종목: 팔아서 전략에 쓰기 (신호가 있는 날마다 안내, 다 팔면 끝)
     if (man.others === "sell") for (const [t, q] of outside) {
       const px = pxOf(t);

@@ -245,3 +245,19 @@ describe("수동 계좌: 이미 있는 보유와 예수금", () => {
     expect(r.orders[0]).toMatchObject({ side: "buy", qty: 4 });
   });
 });
+
+describe("수동 계좌: 목표 보유 기준", () => {
+  it("신호가 없는 날도 전략상 목표 수량과 지금 잔고의 차이를 안내", async () => {
+    const data = { "069500": bars(today, 300, () => 40_000) };
+    // 11-03 에 적립 매수(5%)를 한 전략: 오늘은 신호 없음(유지). 계좌에는 10주가 있음
+    const a = cleanAccount({ name: "x", cash: 600_000, positions: [{ ticker: "069500", qty: 10, avgPrice: 40_000 }],
+      plan: { strategy: "saved:적립", tickers: "069500", budget: 1_000_000, startDate: "2026-11-02" } }, null, "owner", today, [cycleStrategy]);
+    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    expect(r.status).toBe("ok");
+    const t = r.targets!.find((x) => x.ticker === "069500")!;
+    expect(t.curQty).toBe(10);
+    expect(t.targetQty).toBe(1); // 평가액 100만 원 × 전략 비중 약 4% ÷ 4만 원
+    expect(r.orders[0]).toMatchObject({ ticker: "069500", side: "sell", qty: 9, targetQty: 1 });
+    expect(formatManual(a, r)).toContain("목표 보유");
+  });
+});
