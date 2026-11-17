@@ -11,6 +11,7 @@ import type { IntradayDay } from "@/lib/auto/intraday";
 import { fetchJob } from "@/lib/client/fetchData";
 import type { PerfPoint, PerfSummary } from "@/lib/auto/perf";
 import type { KisView } from "@/lib/manual/value";
+import type { DayOrder } from "@/lib/kis/orders";
 
 interface PlanView {
   label: string; kind: "builtin" | "cycle" | "builder" | "custom"; strategyName: string | null; builtin: string | null;
@@ -104,6 +105,82 @@ function AccountCard({ v, busy, onRefresh }: { v: KisView | null; busy: boolean;
           <p className="help">증권사 잔고를 그대로 보여 줍니다 (국내·미국 주식, 원화·달러 예수금을 원화로). 저녁 계산 결과의 &quot;전략 계산 평가액&quot;은 운용 금액에서 출발해 전략대로 했다면 얼마인지 계산한 값이라 이 숫자와 다릅니다.</p>
         </div>
       )}
+    </div>
+  );
+}
+
+interface OrdersView { env: "real" | "mock"; market: "KR" | "US"; date: string; at: string; orders: DayOrder[] }
+const hhmm = (t: string) => (t.length >= 4 ? `${t.slice(0, 2)}:${t.slice(2, 4)}` : t);
+
+/** 주문 현황: 오늘 증권사에 들어간 주문(대기·체결)과 알피가 지켜보는 장중 매도 가격 */
+function OrdersCard({ st }: { st: AutoState }) {
+  const [v, setV] = useState<OrdersView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const load = useCallback(async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch("/api/auto?orders=1", { cache: "no-store" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      setV(j);
+    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  }, []);
+  useEffect(() => {
+    load();
+    // 화면을 보고 있는 동안 1분마다 다시 읽음
+    const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 60_000);
+    return () => clearInterval(t);
+  }, [load]);
+  const m = v?.market ?? st.market;
+  const today = st.intradayDays?.find((d) => d.date === st.today);
+  const watching = today && !today.done ? today.levels : null;
+  const lastOk = st.log.find((r) => r.status === "ok");
+  const next = !watching && lastOk?.intraday ? lastOk.sellLevels : [];
+  const open = v?.orders.filter((o) => o.openQty > 0 && !o.cancelled).length ?? 0;
+  return (
+    <div className="card">
+      <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>주문 현황{v ? ` (${v.env === "real" ? "실전" : "모의투자"})` : ""}
+        <span style={{ marginLeft: "auto" }}><button disabled={busy} onClick={load}>{busy ? "읽는 중…" : "새로 읽기"}</button></span>
+      </h2>
+      <b style={{ fontSize: 13 }}>오늘 증권사 주문{v ? ` · ${v.date}${open ? ` · 체결 기다리는 주문 ${open}건` : ""}` : ""}</b>
+      {err && <div className="error" style={{ marginTop: 6 }}>{err}</div>}
+      {!v ? (!err && <p className="help">읽는 중…</p>) : (
+        <div className="tablewrap" style={{ marginTop: 6 }}><table>
+          <thead><tr><th>시각</th><th>구분</th><th>종목</th><th>주문</th><th>체결</th><th>남은 수량</th><th>상태</th></tr></thead>
+          <tbody>
+            {v.orders.length === 0 && <tr><td colSpan={7} className="empty">오늘 낸 주문이 없습니다</td></tr>}
+            {v.orders.map((o) => {
+              const state = o.cancelled ? "취소" : o.openQty === 0 && o.filledQty > 0 ? "체결 완료" : o.filledQty > 0 ? "일부 체결" : "체결 대기";
+              return (
+                <tr key={o.orderNo}>
+                  <td>{hhmm(o.time)}</td>
+                  <td style={{ color: o.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{o.side === "buy" ? "매수" : "매도"}</td>
+                  <td>{o.name || o.code} <span className="help">{o.code}</span></td>
+                  <td>{o.qty.toLocaleString("ko-KR")}주 · {o.price > 0 ? money(m, o.price) : "시장가"}</td>
+                  <td>{o.filledQty > 0 ? `${o.filledQty.toLocaleString("ko-KR")}주 · 평균 ${money(m, o.avgPrice)}` : "-"}</td>
+                  <td>{o.openQty > 0 && !o.cancelled ? `${o.openQty.toLocaleString("ko-KR")}주` : "-"}</td>
+                  <td>{state}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table></div>
+      )}
+      {v && <p className="help">{kstTime(v.at)}에 한국투자증권에서 읽은 내역입니다 (화면을 보는 동안 1분마다 다시 읽음). 체결되면 텔레그램으로도 알려 드립니다.</p>}
+      {(watching?.length || next.length) ? (
+        <>
+          <b style={{ fontSize: 13 }}>{watching ? "오늘 장중 매도 대기 가격 (지켜보는 중)" : "다음 거래일 장중 매도 대기 가격"}</b>
+          <div className="tablewrap" style={{ marginTop: 6 }}><table>
+            <thead><tr><th>종목</th><th>매도 가격</th><th>수량</th><th>지금 가격</th><th>규칙</th></tr></thead>
+            <tbody>{(watching ?? next).map((l, i) => (
+              <tr key={i}><td>{l.name}</td><td>{m === "US" && l.usd ? money("US", l.usd) : won(l.price)} {l.kind === "take_profit" ? "이상" : "이하"}</td><td>{l.qty ? `${l.qty.toLocaleString("ko-KR")}주` : "전부"}</td>
+                <td>{watching && today?.last?.[l.ticker] ? `${money(m, today.last[l.ticker].price)} (${today.last[l.ticker].at})` : `${won(l.close)} (종가)`}</td><td>{l.label}</td></tr>
+            ))}</tbody>
+          </table></div>
+          <p className="help">이 가격들은 증권사에 미리 걸어 둔 주문이 아닙니다. 알피가 장중에 현재가를 지켜보다가 닿으면 그때 시장가로 팔고, 그 주문이 위 &quot;오늘 증권사 주문&quot;에 나타납니다.</p>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -299,6 +376,7 @@ export default function AutoPage() {
         </section>
 
         <section className="stack">
+          {st?.plan && <OrdersCard st={st} />}
           {st?.accountView !== undefined && <AccountCard v={st.accountView} busy={busy === "account"} onRefresh={() => act("account", () => post("/api/dashboard", { action: "refresh" }))} />}
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>저녁 계산 결과

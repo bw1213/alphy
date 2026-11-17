@@ -261,3 +261,13 @@ describe("수동 계좌: 목표 보유 기준", () => {
     expect(formatManual(a, r)).toContain("목표 보유");
   });
 });
+
+describe("한국투자증권 총자산 조회값 검사", () => {
+  it("총자산이 국내 총평가보다 작으면(일부 빠짐) 국내 총평가 + 미국 주식으로", () => {
+    const v = kisViewOf({ env: "mock", kr: { cash: 500_000_000, total: 500_000_000, holdings: [] }, us: { holdings: [], totalAsset: 171_762_571 } }, null, 0);
+    expect(v.total).toBe(500_000_000);
+    expect(v.note).toContain("총자산 조회값");
+    const ok = kisViewOf({ env: "real", kr: { cash: 0, total: 1_000_000, holdings: [] }, us: { holdings: [], totalAsset: 1_500_000 } }, null, 0);
+    expect(ok.total).toBe(1_500_000);
+  });
+});

@@ -35,6 +35,19 @@ export async function GET(req: Request) {
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   const job = new URL(req.url).searchParams.get("job");
   if (job) return pollJob(runJobs, user.id, job);
+  if (new URL(req.url).searchParams.get("orders")) {
+    // 오늘 증권사에 들어간 주문·체결 (운용하는 시장의 계좌, 조회만)
+    const p = loadPlan(user.id);
+    const market = p ? planMarket(p) : "KR";
+    try {
+      const b = brokerFor(user, process.env, market);
+      const date = clockOf(market).date;
+      const orders = await b.orders(date);
+      return NextResponse.json({ env: b.env, market, date, at: new Date().toISOString(), orders }, { headers: { "Cache-Control": "no-store" } });
+    } catch (e) {
+      return NextResponse.json({ error: `주문 내역을 읽지 못했습니다: ${(e as Error).message}` }, { status: 500 });
+    }
+  }
   const plan = loadPlan(user.id);
   const account = tradeEnv(kisEnvFor(user));
   const days = loadDays(user.id);

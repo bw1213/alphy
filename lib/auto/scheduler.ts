@@ -23,7 +23,7 @@ import { tradeEnv } from "../kis/config";
 import { addPoint, loadPerf, perfFor, savePerf } from "./perf";
 import { notify } from "./telegram";
 import { cleanHm, isWeekday, kst } from "./time";
-import { formatDay, loadDay, morningFollow, morningStart, saveDay, type MorningLimits } from "./morning";
+import { formatDay, loadDay, morningFollow, morningStart, saveDay, type MorningDay, type MorningLimits } from "./morning";
 import { brokerFor } from "./broker";
 import { addUsage, usedToday } from "../kis/limits";
 import { orderLimitFor } from "../kis/userkeys";
@@ -103,14 +103,30 @@ export async function morningFor(u: User, now: number, e: Env = process.env): Pr
   }
   if ((d.market ?? "KR") !== market) return; // 그날 기록이 다른 시장 것이면 건드리지 않음
   if ((d.phase === "placed" || d.phase === "buying") && k.hm >= ses.followFrom && (k.hm >= cutoff || now - (d.lastCheck ?? 0) >= FOLLOW_MS)) {
+    const before = new Map(d.items.map((it, i) => [i, it.filledQty]));
     d = await morningFollow(d, brokerFor(u, e, market), now, cutoff, limitsFor(u, e));
     saveDay(d, u.id, e);
+    // 새로 체결된 만큼 바로 알림 (끝난 뒤 결과 알림은 따로)
+    const fills = fillMessages(d, before);
+    if (fills) await notify(u.id, fills, e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
   }
   if ((d.phase === "done" || d.phase === "stopped") && !d.notified && d.items.length) {
     d.notified = true;
     saveDay(d, u.id, e);
     await notify(u.id, formatDay(d, true), e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
   }
+}
+
+/** 아침 주문 중 지난번 확인 뒤 새로 체결된 것 (없으면 빈 글) */
+export function fillMessages(d: MorningDay, before: Map<number, number>): string {
+  const lines: string[] = [];
+  d.items.forEach((it, i) => {
+    const prev = before.get(i) ?? 0;
+    if (it.filledQty <= prev) return;
+    const px = d.market === "US" ? `$${it.avgPrice.toFixed(2)}` : `${Math.round(it.avgPrice).toLocaleString("ko-KR")}원`;
+    lines.push(`- ${it.side === "buy" ? "매수" : "매도"} ${it.name} ${it.filledQty - prev}주 체결 (누적 ${it.filledQty}/${it.qty}주, 평균 ${px})`);
+  });
+  return lines.length ? [`[알피] ${d.date} 체결 · ${d.label} (${d.env === "real" ? "실전" : "모의투자"})`, ...lines].join("\n") : "";
 }
 
 let morningRunning = false;
@@ -199,7 +215,7 @@ export async function accountSnapshot(u: User, market: Market = "KR", e: Env = p
   const view = kisViewOf(raw, loadHistory(u.id, e).prices, now);
   const holdings = (market === "US" ? raw.us?.holdings ?? [] : raw.kr.holdings) as Holding[];
   const count = raw.kr.holdings.length + (raw.us?.holdings.length ?? 0);
-  const exact = !!raw.us?.totalAsset || view.positions.length === count;
+  const exact = (!!raw.us?.totalAsset && view.total === Math.round(raw.us.totalAsset)) || view.positions.length === count;
   const stock = view.positions.reduce((a, p) => a + p.value, 0);
   return {
     env: raw.env, holdings, view,

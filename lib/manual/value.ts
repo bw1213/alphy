@@ -123,7 +123,12 @@ export function kisViewOf(raw: KisRaw, prices: PriceBook | null, now: number): K
     positions.push({ ticker: h.code, name: h.name, qty: h.qty, avgPrice: h.avgPrice * fx, price: krw, value });
   }
   // 총자산: 해외 포함 총자산을 읽었으면 그걸로, 아니면 국내 총평가 + 미국 주식
-  const total = raw.us?.totalAsset && raw.us.totalAsset > 0 ? raw.us.totalAsset : raw.kr.total + usValue;
+  // 단, 총자산 조회값이 국내 총평가 + 미국 주식보다 작으면 일부가 빠진 값이라(모의투자 등) 쓰지 않음
+  const sum = raw.kr.total + usValue;
+  const asset = raw.us?.totalAsset ?? 0;
+  const useAsset = asset > 0 && asset >= sum * 0.995;
+  if (asset > 0 && !useAsset) note = [note, `증권사 총자산 조회값(${Math.round(asset).toLocaleString("ko-KR")}원)이 국내 총평가와 미국 주식 합보다 작아 국내 총평가 + 미국 주식으로 계산했습니다.`].filter(Boolean).join(" ");
+  const total = useAsset ? asset : sum;
   const stock = positions.reduce((a, p) => a + p.value, 0);
   return { env: raw.env, cash: Math.max(0, Math.round(total - stock)), total: Math.round(total), positions, at: new Date(now).toISOString(), ...(note ? { note } : {}) };
 }
