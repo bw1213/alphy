@@ -56,3 +56,17 @@ describe("실전 전환 확인", () => {
     expect(d.reason).toMatch(/실전 전환/);
   });
 });
+
+describe("손익 처음부터", () => {
+  it("지금 평가액을 손익 0 기준으로, 예전 계좌 손익은 지움", async () => {
+    const { resetBase, summarize } = await import("@/lib/auto/perf");
+    const f = { key: "k", budget: 1_000_000, base: { date: "2026-11-16", total: 500_000_000 }, points: [
+      { date: "2026-11-16", strategy: 1_000_000, total: 500_000_000, cash: 0, stock: 0, pnl: 0 },
+      { date: "2026-11-17", strategy: 1_010_000, total: 171_762_571, cash: 0, stock: 0, pnl: -328_237_429 },
+    ] };
+    const r = resetBase(f, 500_100_000, "2026-11-17");
+    expect(r.base).toEqual({ date: "2026-11-17", total: 500_100_000 });
+    expect(r.points.every((p) => p.pnl == null)).toBe(true);
+    expect(summarize(r)?.pnl).toBeUndefined();
+  });
+});

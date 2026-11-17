@@ -76,6 +76,14 @@ export function rebase(f: PerfFile, totalNow: number, date: string): PerfFile {
   return { ...f, base: { date, total: Math.round(totalNow - (last?.pnl ?? 0)) } };
 }
 
+/**
+ * 손익 처음부터: 계좌 평가액을 잘못 읽은 기록이 섞였을 때. 지금 평가액을 새 기준(손익 0)으로 잡고
+ * 예전 기록의 계좌 손익은 지움 (전략 계산값과 평가액 자체는 남김).
+ */
+export function resetBase(f: PerfFile, totalNow: number, date: string): PerfFile {
+  return { ...f, base: { date, total: Math.round(totalNow) }, points: f.points.map(({ pnl: _p, ...x }) => x) };
+}
+
 export interface PerfSummary {
   days: number;
   /** 계좌 손익(원·%) / 전략 손익(원·%) / 차이(%p) */

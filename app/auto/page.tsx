@@ -436,7 +436,10 @@ export default function AutoPage() {
           </div>
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>성과: 실제 계좌와 전략 비교
-              {st?.perf?.base && <span style={{ marginLeft: "auto" }}><button disabled={!!busy} title="입금·출금을 했을 때 누르세요" onClick={() => act("rebase", () => post("/api/auto", { action: "rebase" }), "지금 계좌 평가액에 맞춰 기준을 다시 잡았습니다. 지금까지의 손익은 그대로입니다.")}>기준 다시 잡기</button></span>}
+              {st?.perf?.base && <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                <button disabled={!!busy} title="입금·출금을 했을 때 누르세요" onClick={() => act("rebase", () => post("/api/auto", { action: "rebase" }), "지금 계좌 평가액에 맞춰 기준을 다시 잡았습니다. 지금까지의 손익은 그대로입니다.")}>기준 다시 잡기</button>
+                <button disabled={!!busy} title="계좌 손익이 말이 안 되는 숫자일 때: 지금 평가액을 손익 0으로" onClick={() => { if (confirm("지금 계좌 평가액을 새 기준(손익 0)으로 잡고 예전 계좌 손익 기록을 지울까요?")) act("reset", () => post("/api/auto", { action: "rebase", reset: true }), "지금 계좌 평가액을 손익 0으로 다시 잡았습니다."); }}>손익 처음부터</button>
+              </span>}
             </h2>
             {!st?.perf?.summary ? <p className="help">아직 기록이 없습니다.</p> : (
               <div style={{ display: "grid", gap: 10 }}>
@@ -455,7 +458,7 @@ export default function AutoPage() {
                     ))}</tbody>
                   </table></div>
                 </details>
-                <p className="help">기준: {st.perf.base ? `${st.perf.base.date} ${won(st.perf.base.total)}` : "아직 없음"} · 입출금 뒤에는 &quot;기준 다시 잡기&quot;를 누르세요.</p>
+                <p className="help">기준: {st.perf.base ? `${st.perf.base.date} ${won(st.perf.base.total)}` : "아직 없음"} · 입출금 뒤에는 &quot;기준 다시 잡기&quot;(지금까지 손익 유지), 손익이 말이 안 되면 &quot;손익 처음부터&quot;(지금을 0으로)를 누르세요.</p>
               </div>
             )}
           </div>
