@@ -59,6 +59,26 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
           ))}</tbody>
         </table></div>
       )}
+      {r.targets && r.targets.length > 0 && (
+        <>
+          <b style={{ fontSize: 13 }}>전략상 목표 보유</b>
+          <div className="tablewrap"><table>
+            <thead><tr><th>종목</th><th>지금</th><th>목표</th><th>차이</th><th>목표 비중</th><th>오늘 종가</th></tr></thead>
+            <tbody>{r.targets.map((t) => {
+              const d = t.targetQty - t.curQty;
+              return (
+                <tr key={t.ticker}>
+                  <td>{t.name} <span className="help">{t.ticker}</span>{t.outside ? <span className="help"> · 전략에 없는 종목</span> : null}</td>
+                  <td>{t.curQty.toLocaleString("ko-KR")}주</td><td><b>{t.targetQty.toLocaleString("ko-KR")}주</b></td>
+                  <td style={{ color: d > 0 ? "var(--bad)" : d < 0 ? "var(--accent)" : undefined }}>{d > 0 ? `+${d}` : d}주</td>
+                  <td>{t.outside ? "–" : `${(t.weight * 100).toFixed(1)}%`}</td><td>{t.price > 0 ? won(t.price) : "–"}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table></div>
+          <p className="help">목표 수량 = 지금 계좌 평가액 × 전략 비중 ÷ 오늘 종가. 차이가 평가액의 1%보다 작으면 사고팔지 않습니다.</p>
+        </>
+      )}
       {short && <p className="help" style={{ color: "var(--bad)" }}>매수에 약 {won(buy)}이 필요한데 예수금과 매도 대금을 합쳐 약 {won((r.accountCash ?? 0) + sell)}입니다. 입금하거나 수량을 줄이세요.</p>}
       {r.sellLevels.length > 0 && (
         <>

@@ -44,6 +44,10 @@ export function formatManual(a: ManualAccount, r: EveningReport): string {
     const sell = r.orders.filter((o) => o.side === "sell").reduce((s, o) => s + o.amount, 0);
     if (buy > cash + sell) lines.push(`※ 매수에 약 ${won(buy)} 필요한데 예수금(+매도 대금)이 약 ${won(cash + sell)}입니다. 입금하거나 수량을 줄이세요.`);
   }
+  if (r.targets?.length) {
+    lines.push("전략상 목표 보유 (지금 → 목표):");
+    for (const t of r.targets) lines.push(`- ${t.name} ${t.curQty}주 → ${t.targetQty}주${t.outside ? " (전략에 없는 종목)" : ""}`);
+  }
   if (r.sellLevels.length) {
     lines.push("종가가 이 가격에 닿으면 다음 날 매도 안내:");
     for (const s of r.sellLevels) lines.push(`- ${s.name} ${won(s.price)} ${s.kind === "take_profit" ? "이상" : "이하"} (오늘 ${won(s.close)}, ${s.gap >= 0 ? "+" : ""}${s.gap.toFixed(1)}%) · ${s.label}`);
