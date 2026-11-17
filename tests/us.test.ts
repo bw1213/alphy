@@ -164,3 +164,31 @@ describe("한국투자증권 해외 시세", () => {
     await expect(kisUsDaily(client, "ZZZZ", "2024-12-01", "2025-01-10", ["NAS"])).rejects.toThrow("한국투자증권 해외 시세 없음");
   });
 });
+
+describe("한국투자증권 미국 시세: 분할만 반영", () => {
+  it("원래 가격과 수정주가를 비교해 분할을 찾고, 배당 조정은 분할로 보지 않는다", async () => {
+    const { detectSplits, applySplits, kisUsSplitOnlyDaily } = await import("@/lib/kis/market");
+    const bar = (date: string, c: number, v = 100) => ({ date, open: c, high: c, low: c, close: c, volume: v });
+    // 01-06 에 4:1 분할, 01-03 에 배당락(수정주가만 그 전 가격이 1% 낮음)
+    const raw = [bar("2025-01-02", 400), bar("2025-01-03", 404), bar("2025-01-06", 102), bar("2025-01-07", 103)];
+    const adj = [bar("2025-01-02", 99), bar("2025-01-03", 101), bar("2025-01-06", 102), bar("2025-01-07", 103)];
+    const splits = detectSplits(raw, adj);
+    expect(splits).toEqual([{ date: "2025-01-06", ratio: 4 }]);
+    const so = applySplits(raw, splits);
+    expect(so.map((b) => b.close)).toEqual([100, 101, 102, 103]); // 배당은 가격에 안 들어감 (수정주가는 99)
+    expect(so.map((b) => b.volume)).toEqual([400, 400, 100, 100]);
+    // 병합(1:8)도
+    expect(detectSplits([bar("2025-01-02", 10), bar("2025-01-03", 80)], [bar("2025-01-02", 80), bar("2025-01-03", 80)])).toEqual([{ date: "2025-01-03", ratio: 0.125 }]);
+    // 두 번 받아(MODP 0, 1) 합침
+    const mods: string[] = [];
+    const client = { call: async ({ query }: any) => {
+      mods.push(query.MODP);
+      if (query.BYMD < "20250107") return { body: { output2: [] } };
+      const src = query.MODP === "0" ? raw : adj;
+      return { body: { output2: src.map((b) => ({ xymd: b.date.replace(/-/g, ""), clos: String(b.close), open: String(b.open), high: String(b.high), low: String(b.low), tvol: String(b.volume) })) } };
+    } } as any;
+    const out = await kisUsSplitOnlyDaily(client, "TEST", "2025-01-01", "2025-01-10", ["NAS"]);
+    expect(out.map((b) => b.close)).toEqual([100, 101, 102, 103]);
+    expect(new Set(mods)).toEqual(new Set(["0", "1"]));
+  });
+});

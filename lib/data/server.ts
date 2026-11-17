@@ -12,7 +12,7 @@ import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
 import { credentialsFor, quoteCredentials, type KisCredentials } from "../kis/config";
 import { kisDividendRows, kisRawMonthly, kisUsDividendRows, mergeDividends, toEngineDividends, toEngineUsDividends, type KisDividendRow } from "../kis/dividends";
 import { getClient } from "../kis/client";
-import { KIS_EXCHANGE, kisDaily, kisIndexDaily, kisSp500Daily, kisUsDaily, kisUsdKrwDaily, type KisExchange } from "../kis/market";
+import { KIS_EXCHANGE, kisDaily, kisIndexDaily, kisSp500Daily, kisUsSplitOnlyDaily, kisUsdKrwDaily, type KisExchange } from "../kis/market";
 
 const ROOT = process.cwd();
 const CACHE = path.join(ROOT, ".cache");
@@ -46,8 +46,6 @@ export interface DataResponse {
   dividends?: DividendData;
   /** 원/달러 환율 (미국 종목이 있을 때) */
   fx?: { date: string; close: number }[];
-  /** 시세에 배당이 이미 반영된 종목 (한국투자증권 미국 수정주가). 배당을 현금으로 또 넣으면 두 번 세는 것이라 배당 이력에서 뺀다 */
-  dividendAdjusted?: string[];
 }
 
 async function readJson<T>(p: string): Promise<T | null> {
@@ -95,7 +93,7 @@ export function sameHistory(oldBars: Bar[], fresh: Bar[]): boolean {
  * - 오늘 받은 캐시면 그대로, 예전 캐시면 마지막 날짜 근처부터만 받아 이어 붙인다.
  *   액면분할·배당 등으로 수정주가가 바뀌었으면(겹치는 날 종가가 다르면) 전체를 다시 받는다
  */
-export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "krx" | "yahoo" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
+export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "kis-us" | "krx" | "yahoo" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
   const p = path.join(cacheDir, src, `${symbol}.json`);
   const c = await readJson<DailyCache>(p);
   const covers = !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) <= start;
@@ -279,13 +277,6 @@ function kisDividendFetcher(cred: KisCredentials, usMarket: Map<string, string>)
 }
 
 async function onlineDividends(codes: string[], req: DataRequest, out: DataResponse, opts: LoadOptions = {}): Promise<DividendData> {
-  // 한국투자증권 미국 수정주가는 배당까지 반영된 가격이라 현금 배당을 따로 넣지 않는다
-  const inPrice = new Set(out.dividendAdjusted ?? []);
-  if (inPrice.size) {
-    const list = codes.filter((c) => inPrice.has(c));
-    codes = codes.filter((c) => !inPrice.has(c));
-    out.warnings.push(`${list.slice(0, 8).join(", ")}${list.length > 8 ? " 등" : ""}: 한국투자증권 미국 시세는 배당이 가격에 이미 반영된 수정주가라서 배당금을 현금으로 따로 넣지 않았습니다(배당을 받는 대로 다시 산 것과 같고, 배당소득세는 빠지지 않습니다).`);
-  }
   const yahoo = await pool(codes, 3, (c) => cachedDividends(c));
   // 한국투자증권(한국: 예탁원 배당 일정, 미국: 해외주식 권리) 먼저, 없거나 실패하면 Yahoo
   const cred = opts.kisDividendCred === undefined ? credentialsFor("real") : opts.kisDividendCred;
@@ -432,11 +423,11 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   const usVia = new Map<string, "kis" | "yahoo">();
   const kisUs = isKis && usCodes.length ? getClient((opts.kisCred === undefined ? quoteCredentials() : opts.kisCred)!) : null;
   /** 한국투자증권 먼저, 안 되면 야후. 한국투자증권 쪽 시작이 늦으면 야후와 비교해 더 긴 쪽 */
-  const kisFirst = async (key: string, yahooSym: string, from: string, kis: DailyFetcher): Promise<Bar[]> => {
+  const kisFirst = async (key: string, yahooSym: string, from: string, kis: DailyFetcher, cacheSrc: "kis" | "kis-us" = "kis"): Promise<Bar[]> => {
     const viaYahoo = () => cachedDaily(yahooSym, from, "yahoo", fetchYahooDaily);
     if (!kisUs) { usVia.set(key, "yahoo"); return viaYahoo(); }
     let bars: Bar[];
-    try { bars = await cachedDaily(key, from, "kis", kis); }
+    try { bars = await cachedDaily(key, from, cacheSrc, kis); }
     catch { usVia.set(key, "yahoo"); return viaYahoo(); }
     if (bars[0].date > plusDays(from, 14)) {
       try {
@@ -450,7 +441,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   const usDaily = (code: string) => {
     const m = usMaster.find((u) => u.code === code)?.market;
     const ex: KisExchange[] | undefined = m ? [KIS_EXCHANGE[m]] : undefined;
-    return kisFirst(code, code, req.start, (sym, start) => kisUsDaily(kisUs!, sym, start, today(), ex));
+    return kisFirst(code, code, req.start, (sym, start) => kisUsSplitOnlyDaily(kisUs!, sym, start, today(), ex), "kis-us");
   };
   let got = 0;
   opts.onProgress?.(0, list.length);
@@ -489,14 +480,11 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   if (usLoaded.length) {
     const fromKis = usLoaded.filter((t) => usVia.get(t) === "kis"), fromYahoo = usLoaded.filter((t) => usVia.get(t) !== "kis");
     const where = !fromYahoo.length ? "한국투자증권" : !fromKis.length ? "야후 파이낸스" : "한국투자증권·야후 파이낸스";
-    warnings.push(`미국 종목 ${usLoaded.length}개(${usLoaded.slice(0, 5).join(", ")}${usLoaded.length > 5 ? " 등" : ""})는 ${where} 시세를 그날 원/달러 환율(${usVia.get("FX@KRW") === "kis" ? "한국투자증권" : "야후 파이낸스"})로 원화로 바꿔 계산했습니다. 환율 변동이 수익률에 들어가고, 미국 종목 비용은 '자금·비용'의 미국 수수료·환전 비용을 씁니다. 양도소득세(연 250만 원 넘는 차익의 22%)는 계산하지 않습니다.`);
-    if (fromKis.length && req.dividends === false) warnings.push(`${fromKis.slice(0, 8).join(", ")}${fromKis.length > 8 ? " 등" : ""}: 한국투자증권 미국 시세는 배당이 가격에 이미 반영된 수정주가라서, 배당 반영을 꺼도 이 종목 수익률에는 배당이 들어 있습니다.`);
+    warnings.push(`미국 종목 ${usLoaded.length}개(${usLoaded.slice(0, 5).join(", ")}${usLoaded.length > 5 ? " 등" : ""})는 ${where} 시세(액면분할만 반영, 배당은 가격에 넣지 않고 따로 계산)를 그날 원/달러 환율(${usVia.get("FX@KRW") === "kis" ? "한국투자증권" : "야후 파이낸스"})로 원화로 바꿔 계산했습니다. 환율 변동이 수익률에 들어가고, 미국 종목 비용은 '자금·비용'의 미국 수수료·환전 비용을 씁니다. 양도소득세(연 250만 원 넘는 차익의 22%)는 계산하지 않습니다.`);
     if (isKis && fromYahoo.length) warnings.push(`${fromYahoo.slice(0, 8).join(", ")}${fromYahoo.length > 8 ? " 등" : ""}: 한국투자증권에서 시세를 못 받았거나 과거 기간이 모자라 야후 파이낸스 시세를 썼습니다.`);
     if (!isKis) warnings.push("데이터를 '한국투자증권 API'로 고르면 미국 종목 시세·환율도 한국투자증권에서 받습니다.");
   }
   if (!Object.keys(data).length) throw new Error(`가격 데이터를 하나도 받지 못했습니다. 네트워크 상태를 확인하세요. (${warnings[0] ?? ""})`);
-  const adjusted = usLoaded.filter((t) => usVia.get(t) === "kis");
-  const divAdj = adjusted.length ? { dividendAdjusted: adjusted } : {};
   let benchmark = null;
   // 미국 종목만 넣었으면 S&P 500 (원화 환산)을 비교 지수로
   const usOnly = list.length > 0 && list.every((x) => isUsTicker(x.code));
@@ -506,7 +494,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
       benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
     } catch (e) { warnings.push(`S&P 500 지수 조회 실패: ${(e as Error).message}`); }
     if (fromKrx) warnings.push(`${fromKrx}종목은 KRX 시세를 썼습니다.`);
-    return { data, names, benchmark, warnings, universe, benchmarkName: "S&P 500", fx, ...divAdj };
+    return { data, names, benchmark, warnings, universe, benchmarkName: "S&P 500", fx };
   }
   try {
     let idx: Bar[];
@@ -519,5 +507,5 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
     benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
   } catch (e) { warnings.push(`KOSPI 지수 조회 실패: ${(e as Error).message}`); }
   if (fromKrx) warnings.push(`${fromKrx}종목은 ${isKis ? "한국투자증권" : "네이버"}에 시세가 없어(상장폐지 등) KRX 시세를 썼습니다.`);
-  return { data, names, benchmark, warnings, universe, benchmarkName: "KOSPI", ...(fx ? { fx } : {}), ...divAdj };
+  return { data, names, benchmark, warnings, universe, benchmarkName: "KOSPI", ...(fx ? { fx } : {}) };
 }
