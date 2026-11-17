@@ -215,7 +215,7 @@ export async function accountSnapshot(u: User, market: Market = "KR", e: Env = p
   const view = kisViewOf(raw, loadHistory(u.id, e).prices, now);
   const holdings = (market === "US" ? raw.us?.holdings ?? [] : raw.kr.holdings) as Holding[];
   const count = raw.kr.holdings.length + (raw.us?.holdings.length ?? 0);
-  const exact = !!raw.us?.totalAsset || view.positions.length === count;
+  const exact = (!!raw.us?.totalAsset && view.total === Math.round(raw.us.totalAsset)) || view.positions.length === count;
   const stock = view.positions.reduce((a, p) => a + p.value, 0);
   return {
     env: raw.env, holdings, view,
