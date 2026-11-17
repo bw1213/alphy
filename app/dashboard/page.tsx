@@ -42,6 +42,7 @@ const signed = (n: number) => `${n >= 0 ? "+" : "-"}${won(Math.abs(n))}`;
 const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 
 const SLOTS = 8;
+const PICK_KEY = "alphy.dashboard.accounts";
 
 function useColors() {
   const read = () => {
@@ -94,6 +95,12 @@ function BarTip({ active, payload, fmt = won }: any) {
   );
 }
 
+/** 계좌 고르기 버튼 모양 */
+const chip = (on: boolean): React.CSSProperties => ({
+  width: "auto", whiteSpace: "nowrap", padding: "4px 10px", fontSize: 12, borderRadius: 999, display: "inline-flex", alignItems: "center",
+  ...(on ? { borderColor: "var(--accent)", color: "var(--accent)", fontWeight: 600 } : {}),
+});
+
 export default function DashboardPage() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [st, setSt] = useState<DashState | null>(null);
@@ -102,6 +109,10 @@ export default function DashboardPage() {
   const [warn, setWarn] = useState<string[]>([]);
   const [range, setRange] = useState<"1M" | "3M" | "1Y" | "ALL">("3M");
   const [table, setTable] = useState(false);
+  // 고른 계좌 (null = 전체). 이 브라우저에만 기억
+  const [pick, setPick] = useState<string[] | null>(null);
+  useEffect(() => { try { const v = JSON.parse(localStorage.getItem(PICK_KEY) ?? "null"); if (Array.isArray(v)) setPick(v); } catch { /* 없음 */ } }, []);
+  const savePick = (v: string[] | null) => { setPick(v); try { if (v) localStorage.setItem(PICK_KEY, JSON.stringify(v)); else localStorage.removeItem(PICK_KEY); } catch { /* 저장 못 함 */ } };
   const c = useColors();
 
   const load = useCallback(async () => {
@@ -119,7 +130,7 @@ export default function DashboardPage() {
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
 
-  const accts = useMemo<Acct[]>(() => {
+  const all = useMemo<Acct[]>(() => {
     if (!st) return [];
     const out: Acct[] = [];
     if (st.kis) {
@@ -147,10 +158,25 @@ export default function DashboardPage() {
     return out;
   }, [st]);
 
-  const many = accts.length > SLOTS;
+  // 지운 계좌는 고른 목록에서 빼고, 남는 게 없으면 전체
+  const picked = useMemo(() => {
+    if (!pick) return null;
+    const ids = pick.filter((id) => all.some((a) => a.id === id));
+    return ids.length || !all.length ? ids : null;
+  }, [pick, all]);
+  const accts = useMemo(() => (picked ? all.filter((a) => picked.includes(a.id)) : all), [all, picked]);
+  const toggle = (id: string) => {
+    // 전체 보기에서 누르면 그 계좌만, 그다음부터는 더하고 빼기
+    if (!picked) return savePick([id]);
+    const next = picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id];
+    savePick(next.length === all.length ? null : next);
+  };
+
+  const many = all.length > SLOTS;
   const seriesOf = (a: Acct) => (many && a.slot === SLOTS - 1 ? "other" : a.id);
   const seriesName = (k: string) => (k === "other" ? "기타 계좌" : accts.find((a) => a.id === k)?.name ?? k);
   const seriesKeys = [...new Set(accts.map(seriesOf))];
+  const slotOf = (k: string) => (k === "other" ? SLOTS - 1 : accts.find((a) => a.id === k)?.slot ?? 0);
 
   const total = accts.reduce((s, a) => s + a.total, 0);
   const cash = accts.reduce((s, a) => s + a.cash, 0);
@@ -230,12 +256,29 @@ export default function DashboardPage() {
         {warn.map((w, i) => <p key={i} className="help" style={{ margin: 0 }}>※ {w}</p>)}
         {st?.kis?.view?.note && <p className="help" style={{ margin: 0 }}>※ {st.kis.view.note}</p>}
 
-        {!st ? <div className="card"><p className="help">불러오는 중…</p></div> : !accts.length ? (
+        {st && all.length > 1 && (
+          <div role="group" aria-label="볼 계좌" style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <button aria-pressed={!picked} onClick={() => savePick(null)} style={chip(!picked)}>전체</button>
+            {all.map((a) => {
+              const on = !!picked && picked.includes(a.id);
+              return (
+                <button key={a.id} aria-pressed={on} onClick={() => toggle(a.id)} style={chip(on)}>
+                  <i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: on || !picked ? c.s[a.slot] : "var(--border)", marginRight: 6 }} />
+                  <span style={{ opacity: on || !picked ? 1 : 0.55 }}>{a.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {!st ? <div className="card"><p className="help">불러오는 중…</p></div> : !all.length ? (
           <div className="card"><p className="help">계좌가 없습니다. <a href="/settings">설정</a>이나 <a href="/manual">수동 매매</a>에서 추가하세요.</p></div>
+        ) : !accts.length ? (
+          <div className="card"><p className="help">볼 계좌를 하나 이상 고르세요.</p></div>
         ) : (
           <>
             <div className="kpis">
-              <div className="kpi"><div className="k">전체 평가액</div><div className="v">{won(total)}</div><div className="s">계좌 {accts.length}개</div></div>
+              <div className="kpi"><div className="k">전체 평가액</div><div className="v">{won(total)}</div><div className="s">계좌 {accts.length}개{picked ? ` (전체 ${all.length}개 중)` : ""}</div></div>
               <div className="kpi"><div className="k">보유 종목 평가 손익</div><div className="v" style={{ color: pnl >= 0 ? "var(--bad)" : "var(--accent)" }}>{signed(pnl)}</div><div className="s">{pnlBase > 0 ? `매입 원가 대비 ${pct((pnl / pnlBase) * 100)}` : "시세를 아는 종목이 없음"}</div></div>
               <div className="kpi"><div className="k">현금(예수금)</div><div className="v">{won(cash)}</div><div className="s">{total > 0 ? `현금 비중 ${((cash / total) * 100).toFixed(1)}%` : ""}</div></div>
               <div className="kpi"><div className="k">다음 거래일 할 일</div><div className="v">{todo.length}건</div><div className="s">자동 {todo.filter((x) => x.a.kind === "auto").length} · 직접 {todo.filter((x) => x.a.kind === "manual").length}</div></div>
@@ -252,7 +295,7 @@ export default function DashboardPage() {
                   ))}
                 </span>
               </h2>
-              <div className="legend">{seriesKeys.map((k, i) => <span key={k}><i style={{ background: c.s[Math.min(i, SLOTS - 1)], height: 8, width: 8, borderRadius: 2 }} />{seriesName(k)}</span>)}</div>
+              <div className="legend">{seriesKeys.map((k) => <span key={k}><i style={{ background: c.s[slotOf(k)], height: 8, width: 8, borderRadius: 2 }} />{seriesName(k)}</span>)}</div>
               {trend.length < 2 ? <p className="help">기록이 쌓이면 그려집니다{lastDate ? ` (마지막 ${lastDate})` : ""}.</p> : (
                 <div style={{ height: 300 }}>
                   <ResponsiveContainer>
@@ -261,8 +304,8 @@ export default function DashboardPage() {
                       <XAxis dataKey="date" {...axis} minTickGap={50} tickFormatter={(d: string) => d.slice(5)} />
                       <YAxis {...axis} width={56} tickFormatter={short} />
                       <Tooltip content={<Tip total />} />
-                      {seriesKeys.map((k, i) => (
-                        <Area key={k} dataKey={k} name={seriesName(k)} stackId="1" type="linear" stroke={c.surface} strokeWidth={2} fill={c.s[Math.min(i, SLOTS - 1)]} fillOpacity={0.85} isAnimationActive={false} />
+                      {seriesKeys.map((k) => (
+                        <Area key={k} dataKey={k} name={seriesName(k)} stackId="1" type="linear" stroke={c.surface} strokeWidth={2} fill={c.s[slotOf(k)]} fillOpacity={0.85} isAnimationActive={false} />
                       ))}
                     </AreaChart>
                   </ResponsiveContainer>
@@ -406,7 +449,7 @@ export default function DashboardPage() {
                   ];
                 })}</tbody>
               </table></div>
-              {st.trades.length > 0 && <p className="help">최근 수동 체결 기록: {st.trades.slice(0, 5).map((t) => `${t.date} ${t.side === "buy" ? "매수" : "매도"} ${t.name ?? t.ticker} ${t.qty}주`).join(" · ")}</p>}
+              {st.trades.some((t) => accts.some((a) => a.id === t.accountId)) && <p className="help">최근 수동 체결 기록: {st.trades.filter((t) => accts.some((a) => a.id === t.accountId)).slice(0, 5).map((t) => `${t.date} ${t.side === "buy" ? "매수" : "매도"} ${t.name ?? t.ticker} ${t.qty}주`).join(" · ")}</p>}
             </div>
           </>
         )}
