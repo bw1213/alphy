@@ -215,8 +215,8 @@ export async function accountSnapshot(u: User, market: Market = "KR", e: Env = p
   const view = kisViewOf(raw, loadHistory(u.id, e).prices, now);
   const holdings = (market === "US" ? raw.us?.holdings ?? [] : raw.kr.holdings) as Holding[];
   const count = raw.kr.holdings.length + (raw.us?.holdings.length ?? 0);
-  // 달러 예수금을 못 읽은 날은 평가액이 그만큼 빠지므로 손익 계산에 쓰지 않음
-  const exact = !raw.cashNote && (view.positions.length === count || !!raw.us?.totalAsset);
+  // 총자산을 못 읽어 달러 예수금이 빠진 날, 미국 종목을 원화로 못 바꾼 날은 손익 계산에 쓰지 않음
+  const exact = !view.partial && (view.positions.length === count || !!raw.us?.totalAsset);
   const stock = view.positions.reduce((a, p) => a + p.value, 0);
   return {
     env: raw.env, holdings, view,
