@@ -142,3 +142,17 @@ describe("아침 주문 체결 알림", () => {
     expect(fillMessages(d, new Map([[0, 2], [1, 0]]))).toBe("");
   });
 });
+
+describe("한국·미국 기록 저장 이름", () => {
+  it("같은 날짜의 한국 아침 기록이 미국 주문을 막지 않음", async () => {
+    const fs = await import("fs"); const os = await import("os"); const path = await import("path");
+    const { loadDay, saveDay, dayKey } = await import("@/lib/auto/morning");
+    const env = { ALPHY_CONFIG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "alphy-day-")) };
+    saveDay({ date: "2026-11-17", label: "a", env: "mock", phase: "done", items: [], log: [] }, "owner", env);
+    expect(loadDay("2026-11-17", "owner", env, "US")).toBeNull();
+    saveDay({ date: "2026-11-17", label: "b", env: "mock", market: "US", phase: "placed", items: [], log: [] }, "owner", env);
+    expect(loadDay("2026-11-17", "owner", env, "US")?.label).toBe("b");
+    expect(loadDay("2026-11-17", "owner", env)?.label).toBe("a");
+    expect(dayKey("2026-11-17", "US")).toBe("2026-11-17:US");
+  });
+});

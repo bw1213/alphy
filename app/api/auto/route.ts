@@ -165,7 +165,7 @@ export async function POST(req: Request) {
         if (plan?.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, user.id);
         const market = plan ? planMarket(plan) : "KR";
         const today = clockOf(market).date;
-        let d = loadDay(today, user.id);
+        let d = loadDay(today, user.id, process.env, market);
         if (d && ["placed", "buying"].includes(d.phase)) {
           d = await stopDay(d, brokerFor(user, process.env, d.market ?? "KR"), Date.now());
           d.notified = true;

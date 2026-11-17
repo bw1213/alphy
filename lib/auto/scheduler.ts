@@ -83,7 +83,7 @@ export async function morningFor(u: User, now: number, e: Env = process.env): Pr
   const cutoff = ses.cutoff;
   if (k.hm < ses.orderAt || k.hm > ses.close) return;
   const mk = market === "US" ? { market } : {};
-  let d = loadDay(k.date, u.id, e);
+  let d = loadDay(k.date, u.id, e, market);
   if (!d) {
     if (k.hm >= cutoff) return;
     const plan = loadPlan(u.id, e);
@@ -156,7 +156,7 @@ export async function intradayFor(u: User, now: number, e: Env = process.env): P
   const k = clockOf(market, now);
   const ses = sessionFor(market, e);
   if (!isWeekday(k) || k.hm < ses.watchFrom || k.hm > minutesAfter(ses.close, 10)) return;
-  let d = loadIntradayDay(k.date, u.id, e);
+  let d = loadIntradayDay(k.date, u.id, e, market);
   const plan = loadPlan(u.id, e);
   if (!d) {
     if (!plan) return;
@@ -215,7 +215,7 @@ export async function accountSnapshot(u: User, market: Market = "KR", e: Env = p
   const view = kisViewOf(raw, loadHistory(u.id, e).prices, now);
   const holdings = (market === "US" ? raw.us?.holdings ?? [] : raw.kr.holdings) as Holding[];
   const count = raw.kr.holdings.length + (raw.us?.holdings.length ?? 0);
-  const exact = (!!raw.us?.totalAsset && view.total === Math.round(raw.us.totalAsset)) || view.positions.length === count;
+  const exact = view.positions.length === count || !!raw.us?.totalAsset;
   const stock = view.positions.reduce((a, p) => a + p.value, 0);
   return {
     env: raw.env, holdings, view,
