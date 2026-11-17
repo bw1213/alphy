@@ -38,7 +38,7 @@ export default function TodayOrders({ loggedIn, onLog }: { loggedIn: boolean; on
       <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>오늘 주문·체결
         <button style={{ marginLeft: "auto" }} disabled={!!busy || !loggedIn} onClick={load}>{busy === "load" ? "조회 중…" : "조회"}</button>
       </h2>
-      {!list ? <p className="help">조회 버튼을 누르세요. 자동 매매가 낸 주문도 여기 보입니다.</p> : (
+      {!list ? <p className="help">조회 버튼을 누르세요.</p> : (
         <div className="tablewrap"><table>
           <thead><tr><th>시각</th><th>구분</th><th>종목</th><th>주문</th><th>체결</th><th>미체결</th><th></th></tr></thead>
           <tbody>

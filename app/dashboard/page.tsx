@@ -215,7 +215,7 @@ export default function DashboardPage() {
     <>
       <header className="top">
         <h1>전체 계좌</h1>
-        <p>한국투자증권(자동 매매) 계좌와 직접 기록한 수동 계좌를 한눈에 봅니다. 평일 저녁 계산 뒤 하루 한 번 기록합니다.</p>
+        <p>자동·수동 계좌 한눈에 보기</p>
         <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/manual">수동 매매</a><a href="/auto">자동 매매</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
       </header>
       <main style={{ padding: 16, maxWidth: 1500, margin: "0 auto", display: "grid", gap: 16 }}>
@@ -231,7 +231,7 @@ export default function DashboardPage() {
         {st?.kis?.view?.note && <p className="help" style={{ margin: 0 }}>※ {st.kis.view.note}</p>}
 
         {!st ? <div className="card"><p className="help">불러오는 중…</p></div> : !accts.length ? (
-          <div className="card"><p className="help">아직 보여 줄 계좌가 없습니다. <a href="/settings">설정</a>에서 한국투자증권 계좌를 연결하거나 <a href="/manual">수동 매매</a>에서 계좌를 추가하세요.</p></div>
+          <div className="card"><p className="help">계좌가 없습니다. <a href="/settings">설정</a>이나 <a href="/manual">수동 매매</a>에서 추가하세요.</p></div>
         ) : (
           <>
             <div className="kpis">
@@ -253,7 +253,7 @@ export default function DashboardPage() {
                 </span>
               </h2>
               <div className="legend">{seriesKeys.map((k, i) => <span key={k}><i style={{ background: c.s[Math.min(i, SLOTS - 1)], height: 8, width: 8, borderRadius: 2 }} />{seriesName(k)}</span>)}</div>
-              {trend.length < 2 ? <p className="help">기록이 쌓이면 그려집니다 (평일 저녁마다 한 점{lastDate ? `, 마지막 ${lastDate}` : ""}). 지금 한 점을 남기려면 "시세·잔고 새로 받기"를 누르세요.</p> : (
+              {trend.length < 2 ? <p className="help">기록이 쌓이면 그려집니다{lastDate ? ` (마지막 ${lastDate})` : ""}.</p> : (
                 <div style={{ height: 300 }}>
                   <ResponsiveContainer>
                     <AreaChart data={trend} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
@@ -305,12 +305,12 @@ export default function DashboardPage() {
                     </ResponsiveContainer>
                   </div>
                 )}
-                <p className="help">같은 종목은 계좌를 합쳐 봅니다. 회색은 현금입니다.</p>
+                <p className="help">회색은 현금입니다.</p>
               </div>
 
               <div className="card">
                 <h2>종목별 평가 손익</h2>
-                {!pnls.length ? <p className="help">시세를 아는 보유 종목이 없습니다. "시세·잔고 새로 받기"를 눌러 보세요.</p> : (
+                {!pnls.length ? <p className="help">시세를 아는 보유 종목이 없습니다.</p> : (
                   <div style={{ height: Math.max(120, pnls.length * 28 + 20) }}>
                     <ResponsiveContainer>
                       <BarChart data={pnls} layout="vertical" margin={{ top: 0, right: 64, bottom: 0, left: 0 }} barCategoryGap={6}>
@@ -330,13 +330,13 @@ export default function DashboardPage() {
                     </ResponsiveContainer>
                   </div>
                 )}
-                <p className="help">빨강은 이익, 파랑은 손실입니다 (평균단가 대비).</p>
+                
               </div>
             </div>
 
             <div className="card">
               <h2>계좌별 전략 대비</h2>
-              <p className="help" style={{ marginTop: 0 }}>계좌 평가액(실선)과 같은 날 전략 계산 평가액(점선)입니다. 둘이 벌어지면 안내대로 사고팔지 않았거나 체결 가격·입출금 차이가 있다는 뜻입니다.</p>
+              <p className="help" style={{ marginTop: 0 }}>실선 계좌 · 점선 전략</p>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: 16, marginTop: 8 }}>
                 {accts.filter((a) => (st.points[a.id] ?? []).some((p) => p.strategy != null)).map((a) => {
                   const pts = (st.points[a.id] ?? []).map((p) => ({ date: p.date, account: p.total, strategy: p.strategy ?? null }));
@@ -359,7 +359,7 @@ export default function DashboardPage() {
                   );
                 })}
               </div>
-              {!accts.some((a) => (st.points[a.id] ?? []).some((p) => p.strategy != null)) && <p className="help">전략이 있는 계좌의 저녁 계산 기록이 쌓이면 그려집니다.</p>}
+              {!accts.some((a) => (st.points[a.id] ?? []).some((p) => p.strategy != null)) && <p className="help">기록이 쌓이면 그려집니다.</p>}
             </div>
 
             <div className="card">

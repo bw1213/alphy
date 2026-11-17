@@ -61,12 +61,12 @@ export interface EveningReport {
   label: string;
   /** 계산에 쓴 마지막 시세 날짜 */
   dataDate?: string;
-  /** 백테스트상 전략 평가액 (운용 금액에서 출발) */
+  /** 전략 계산 평가액: 운용 금액에서 출발한 백테스트 값 (실제 계좌가 아님) */
   equity?: number;
   cash?: number;
   /** 손실 한도에 닿음 → 자동 매매를 멈춤 */
   lossStop?: { loss: number; limit: number; basis?: "account" | "backtest" };
-  /** 실제 계좌 총평가액·예수금·주식 평가액 (계좌를 읽었을 때) */
+  /** 실제 계좌 평가액·예수금·주식 평가액 (계좌를 읽었을 때). 한국투자증권은 국내+미국, 원화·달러 예수금 모두 원화로 */
   accountTotal?: number;
   accountCash?: number;
   accountStock?: number;
@@ -120,7 +120,7 @@ export function preparePlan(plan: AutoPlan): Prepared {
 export interface EveningDeps {
   load?: (q: DataRequest) => Promise<DataResponse>;
   /** 실제 계좌 보유 (못 읽으면 throw) */
-  holdings?: () => Promise<{ env: "real" | "mock" | "manual"; holdings: Holding[]; total?: number; cash?: number; stock?: number }>;
+  holdings?: () => Promise<{ env: "real" | "mock" | "manual"; holdings: Holding[]; total?: number; cash?: number; stock?: number; note?: string }>;
   /** 운용을 시작한 날의 계좌 총평가액. 주면 손실 한도를 실제 계좌 손익으로 봄 (없거나 계좌를 못 읽으면 백테스트 평가액으로) */
   accountBase?: number;
   now?: number;
@@ -194,6 +194,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const h = await deps.holdings();
       real = new Map(h.holdings.map((x) => [x.code, x.qty]));
       r.holdingsFrom = "account"; r.account = h.env;
+      if (h.note) r.warnings.push(`계좌 평가: ${h.note}`);
       if (h.total == null && h.cash != null) {
         // 수동 계좌: 평가액을 오늘 종가로 계산 (시세가 없는 종목은 입력한 평균단가로)
         const stock = h.holdings.reduce((a, x) => a + x.qty * (close(x.code) > 0 ? close(x.code) : x.avgPrice), 0);
@@ -288,8 +289,9 @@ export function formatReport(r: EveningReport): string {
   if (r.status === "holiday") return `${head}\n오늘은 휴장일로 보고 건너뜁니다.`;
   const lines = [head];
   if (r.lossStop) lines.push(`!! 손실 한도 도달: 운용 금액 대비 -${r.lossStop.loss.toFixed(1)}% (한도 -${r.lossStop.limit}%). 자동 매매를 멈췄습니다.`);
-  if (r.equity != null) lines.push(`전략 평가액 ${won(r.equity)} (현금 ${won(r.cash ?? 0)})`);
-  if (r.accountPnl != null) lines.push(`실제 계좌 손익 ${r.accountPnl >= 0 ? "+" : "-"}${won(Math.abs(r.accountPnl))} (계좌 총평가액 ${won(r.accountTotal ?? 0)})`);
+  if (r.accountTotal != null) lines.push(`계좌 평가액 ${won(r.accountTotal)} (예수금 ${won(r.accountCash ?? 0)} · 주식 ${won(r.accountStock ?? 0)})`);
+  if (r.accountPnl != null) lines.push(`운용 시작 뒤 계좌 손익 ${r.accountPnl >= 0 ? "+" : "-"}${won(Math.abs(r.accountPnl))}`);
+  if (r.equity != null) lines.push(`전략 계산 평가액(가상, 운용 금액에서 출발) ${won(r.equity)}`);
   if (!r.orders.length) lines.push(r.kept ? "내일 주문: 없음 (보유 유지)" : "내일 주문: 없음");
   else {
     lines.push(`${r.market === "US" ? "오늘 밤 미국 장 시작 주문" : "내일 아침 주문"} ${r.orders.length}건:`);

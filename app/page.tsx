@@ -25,6 +25,7 @@ import { buildCandidates, maxWarmup, type Candidate } from "@/lib/finder/candida
 import { evaluate, OBJECTIVES, type FinderReport, type Objective } from "@/lib/finder/search";
 import { userKey } from "@/lib/client/userStorage";
 import { fetchData } from "@/lib/client/fetchData";
+import Info from "@/components/Info";
 // 브라우저 저장 이름은 사람마다 다름 (같은 기기를 여럿이 써도 섞이지 않게)
 const lsKey = () => userKey("kbt.custom-strategies");
 const lastKey = () => userKey("alphy.last-state");
@@ -482,17 +483,17 @@ export default function Page() {
   const paramSpecs = builtin?.params ?? [];
   const hasUs = universeMode === "list" && parseTickers(tickers).some(isUsTicker);
   const sourceHelp = useMemo(() => ({
-    naver: "네이버 증권 일봉(수정주가). 서버가 받아 .cache/ 에 저장하고 새 날짜만 이어 받습니다.",
-    kis: "한국투자증권 Open API 일봉(수정주가). 설정 화면에서 앱키를 넣어야 합니다. 모의투자 키만 있으면 초당 2건 제한 때문에 느리니 종목 수를 줄이세요. 미국 종목 시세·환율도 한국투자증권에서 받고, 못 받으면 야후 파이낸스를 씁니다.",
+    naver: "",
+    kis: "설정에서 앱키가 필요합니다. 모의 키는 느리니 종목 수를 줄이세요.",
     csv: "data/csv/{종목코드}.csv (Date,Open,High,Low,Close,Volume). 지수는 KOSPI.csv",
-    synthetic: "랜덤 가짜 데이터. 전략 코드가 돌아가는지 확인할 때만 쓰세요.",
+    synthetic: "코드 동작 확인용 가짜 데이터입니다.",
   }[source]), [source]);
 
   return (
     <>
       <header className="top">
         <h1>백테스트 (한국·미국)</h1>
-        <p>전략을 고르거나 직접 작성해서 과거 성과를 확인하세요. 목표: 연 {target.cagr}%, 최대 낙폭 -{target.mdd}% 이내 (<a href="/settings">설정</a>에서 변경)</p>
+        <p>목표 연 {target.cagr}% · 최대 낙폭 -{target.mdd}%</p>
         <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/dashboard">전체 계좌</a><a href="/auto">자동 매매</a><a href="/manual">수동 매매</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
@@ -513,7 +514,7 @@ export default function Page() {
                 </optgroup>
               </select>
             </label>
-            <p className="help">마지막으로 쓴 전략·종목·기간·자금 설정은 NAS에 자동 저장되어, 어느 기기에서 다시 열어도 그대로 이어집니다.{lastMsg && <> {lastMsg}</>} <button className="link" onClick={resetLast}>처음 설정으로 되돌리기</button></p>
+            <p className="help">{lastMsg && <>{lastMsg} </>}<button className="link" onClick={resetLast}>처음 설정으로 되돌리기</button><Info>마지막 설정은 NAS에 자동 저장되어 어느 기기에서나 이어집니다.</Info></p>
             {builtin && (
               <>
                 <p className="desc">{builtin.description}</p>
@@ -555,7 +556,7 @@ export default function Page() {
                 ) : mode === "builder" ? (
                   <>
                     <StrategyBuilder spec={spec} onChange={setSpec} rebalance={rebalance} onRebalance={setRebalance} />
-                    <p className="help">더 복잡한 규칙이 필요하면 위의 &quot;코드 작성&quot;을 누르세요. 지금 조건이 코드로 바뀌어 이어서 고칠 수 있습니다(코드에서 고친 내용은 조건 화면으로 돌아오지 않습니다).</p>
+                    <p className="help">더 복잡한 규칙은 위 &quot;코드 작성&quot;으로 이어서 고칠 수 있습니다.</p>
                   </>
                 ) : (
                   <>
@@ -578,12 +579,12 @@ export default function Page() {
                   {local.some((l) => isLocalOnly(l.name)) && <button onClick={moveLocalToNas}>이 브라우저의 전략을 NAS로 옮기기</button>}
                 </div>
                 {stratMsg && <p className="help">{stratMsg}</p>}
-                <p className="help">저장한 전략은 NAS에 보관되어 어느 기기에서나 고를 수 있습니다(저장·삭제는 로그인 필요). 같은 이름으로 저장하면 덮어쓰고, 이름을 바꿔 저장하면 사본이 생깁니다.</p>
+                <p className="help">같은 이름으로 저장하면 덮어씁니다.</p>
               </>
             )}
             <h3>운용 규칙</h3>
-            {isCustom && mode === "cycle" && <p className="help">이 전략은 매일 확인하므로 리밸런싱은 &quot;매일&quot;로 고정됩니다. 매수 주기와 비중 맞추는 주기는 위에서 정하세요.</p>}
-            {isCustom && mode === "builder" && <p className="help">리밸런싱 주기는 위 &quot;4. 투자 비율과 리밸런싱&quot;에서 정합니다.</p>}
+            {isCustom && mode === "cycle" && <p className="help">리밸런싱은 &quot;매일&quot; 고정입니다.</p>}
+            {isCustom && mode === "builder" && <p className="help">리밸런싱 주기는 위 4번에서 정합니다.</p>}
             <div className="row3">
               <label className="f">리밸런싱
                 <select value={String(isCustom && mode === "cycle" ? "D" : rebalance)} disabled={isCustom && mode !== "code"} onChange={(e) => setRebalance(/^\d+$/.test(e.target.value) ? Number(e.target.value) : (e.target.value as Rebalance))}>
@@ -597,7 +598,7 @@ export default function Page() {
               <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={intraday} onChange={(e) => setIntraday(e.target.checked)} />
               장중 매도: 손절·익절{isCustom && mode === "cycle" ? "·하락 매도" : ""} 가격에 장중에 닿으면 그날 그 가격에 판 것으로 계산
             </label>
-            <p className="help">끄면 종가로 확인하고 다음 날 시가에 팝니다. 자동 매매에서 장중 실시간 매도를 켜면 이 방식과 같습니다.</p>
+            <p className="help">끄면 종가 확인 후 다음 날 시가에 팝니다.</p>
           </div>
 
           <div className="card">
@@ -614,7 +615,7 @@ export default function Page() {
                 <option value="synthetic">가짜 데이터 (테스트용)</option>
               </select>
             </label>
-            <p className="help">{sourceHelp}</p>
+            {sourceHelp && <p className="help">{sourceHelp}</p>}
             <div className="seg" style={{ marginTop: 10 }}>
               <button className={universeMode === "top" ? "on" : ""} onClick={() => setUniverseMode("top")}>시총 상위 N</button>
               <button className={universeMode === "list" ? "on" : ""} onClick={() => setUniverseMode("list")}>종목 직접 입력</button>
@@ -630,7 +631,7 @@ export default function Page() {
                       <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={pit} onChange={(e) => setPit(e.target.checked)} />
                       과거 시점의 시총 상위 종목 사용 (생존편향 제거)
                     </label>
-                    <p className="help">켜면 분기마다 &quot;그때&quot; 시총 상위였던 종목으로 목록을 바꾸고, 그 뒤 상장폐지된 종목도 포함합니다. 끄면 &quot;지금&quot; 시총 상위 종목만 써서 수익률이 실제보다 좋게 나옵니다. 과거 목록은 KRX 정보데이터시스템에서 받으며 처음 한 번은 몇 분 걸립니다.</p>
+                    <p className="help">끄면 수익률이 실제보다 좋게 나옵니다.<Info>켜면 분기마다 그때의 시총 상위 종목(이후 상장폐지 포함)으로 바꿉니다. 과거 목록은 KRX에서 받으며 처음 한 번은 몇 분 걸립니다.</Info></p>
                   </>
                 )}
               </>
@@ -643,7 +644,7 @@ export default function Page() {
                   <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
                 </label>
                 <StockChips value={tickers} onChange={setTickers} />
-                <p className="help">한국 종목은 6자리 코드(005930), 미국 주식·ETF는 티커(AAPL, SPY, BRK.B)를 넣으세요. 섞어서 넣어도 됩니다. 미국 종목만 넣으면 비교 지수는 S&amp;P 500입니다.</p>
+                <p className="help">한국 005930, 미국 AAPL·SPY 처럼 넣고 섞어도 됩니다.</p>
               </>
             )}
           </div>
@@ -670,9 +671,9 @@ export default function Page() {
               </label>
               {useDiv && <label className="f">배당소득세 %<input placeholder="15.4" value={divTax} onChange={(e) => setDivTax(e.target.value)} /></label>}
             </div>
-            <p className="help">추가 입금은 시작 다음 달부터 매월 첫 거래일 장 시작 전에 현금으로 들어오고, 전략이 다음 매매 때 씁니다. 수익률은 입금 효과를 뺀 값으로 계산합니다. 매도세 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%) 적용. 신호는 당일 종가, 체결은 다음 날 시가.
-              {useDiv && " 배당금·분배금은 배당락일 장 시작 전에 들고 있던 수량만큼 세금을 뗀 금액이 현금으로 들어옵니다(실제 입금은 몇 주 뒤지만 배당락일로 계산). 추가 입금과 똑같이 현금으로 들어와 전략이 다음 매매 때 쓰고(매수 후 보유 비교는 입금처럼 종목별로 똑같이 나눠 삼), 넣은 돈에는 더하지 않고 수익으로 계산합니다. 배당소득세 기본 15.4%(ISA·연금계좌면 0으로), 미국 종목은 현지 원천징수 15%."}
-              {hasUs && " 미국 종목은 거래세가 없고, 시세를 그날 원/달러 환율로 원화로 바꿔 계산합니다(환율 변동 포함). 한국투자증권 기본 수수료는 0.25%, 환전 비용은 환율 우대에 따라 다릅니다. 양도소득세는 계산하지 않습니다."}</p>
+            <p className="help">신호는 당일 종가, 체결은 다음 날 시가.<Info>추가 입금은 다음 달부터 매월 첫 거래일 장 전에 들어오며, 수익률은 입금 효과를 뺀 값입니다. 매도세를 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%)을 씁니다.
+              {useDiv && " 배당금은 배당락일에 세후 현금으로 들어와 수익으로 계산합니다. 배당소득세 기본 15.4%(ISA·연금은 0), 미국은 원천징수 15%."}
+              {hasUs && " 미국 종목은 그날 환율로 원화 환산하며 거래세·양도소득세는 빼고 계산합니다(한국투자증권 기본 수수료 0.25%)."}</Info></p>
           </div>
 
           <button className="primary" onClick={run} disabled={!!busy}>
@@ -681,7 +682,7 @@ export default function Page() {
 
           <div className="card">
             <h2>전략 찾기 (종목 1~3개)</h2>
-            <p className="desc">위 &quot;종목 직접 입력&quot;에 넣은 종목 1~3개로, 몇 종목만 들고 운용하는 전략 6가지(이평선·교차·모멘텀 순환·RSI·비중 고정·적립 분할 매도)의 설정 약 100개를 시험해 가장 좋은 것을 찾습니다. 기간·자금·비용은 위 설정을 씁니다.</p>
+            <p className="desc">직접 입력한 종목 1~3개로 전략 6가지·설정 약 100개를 시험해 가장 좋은 것을 찾습니다.</p>
             <label className="f" style={{ marginTop: 10 }}>무엇을 기준으로 고를까요
               <select value={objective} onChange={(e) => setObjective(e.target.value as Objective)}>
                 {OBJECTIVES.map((o) => <option key={o.id} value={o.id}>{o.id === "capped" ? `최대 낙폭 -${target.mdd}% 안에서 수익률이 가장 높은 것` : o.label}</option>)}
@@ -693,7 +694,7 @@ export default function Page() {
                 <option value={0.2}>마지막 20%</option><option value={0.3}>마지막 30%</option><option value={0.4}>마지막 40%</option><option value={0.5}>마지막 50%</option>
               </select>
             </label>
-            <p className="help">앞 구간 성적으로만 1등을 고르고, 확인 구간에서도 통했는지 따로 보여 줍니다. 기간이 길수록(5년 이상 권장) 믿을 만합니다. 계산은 이 기기의 브라우저에서 하므로 NAS에 부담을 주지 않습니다.</p>
+            <p className="help">앞 구간으로 고르고 확인 구간에서 통했는지 봅니다. 5년 이상 권장.</p>
             <button className="primary" style={{ marginTop: 10 }} onClick={findStrategy} disabled={!!busy || !finderReady}>
               {busy ? <><span className="spin" />실행 중</> : finderReady ? `${finderList.length}종목으로 전략 찾기` : "종목을 1~3개 직접 입력하세요"}
             </button>
@@ -710,8 +711,7 @@ export default function Page() {
           {finder && finderFirst && <FinderResults report={finder.report} holdName={finder.holdName} onApply={applyCandidate} onClose={() => setFinder(null)} />}
           {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && !finder && (
             <div className="card empty">
-              <p><b>왼쪽에서 전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
-              <p>결과로 연평균 수익률, 최대 낙폭, 지수(KOSPI, 미국 종목만이면 S&amp;P 500) 대비 성과, 연도별 목표 달성 여부, 매매 내역을 보여드립니다.</p>
+              <p><b>전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
             </div>
           )}
           {finder && !finderFirst && <FinderResults report={finder.report} holdName={finder.holdName} onApply={applyCandidate} onClose={() => setFinder(null)} />}

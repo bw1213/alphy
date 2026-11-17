@@ -50,10 +50,7 @@ export default function UsersCard() {
       <h2>사용자 (가족·지인 초대)</h2>
       {msg && (msg.ok ? <span className="saved">✓ {msg.text}</span> : <div className="error">{msg.text}</div>)}
       <p className="help">
-        초대 링크를 받은 사람만 가입할 수 있습니다. 가입한 사람은 백테스트와 본인 전략 보관함·마지막 설정을 따로 씁니다.
-
-        한국투자증권은 각자 본인 앱키·계좌를 본인 설정 화면에서 넣어 쓰고(암호화 저장, 서로 볼 수 없음), 처음에는 <b>모의투자만</b> 됩니다.
-        실전 주문은 서버 잠금 해제(KIS_ALLOW_REAL_ORDERS) + 여기서 &apos;실전 허용&apos; + 그 사람의 2단계 인증이 모두 있어야 나갑니다.
+        초대 링크로만 가입합니다. 처음에는 <b>모의투자만</b> 되고, 실전은 서버 잠금 해제 + &apos;실전 허용&apos; + 본인 2단계 인증이 모두 필요합니다.
       </p>
 
       <div style={{ overflowX: "auto" }}>
@@ -100,7 +97,7 @@ export default function UsersCard() {
       </div>
       {link && (
         <div style={{ marginTop: 10 }}>
-          <p className="help">이 링크는 지금 한 번만 보입니다. 한 번 쓰면 사라지고 {st.inviteDays}일 뒤 만료됩니다.</p>
+          <p className="help">지금 한 번만 보입니다 · {st.inviteDays}일 뒤 만료</p>
           <code style={{ wordBreak: "break-all", display: "block", padding: 8 }}>{link}</code>
           <button style={{ marginTop: 6 }} onClick={copy}>{copied ? "복사됨" : "링크 복사"}</button>
         </div>
@@ -120,7 +117,7 @@ export default function UsersCard() {
       )}
 
       <h3 style={{ marginTop: 16 }}>모두 로그아웃</h3>
-      <p className="help">비밀번호가 샜다고 의심될 때: 모든 사람의 모든 기기 로그인을 끊습니다(이 기기만 유지). 점검 키도 폐기됩니다.</p>
+      <p className="help">모든 사람의 로그인을 끊고 점검 키도 폐기합니다(이 기기만 유지).</p>
       <button onClick={() => window.confirm("모든 사람을 로그아웃시킬까요?") && post({ action: "logout-everyone" }, "모든 로그인을 끊었습니다")}>모든 사람 로그아웃</button>
     </div>
   );

@@ -200,6 +200,23 @@ describe("텔레그램", () => {
   });
 });
 
+describe("자동 매매 평가액: 실제 계좌와 전략 계산 구분", () => {
+  const today = "2026-11-16";
+  it("계좌 평가액(예수금·주식)을 먼저, 전략 계산값은 가상으로 표시. 평가 메모는 경고로", async () => {
+    const data = { "069500": bars(today, 300, () => 40_000) };
+    const plan: AutoPlan = { strategy: cycleStrategy, label: "적립", tickers: ["069500"], budget: 1_000_000, startDate: "2026-10-26", enabled: true, updatedAt: "" };
+    const holdings = async () => ({ env: "mock" as const, holdings: [], total: 12_345_000, cash: 2_345_000, stock: 10_000_000, note: "미국 잔고를 읽지 못했습니다" });
+    const r = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, holdings, accountBase: 12_000_000 });
+    expect(r.accountTotal).toBe(12_345_000);
+    expect(r.accountPnl).toBe(345_000);
+    const text = formatReport(r);
+    expect(text).toContain("계좌 평가액 12,345,000원 (예수금 2,345,000원 · 주식 10,000,000원)");
+    expect(text).toContain("전략 계산 평가액(가상");
+    expect(text.indexOf("계좌 평가액")).toBeLessThan(text.indexOf("전략 계산 평가액"));
+    expect(r.warnings.some((w) => w.includes("미국 잔고를 읽지 못했습니다"))).toBe(true);
+  });
+});
+
 describe("계정별 자동 매매 한도", () => {
   const today = "2026-11-16";
   it("실전 계좌면 운용 금액이 상한을 넘을 수 없음 (0 = 제한 없음)", () => {

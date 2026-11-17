@@ -86,7 +86,7 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
     <div className="card" id="plan">
       <h2>전략대로 맞추기</h2>
       {!signal ? (
-        <p className="help">아직 받은 추천 종목이 없습니다. <a href="/">백테스트</a>를 실행한 뒤 결과의 <b>추천 종목</b> 탭에서 &quot;이 비중으로 주문 목록 만들기&quot;를 누르세요.</p>
+        <p className="help">추천 종목이 없습니다. <a href="/">백테스트</a> 결과의 <b>추천 종목</b> 탭에서 가져오세요.</p>
       ) : (
         <>
           <p className="help" style={{ marginTop: -6 }}>
@@ -94,7 +94,7 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
             {signal.picks.length > 0 && <> ({signal.picks.slice(0, 5).map((p) => p.name || p.ticker).join(", ")}{signal.picks.length > 5 ? " 외" : ""})</>}
           </p>
           {signal.picks.some((p) => isUsTicker(p.ticker)) && (
-            <p className="help">미국 종목({signal.picks.filter((p) => isUsTicker(p.ticker)).map((p) => p.ticker).join(", ")})은 아직 해외주식 주문이 연결되지 않아 주문 목록에서 빠지고, 그 비중만큼 현금으로 남습니다.</p>
+            <p className="help">미국 종목({signal.picks.filter((p) => isUsTicker(p.ticker)).map((p) => p.ticker).join(", ")})은 주문에서 빠지고 현금으로 남습니다.</p>
           )}
           {ageDays > 4 && <div className="error" style={{ margin: "8px 0" }}>{ageDays}일 전 신호입니다. 백테스트를 다시 실행해 최신 추천으로 바꾸세요.</div>}
           <div className="row" style={{ marginTop: 8 }}>
