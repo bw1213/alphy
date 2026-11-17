@@ -128,3 +128,17 @@ describe("주문·체결 내역 읽기", () => {
     expect(b).toMatchObject({ side: "sell", cancelled: true, openQty: 0 });
   });
 });
+
+describe("아침 주문 체결 알림", () => {
+  it("지난번 확인 뒤 새로 체결된 것만 알림", async () => {
+    const { fillMessages } = await import("@/lib/auto/scheduler");
+    const d: any = { date: "2026-11-17", label: "적립", env: "mock", phase: "placed", log: [], items: [
+      { ticker: "069500", name: "KODEX 200", side: "buy", planned: 3, qty: 3, status: "partial", filledQty: 2, avgPrice: 40100, price: 40000 },
+      { ticker: "005930", name: "삼성전자", side: "sell", planned: 1, qty: 1, status: "placed", filledQty: 0, avgPrice: 0, price: 70000 },
+    ] };
+    const msg = fillMessages(d, new Map([[0, 1], [1, 0]]));
+    expect(msg).toContain("매수 KODEX 200 1주 체결 (누적 2/3주, 평균 40,100원)");
+    expect(msg).not.toContain("삼성전자");
+    expect(fillMessages(d, new Map([[0, 2], [1, 0]]))).toBe("");
+  });
+});
