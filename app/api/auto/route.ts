@@ -16,15 +16,22 @@ import { notify } from "@/lib/auto/telegram";
 import { cleanHm, kst } from "@/lib/auto/time";
 import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
 import { tradeEnv } from "@/lib/kis/config";
+import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
+import type { EveningReport } from "@/lib/auto/evening";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** 내 운용 전략·최근 계산 기록·예약 시각 */
+/** "지금 계산해 보기"는 시세를 새로 받느라 오래 걸릴 수 있어 작업으로 돌림 (프록시 60초 제한) */
+const runJobs = namedJobs<EveningReport>("auto-run");
+
+/** 내 운용 전략·최근 계산 기록·예약 시각. ?job=<id> 는 "지금 계산해 보기" 결과 물어보기 */
 export async function GET(req: Request) {
   const { user, denied } = requireUser(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
+  const job = new URL(req.url).searchParams.get("job");
+  if (job) return pollJob(runJobs, user.id, job);
   const plan = loadPlan(user.id);
   const account = tradeEnv(kisEnvFor(user));
   const days = loadDays(user.id);
@@ -79,9 +86,13 @@ export async function POST(req: Request) {
         savePlan(null, user.id);
         return NextResponse.json({ ok: true });
       case "run": {
-        const r = await eveningFor(user, "manual", { notify: body.notify === true });
-        if (!r) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
-        return NextResponse.json(r);
+        if (!loadPlan(user.id)) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
+        const notifyTg = body.notify === true;
+        return startJob(runJobs, user.id, `run:${notifyTg}`, async () => {
+          const r = await eveningFor(user, "manual", { notify: notifyTg });
+          if (!r) throw new Error("먼저 운용 전략을 저장하세요.");
+          return r;
+        }, { errStatus: () => 400 });
       }
       case "time": {
         if (user.id !== OWNER_ID) return NextResponse.json({ error: "계산 시각은 관리자만 바꿀 수 있습니다." }, { status: 403 });

@@ -8,6 +8,7 @@ import type { SavedStrategy } from "@/lib/strategies/library";
 import type { EveningReport } from "@/lib/auto/evening";
 import type { MorningDay } from "@/lib/auto/morning";
 import type { IntradayDay } from "@/lib/auto/intraday";
+import { fetchJob } from "@/lib/client/fetchData";
 import type { PerfPoint, PerfSummary } from "@/lib/auto/perf";
 
 interface PlanView {
@@ -28,10 +29,8 @@ interface TgState { botSet: boolean; bot: string | null; owner: boolean; linked:
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 
 async function post(url: string, body: unknown) {
-  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
-  return j;
+  // 오래 걸리는 요청(지금 계산해 보기)은 서버가 작업 id 를 주고, 끝날 때까지 이어서 물어봄
+  return fetchJob(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
 const signed = (n: number) => `${n >= 0 ? "+" : "-"}${won(Math.abs(n))}`;

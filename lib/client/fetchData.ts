@@ -20,21 +20,25 @@ export async function readJson(r: Response): Promise<any> {
   }
 }
 
-export async function fetchData(req: object, onProgress?: (p: Progress) => void, f: Fetch = (u, i) => fetch(u, i), maxPolls = 720, retryMs = 2000): Promise<DataResponse> {
-  let r = await f("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) });
+/**
+ * 오래 걸릴 수 있는 API 부르기. 서버가 바로 못 끝내면 202 { job } 을 주므로 끝날 때까지 `url?job=` 으로 이어서 물어봄.
+ * (NAS 역방향 프록시가 60초에 끊으므로 30초 넘게 걸릴 수 있는 요청은 모두 이 방식)
+ */
+export async function fetchJob<T = any>(url: string, init: RequestInit, onProgress?: (p: Progress) => void, f: Fetch = (u, i) => fetch(u, i), maxPolls = 720, retryMs = 2000, what = "작업"): Promise<T> {
+  let r = await f(url, init);
   let j = await readJson(r);
   let fails = 0;
   for (let i = 0; r.status === 202 && j?.job; i++) {
-    if (i >= maxPolls) throw new Error("시세 받기가 너무 오래 걸립니다. 기간이나 종목 수를 줄여 다시 해 보세요.");
+    if (i >= maxPolls) throw new Error(`${what}이(가) 너무 오래 걸립니다. 잠시 뒤 다시 해 보세요.`);
     if (j.progress && onProgress) onProgress(j.progress);
     const job = j;
     // 서버가 최대 20초 붙잡고 있다가 답하므로 바로 다시 물어봐도 됨
     try {
-      r = await f(`/api/data?job=${encodeURIComponent(job.job)}`, { cache: "no-store" });
+      r = await f(`${url}${url.includes("?") ? "&" : "?"}job=${encodeURIComponent(job.job)}`, { cache: "no-store" });
       j = await readJson(r);
       fails = 0;
     } catch (e) {
-      // 잠깐의 네트워크 끊김·프록시 타임아웃이면 같은 작업을 다시 물어봄 (서버에서는 계속 받는 중)
+      // 잠깐의 네트워크 끊김·프록시 타임아웃이면 같은 작업을 다시 물어봄 (서버에서는 계속 도는 중)
       const transient = e instanceof TypeError || /프록시/.test((e as Error).message);
       if (!transient || ++fails > 5) throw e;
       await new Promise((ok) => setTimeout(ok, retryMs));
@@ -43,5 +47,14 @@ export async function fetchData(req: object, onProgress?: (p: Progress) => void,
     }
   }
   if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`);
-  return j as DataResponse;
+  return j as T;
+}
+
+export async function fetchData(req: object, onProgress?: (p: Progress) => void, f: Fetch = (u, i) => fetch(u, i), maxPolls = 720, retryMs = 2000): Promise<DataResponse> {
+  try {
+    return await fetchJob<DataResponse>("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) }, onProgress, f, maxPolls, retryMs, "시세 받기");
+  } catch (e) {
+    if (/너무 오래 걸립니다/.test((e as Error).message)) throw new Error("시세 받기가 너무 오래 걸립니다. 기간이나 종목 수를 줄여 다시 해 보세요.");
+    throw e;
+  }
 }
