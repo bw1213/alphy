@@ -28,8 +28,9 @@ export const kisReader = (u: User, e: Env = process.env) => async (): Promise<Ki
   const out: KisRaw = { env: client.env, kr: { cash: kr.cash, total: kr.totalValue, holdings: kr.holdings } };
   try {
     const us = await getUsBalance(client);
-    const totalAsset = us.holdings.length ? await usTotalAsset(client).catch(() => undefined) : undefined;
-    if (us.holdings.length) out.us = { holdings: us.holdings, ...(totalAsset ? { totalAsset } : {}) };
+    // 총자산(국내·미국 주식 + 원화·외화 예수금, 원화)은 미국 보유가 없어도 읽어 둠: 달러 예수금도 계좌 평가액에 들어가야 해서
+    const totalAsset = await usTotalAsset(client).catch(() => undefined);
+    if (us.holdings.length || totalAsset) out.us = { holdings: us.holdings, ...(totalAsset ? { totalAsset } : {}) };
   } catch (err) {
     out.note = `미국 잔고를 읽지 못했습니다: ${(err as Error).message}`;
   }

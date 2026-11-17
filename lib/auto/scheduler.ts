@@ -15,9 +15,7 @@ import fs from "fs";
 import path from "path";
 import { configDir, loadSettings } from "../settings/store";
 import { getUser, listUsers, type User } from "../settings/users";
-import { getClient } from "../kis/client";
-import { tradeCredentialsFor } from "../kis/access";
-import { getBalance } from "../kis/trading";
+import type { Holding } from "../kis/trading";
 import { formatReport, runEvening, type EveningReport } from "./evening";
 import { appendLog, loadPlan, savePlan } from "./store";
 import { autoLimitFor, kisEnvFor } from "../kis/userkeys";
@@ -33,7 +31,7 @@ import { loadLog } from "./store";
 import { intradayCheck, intradayStart, loadIntradayDay, saveIntradayDay } from "./intraday";
 import { manualEveningFor } from "../manual/evening";
 import { loadAccounts } from "../manual/store";
-import { KIS_ID, refreshHistory } from "../manual/value";
+import { KIS_ID, kisViewOf, loadHistory, refreshHistory, saveHistory, type KisView } from "../manual/value";
 import { hasKisAccount, kisReader } from "../manual/kis";
 import { clockOf, krSession, planMarket, US_SESSION, type Market, type Session } from "./session";
 
@@ -187,15 +185,28 @@ export function eveningDue(now: number, st: SchedState, time: string): boolean {
   return now - ev.lastTry >= RETRY_MS;
 }
 
-/** 계좌 보유 읽기 (그 사람의 주문용 앱키·계좌). 미국 운용이면 해외 잔고와 원화로 합친 총자산 */
-export const accountHoldings = (u: User, market: Market = "KR", e: Env = process.env) => async () => {
-  if (market === "US") {
-    const b = await brokerFor(u, e, "US").balance();
-    return { env: b.env, holdings: b.holdings, ...(b.totalValue > 0 ? { total: b.totalValue } : {}) };
-  }
-  const b = await getBalance(getClient(tradeCredentialsFor(u)));
-  return { env: b.env, holdings: b.holdings, total: b.totalValue, cash: b.cash, stock: b.stockValue };
-};
+/**
+ * 자동 매매 계좌 읽기 (그 사람의 주문용 계좌, 조회만).
+ *   holdings  주문 수량 계산용: 운용하는 시장(국내 또는 미국)의 보유
+ *   total     계좌 평가액: 국내+미국 주식과 원화·달러 예수금을 원화로 합친 값 (대시보드와 같은 계산)
+ * 평가액을 정확히 모르면(미국 종목을 원화로 못 바꿈) total 을 비워 손실 한도가 엉뚱한 값으로 판단하지 않게 함.
+ */
+export async function accountSnapshot(u: User, market: Market = "KR", e: Env = process.env, now = Date.now()) {
+  const raw = await kisReader(u, e)();
+  if (!raw) throw new Error("계좌번호가 설정되지 않았습니다");
+  // 미국 운용인데 미국 잔고를 못 읽었으면 보유 0주로 보고 또 사지 않게 실패로
+  if (market === "US" && raw.note) throw new Error(raw.note);
+  const view = kisViewOf(raw, loadHistory(u.id, e).prices, now);
+  const holdings = (market === "US" ? raw.us?.holdings ?? [] : raw.kr.holdings) as Holding[];
+  const count = raw.kr.holdings.length + (raw.us?.holdings.length ?? 0);
+  const exact = !!raw.us?.totalAsset || view.positions.length === count;
+  const stock = view.positions.reduce((a, p) => a + p.value, 0);
+  return {
+    env: raw.env, holdings, view,
+    ...(exact ? { total: view.total, cash: view.cash, stock: Math.round(stock) } : {}),
+    ...(view.note ? { note: view.note } : {}),
+  };
+}
 
 /** 한 사람의 저녁 계산 + 기록 + 알림 */
 export async function eveningFor(u: User, trigger: EveningReport["trigger"], opts: { notify?: boolean; e?: Env } = {}): Promise<EveningReport | null> {
@@ -207,8 +218,12 @@ export async function eveningFor(u: User, trigger: EveningReport["trigger"], opt
   const market = planMarket(plan);
   // 미국: 지난 정상 계산 뒤로 새 시세가 없으면(미국 휴장) 건너뜀. 직접 "지금 계산해 보기"는 그대로 계산
   const prevDataDate = market === "US" && trigger === "schedule" ? loadLog(u.id, e).find((x) => x.status === "ok" && x.label === plan.label && x.market === "US" && !(plan.updatedAt && plan.updatedAt > x.ranAt))?.dataDate : undefined;
-  const r = await runEvening(plan, trigger, { holdings: accountHoldings(u, market, e), env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base?.total, prevDataDate });
+  // 읽은 계좌는 자동 매매·대시보드 화면의 "지금 계좌"에도 남김
+  let seen: KisView | undefined;
+  const holdings = async () => { const s = await accountSnapshot(u, market, e); seen = s.view; return s; };
+  const r = await runEvening(plan, trigger, { holdings, env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base?.total, prevDataDate });
   appendLog(r, u.id, e);
+  if (seen) { try { saveHistory({ ...loadHistory(u.id, e), kis: seen }, u.id, e); } catch { /* 화면용이라 무시 */ } }
   // 매일 성과 기록: 계좌 평가액과 전략 평가액 (첫날의 계좌 평가액이 기준이 됨)
   if (r.status === "ok" && r.equity != null) {
     try { savePerf(addPoint(perf, { date: r.runDate, total: r.accountTotal, cash: r.accountCash, stock: r.accountStock, strategy: r.equity }), u.id, e); }
