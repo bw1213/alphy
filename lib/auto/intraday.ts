@@ -15,7 +15,7 @@ import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport, SellLevel } from "./evening";
 import { applyFills, pickReport, type Broker, type ItemStatus, type MorningLimits } from "./morning";
 import { intradayOn, REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
-import { kst } from "./time";
+import { clockOf, krSession, US_SESSION, type Market, type Session } from "./session";
 
 type Env = Record<string, string | undefined>;
 
@@ -54,6 +54,10 @@ export interface IntradayDay {
   reportDate?: string;
   label: string;
   env?: "real" | "mock";
+  /** 미국이면 date·시각이 뉴욕 기준이고 가격은 달러 (없으면 한국) */
+  market?: Market;
+  /** 미국: 저녁 계산 때 환율 (주문 금액 한도를 원화로 따질 때) */
+  fx?: number;
   /** 감시하는 가격 (저녁 계산에서 가져옴) */
   levels: SellLevel[];
   sells: IntradaySell[];
@@ -67,6 +71,11 @@ export interface IntradayDay {
 }
 
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
+/** 그 시장의 돈 표기: 미국은 달러 */
+export const money = (m: Market | undefined, n: number) => (m === "US" ? `$${n.toFixed(2)}` : won(n));
+/** 현재가와 비교할 가격: 미국은 달러로 바꾼 값 */
+export const levelPrice = (l: SellLevel) => l.usd ?? l.price;
+const sessionOf = (d: Pick<IntradayDay, "market">): Session => (d.market === "US" ? US_SESSION : krSession({ morning: "08:40", cutoff: "10:00" }));
 export const levelKey = (l: Pick<SellLevel, "ticker" | "kind" | "price">) => `${l.ticker}:${l.kind}:${l.price}`;
 
 // ---------------- 저장 ----------------
@@ -84,15 +93,18 @@ export function saveIntradayDay(d: IntradayDay, user: string = OWNER_ID, e: Env 
 }
 
 /** 그날 처음: 어느 저녁 계산의 가격을 감시할지 정함 */
-export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Broker, now: number): Promise<IntradayDay> {
-  const k = kst(now);
-  const d: IntradayDay = { date: k.date, label: plan.label, env: b.env, levels: [], sells: [], log: [] };
+export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Broker, now: number, market: Market = "KR"): Promise<IntradayDay> {
+  const k = clockOf(market, now);
+  const d: IntradayDay = { date: k.date, label: plan.label, env: b.env, ...(market === "US" ? { market } : {}), levels: [], sells: [], log: [] };
   const off = (reason: string): IntradayDay => ({ ...d, done: true, reason, log: [`${k.hm} ${reason}`] });
   if (!plan.enabled) return off("운용이 꺼져 있습니다.");
   if (!intradayOn(plan)) return off("장중 실시간 매도가 꺼져 있습니다.");
   if (b.env === "real" && !plan.realConfirmedAt) return off(REAL_NOT_CONFIRMED);
-  const { report, reason } = pickReport(log, plan, k.date);
+  const { report, reason } = pickReport(log, plan, k.date, market === "US");
   if (!report) return off(reason!);
+  if ((report.market ?? "KR") !== market) return off("저녁 계산과 운용 종목의 시장이 달라 오늘은 감시하지 않습니다.");
+  if (market === "US" && report.sellLevels.some((l) => !(l.usd! > 0))) return off("환율을 몰라 매도 가격을 달러로 바꾸지 못했습니다.");
+  if (report.fx) d.fx = report.fx;
   d.reportDate = report.runDate;
   if (!report.intraday) return off(`${report.runDate} 저녁 계산은 장중 매도 없이 계산됐습니다. 오늘 저녁 계산부터 적용됩니다.`);
   if (!report.sellLevels.length) return off("오늘은 감시할 매도 가격이 없습니다.");
@@ -100,7 +112,7 @@ export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Bro
   try { open = await b.openDay(k.date); } catch { /* 모르면 진행 */ }
   if (open === false) return off("오늘은 휴장일입니다.");
   d.levels = report.sellLevels;
-  d.log.push(`${k.hm} 감시 시작: ${report.sellLevels.map((l) => `${l.name} ${won(l.price)} ${l.kind === "take_profit" ? "이상" : "이하"}`).join(", ")}`);
+  d.log.push(`${k.hm} 감시 시작: ${report.sellLevels.map((l) => `${l.name} ${money(market, levelPrice(l))} ${l.kind === "take_profit" ? "이상" : "이하"}`).join(", ")}`);
   return d;
 }
 
@@ -108,11 +120,11 @@ export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Bro
 export function triggered(d: IntradayDay, ticker: string, price: number): { kind: SellLevel["kind"]; levels: SellLevel[] } | null {
   const used = new Set(d.sells.flatMap((s) => s.keys));
   const open = d.levels.filter((l) => l.ticker === ticker && !used.has(levelKey(l)));
-  const sl = open.find((l) => l.kind === "stop_loss" && price <= l.price);
+  const sl = open.find((l) => l.kind === "stop_loss" && price <= levelPrice(l));
   if (sl) return { kind: "stop_loss", levels: [sl] };
-  const tp = open.find((l) => l.kind === "take_profit" && price >= l.price);
+  const tp = open.find((l) => l.kind === "take_profit" && price >= levelPrice(l));
   if (tp) return { kind: "take_profit", levels: [tp] };
-  const drops = open.filter((l) => l.kind === "drop" && price <= l.price).sort((a, b) => b.price - a.price);
+  const drops = open.filter((l) => l.kind === "drop" && price <= levelPrice(l)).sort((a, b) => b.price - a.price);
   return drops.length ? { kind: "drop", levels: drops } : null;
 }
 
@@ -123,11 +135,14 @@ export function triggered(d: IntradayDay, ticker: string, price: number): { kind
 export async function intradayCheck(d: IntradayDay, b: Broker, now: number, lim: MorningLimits = {}): Promise<{ day: IntradayDay; messages: string[] }> {
   const msgs: string[] = [];
   if (d.done) return { day: d, messages: msgs };
-  const hm = kst(now).hm;
-  const head = `[알피] ${d.date} 장중 매도 · ${d.label} (${d.env === "real" ? "실전" : "모의투자"})`;
+  const hm = clockOf(d.market ?? "KR", now).hm;
+  const ses = sessionOf(d);
+  // 주문 금액 한도는 원화로 따짐
+  const krw = (usdOrWon: number) => (d.market === "US" ? usdOrWon * (d.fx ?? 0) : usdOrWon);
+  const head = `[알피] ${d.date} ${d.market === "US" ? "미국 " : ""}장중 매도 · ${d.label} (${d.env === "real" ? "실전" : "모의투자"})`;
 
   // 1) 새 매도
-  if (hm >= WATCH_FROM && hm < WATCH_UNTIL && b.quote) {
+  if (hm >= ses.watchFrom && hm < ses.watchUntil && b.quote) {
     const used = new Set(d.sells.flatMap((s) => s.keys));
     const tickers = [...new Set(d.levels.filter((l) => !used.has(levelKey(l))).map((l) => l.ticker))];
     let held: Map<string, number> | null = null;
@@ -151,8 +166,10 @@ export async function intradayCheck(d: IntradayDay, b: Broker, now: number, lim:
       const qty = Math.min(want, have);
       const s: IntradaySell = { keys, ticker: t, name: top.name, kind: hit.kind, level: hit.kind === "drop" ? hit.levels.at(-1)!.price : top.price, seen: price,
         qty, status: "waiting", filledQty: 0, avgPrice: 0, label: hit.levels.map((l) => l.label).join(", "), at: hm };
+      if (d.market === "US") s.level = levelPrice(hit.kind === "drop" ? hit.levels.at(-1)! : top);
       d.sells.push(s);
-      const what = `${top.name} 현재가 ${won(price)}가 ${won(s.level)} ${hit.kind === "take_profit" ? "이상" : "이하"}(${s.label})`;
+      const how = d.market === "US" ? "지정가(현재가 -1%)" : "시장가";
+      const what = `${top.name} 현재가 ${money(d.market, price)}가 ${money(d.market, s.level)} ${hit.kind === "take_profit" ? "이상" : "이하"}(${s.label})`;
       if (qty <= 0) {
         Object.assign(s, { status: "skipped", error: "계좌에 팔 주식이 없습니다." });
         d.log.push(`${hm} ${what}: 팔 주식이 없어 건너뜀`);
@@ -160,13 +177,13 @@ export async function intradayCheck(d: IntradayDay, b: Broker, now: number, lim:
         continue;
       }
       try {
-        if (b.env === "real" && lim.orderLimit) checkOrderLimit(qty * price, lim.orderLimit, lim.usedToday?.() ?? 0);
+        if (b.env === "real" && lim.orderLimit) checkOrderLimit(krw(qty * price), lim.orderLimit, lim.usedToday?.() ?? 0);
         const res = await b.place({ code: t, side: "sell", qty, type: "market" });
-        if (b.env === "real") { try { lim.addUsage?.(qty * price); } catch { /* 합계 저장 실패는 주문에 영향 없음 */ } }
+        if (b.env === "real") { try { lim.addUsage?.(krw(qty * price)); } catch { /* 합계 저장 실패는 주문에 영향 없음 */ } }
         Object.assign(s, { status: "placed", orderNo: res.orderNo, orgNo: res.orgNo });
         held.set(t, have - qty);
-        d.log.push(`${hm} ${what} → ${qty}주 시장가 매도 (주문번호 ${res.orderNo})`);
-        msgs.push(`${head}\n${what}에 닿아 ${qty}주 시장가로 팔았습니다.${qty < want && !allOut ? ` (계좌에 ${have}주만 있음)` : ""}`);
+        d.log.push(`${hm} ${what} → ${qty}주 ${how} 매도 (주문번호 ${res.orderNo})`);
+        msgs.push(`${head}\n${what}에 닿아 ${qty}주 ${how}로 팔았습니다.${qty < want && !allOut ? ` (계좌에 ${have}주만 있음)` : ""}`);
       } catch (err) {
         Object.assign(s, { status: "failed", error: (err as Error).message });
         d.log.push(`${hm} ${what} → 매도 실패: ${(err as Error).message}`);
@@ -181,14 +198,14 @@ export async function intradayCheck(d: IntradayDay, b: Broker, now: number, lim:
     d.lastFollow = now;
     try { applyFills({ items: d.sells }, await b.orders(d.date)); } catch (err) { d.log.push(`${hm} 체결 조회 실패: ${(err as Error).message}`); }
     for (const s of d.sells) {
-      if (s.told || !s.orderNo || !(s.status === "filled" || s.status === "cancelled" || hm >= "15:30")) continue;
+      if (s.told || !s.orderNo || !(s.status === "filled" || s.status === "cancelled" || hm >= ses.close)) continue;
       s.told = true;
-      msgs.push(`${head}\n${s.name} ${s.qty}주 중 ${s.filledQty}주 체결${s.filledQty ? `, 평균 ${won(s.avgPrice)}` : ""}.`);
+      msgs.push(`${head}\n${s.name} ${s.qty}주 중 ${s.filledQty}주 체결${s.filledQty ? `, 평균 ${money(d.market, s.avgPrice)}` : ""}.`);
     }
   }
 
   // 3) 장 끝: 체결 확인까지 끝나면 그날 끝
-  if (hm >= "15:30" && !d.sells.some((s) => s.orderNo && !s.told)) {
+  if (hm >= ses.close && !d.sells.some((s) => s.orderNo && !s.told)) {
     d.done = true;
     d.reason = d.sells.length ? `오늘 장중 매도 ${d.sells.filter((s) => s.orderNo).length}건` : "오늘은 매도 가격에 닿지 않았습니다.";
     d.log.push(`${hm} 감시 끝: ${d.reason}`);

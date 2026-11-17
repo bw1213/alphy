@@ -7,7 +7,7 @@
  * 화면에서 다시 저장해야 새 버전으로 바뀝니다 (모르는 사이에 매매 규칙이 바뀌지 않게).
  */
 import fs from "fs";
-import { normalizeTicker } from "../data/market";
+import { isUsTicker, normalizeTicker } from "../data/market";
 import { STRATEGIES } from "../strategies";
 import { cleanStrategy, type SavedStrategy } from "../strategies/library";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
@@ -88,6 +88,7 @@ export function cleanPlan(x: any, user: string, today: string, lib: SavedStrateg
   }
   const raw = Array.isArray(x?.tickers) ? x.tickers.map(String) : String(x?.tickers ?? "").split(/[\s,]+/);
   const tickers = [...new Set(raw.map(normalizeTicker).filter(Boolean))].slice(0, 20) as string[];
+  if (tickers.some(isUsTicker) && !tickers.every(isUsTicker)) throw new Error("한국 종목과 미국 종목을 한 운용에 섞을 수 없습니다 (주문 시간과 계좌 통화가 달라서). 한쪽만 넣어 주세요.");
   if (strategy?.cycle && !tickers.length) throw new Error("적립·분할 매도 전략은 대상 종목을 넣어야 합니다 (예: 069500).");
   const budget = Math.round(Number(x?.budget));
   if (!(budget >= 100_000) || budget > 10_000_000_000) throw new Error("운용 금액은 10만 원 이상으로 넣으세요.");

@@ -136,6 +136,20 @@ describe("저녁 계산", () => {
     expect(off.sellLevels[0].qty).toBeUndefined();
   });
 
+  it("미국 종목: 전날 밤 시세로 계산해 오늘 밤 주문, 새 시세가 없으면 건너뜀", async () => {
+    // 월요일 저녁(한국): 마지막 미국 시세는 금요일
+    const data = { AAPL: bars("2026-11-13", 300, () => 280_000) };
+    const usLoad = async (): Promise<DataResponse> => ({ data, names: { AAPL: "애플" }, benchmark: null, warnings: [], fx: [{ date: "2026-11-13", close: 1400 }] });
+    const usPlan: AutoPlan = { ...plan(today), tickers: ["AAPL"], budget: 10_000_000 };
+    const r = await runEvening(usPlan, "schedule", { load: usLoad, now: at(today, "18:00"), env });
+    expect(r).toMatchObject({ status: "ok", market: "US", fx: 1400, dataDate: "2026-11-13" });
+    expect(r.orders[0]).toMatchObject({ ticker: "AAPL", side: "buy" });
+    expect(formatReport(r)).toContain("오늘 밤 미국 장 시작 주문");
+    // 화요일 저녁인데 시세가 그대로(미국 휴장) → 같은 신호로 또 주문하지 않게 건너뜀
+    const r2 = await runEvening(usPlan, "schedule", { load: usLoad, now: at("2026-11-17", "18:00"), env, prevDataDate: "2026-11-13" });
+    expect(r2.status).toBe("holiday");
+  });
+
   it("오늘 시세가 없으면 휴장으로 건너뜀", async () => {
     const data = { "069500": bars("2026-11-13", 300, () => 50_000) };
     const r = await runEvening(plan(today), "schedule", { load: loader(data), now: at(today, "18:00"), env });
