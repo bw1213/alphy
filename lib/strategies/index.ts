@@ -26,6 +26,8 @@ export interface StrategyDef {
   targetWeights: (ctx: StrategyContext, p: Params) => Weights | null | undefined;
   /** 웹에서 '내 전략'으로 복사할 때 쓰는 동일 로직의 코드 */
   code: string;
+  /** 정한 종목에만 쓰는 전략이면 고를 때 채워 넣을 기본 종목 (예: "UPRO, TLT, GLD") */
+  tickers?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -75,6 +77,35 @@ const picks = ctx.topBy(
   (t) => ctx.close(t) > ctx.sma(t, p.trendMa) && ctx.tradingValue(t, 20) >= p.minValueEok * 1e8,
 );
 return ctx.equal(picks);`;
+
+const levMixCode = `// 레버리지 분산: 가장 많이 출렁이는 종목(레버리지 ETF)에 p.main%, 나머지 종목에 똑같이 나눠 담고
+// p.months 개월마다(3 = 분기) 새 기간의 첫 거래일 종가에 비중을 다시 맞춘다(체결은 다음 날 시가).
+// 그 밖의 날은 null(매매 안 함) → 자동 매매도 매일 사고팔지 않음
+const ts = ctx.tickers.filter((t) => ctx.close(t) > 0);
+if (!ts.length) return {};
+const vol = (t) => { const v = ctx.volatility(t, 250); return Number.isFinite(v) ? v : ctx.volatility(t, 60) || 0; };
+const main = [...ts].sort((a, b) => vol(b) - vol(a))[0];
+const rest = ts.filter((t) => t !== main);
+const w = {};
+w[main] = rest.length ? p.main / 100 : 1;
+for (const t of rest) w[t] = (1 - p.main / 100) / rest.length;
+const m = Number(ctx.date.slice(0, 4)) * 12 + Number(ctx.date.slice(5, 7)) - 1;
+const period = Math.floor(m / Math.max(1, p.months));
+if (ctx.state.period === period) return null;
+ctx.state.period = period;
+for (const t of ts) ctx.notes[t] = "정기 리밸런싱";
+return w;`;
+
+const fixedMixCode = `// 비중 고정: 종목마다 정한 비율(p["w_종목코드"], %)로 나눠 들고, p.months 개월마다(3 = 분기)
+// 새 기간의 첫 거래일 종가에 비율을 다시 맞춘다(체결은 다음 날 시가). 비율이 없는 종목은 사지 않음, 합이 100 미만이면 나머지는 현금
+const w = {};
+for (const t of ctx.tickers) if (p["w_" + t] > 0 && ctx.close(t) > 0) w[t] = p["w_" + t] / 100;
+const m = Number(ctx.date.slice(0, 4)) * 12 + Number(ctx.date.slice(5, 7)) - 1;
+const period = Math.floor(m / Math.max(1, p.months));
+if (ctx.state.period === period) return null;
+ctx.state.period = period;
+for (const t in w) ctx.notes[t] = "정기 리밸런싱";
+return w;`;
 
 /** 코드 문자열 → 함수. 브라우저(사용자 본인 PC)에서만 실행된다. 코드에서는 lib.cycle 같은 도우미도 쓸 수 있다. */
 export function compileStrategy(code: string): (ctx: StrategyContext, p: Params) => Weights | null | undefined {
@@ -159,6 +190,36 @@ export const STRATEGIES: StrategyDef[] = [
     warmup: (p) => Math.max(p.volDays, p.trendMa) + 1,
     targetWeights: compileStrategy(lowVolCode),
     code: lowVolCode,
+  },
+  {
+    id: "lev_mix",
+    name: "레버리지 분산 (UPRO·TLT·GLD)",
+    description: "레버리지 ETF 50%, 나머지는 장기 국채·금에 똑같이. 분기마다 비중을 다시 맞춤. 종목은 직접 입력(가장 많이 출렁이는 종목이 레버리지 몫).",
+    params: [
+      { key: "main", label: "레버리지 비중(%)", default: 50, min: 10, max: 90, step: 5 },
+      { key: "months", label: "다시 맞추는 주기(개월)", default: 3, min: 1, max: 12 },
+    ],
+    rebalance: "D", stopLoss: null, takeProfit: null,
+    warmup: () => 61,
+    targetWeights: compileStrategy(levMixCode),
+    code: levMixCode,
+    tickers: "UPRO, TLT, GLD",
+  },
+  {
+    id: "cc_mix",
+    name: "커버드콜 분산 (한국30·미국50·금리20)",
+    description: "KODEX 200타겟위클리커버드콜 30%, TIGER 미국S&P500타겟데일리커버드콜 50%, PLUS KOFR금리 20%. 분기마다 비율을 다시 맞춤.",
+    params: [
+      { key: "w_498400", label: "498400 한국 커버드콜(%)", default: 30, min: 0, max: 100, step: 5 },
+      { key: "w_482730", label: "482730 미국 커버드콜(%)", default: 50, min: 0, max: 100, step: 5 },
+      { key: "w_453010", label: "453010 KOFR 금리(%)", default: 20, min: 0, max: 100, step: 5 },
+      { key: "months", label: "다시 맞추는 주기(개월)", default: 3, min: 1, max: 12 },
+    ],
+    rebalance: "D", stopLoss: null, takeProfit: null,
+    warmup: () => 2,
+    targetWeights: compileStrategy(fixedMixCode),
+    code: fixedMixCode,
+    tickers: "498400, 482730, 453010",
   },
 ];
 

@@ -62,6 +62,35 @@ export function rebalanceDays(dates: string[], rule: Rebalance): Set<number> {
   return out;
 }
 
+/** 다음 평일 (주말만 건너뜀. 휴일은 모름) */
+const nextWeekday = (d: string) => {
+  const t = new Date(d + "T00:00:00Z");
+  do t.setUTCDate(t.getUTCDate() + 1); while (t.getUTCDay() === 0 || t.getUTCDay() === 6);
+  return t.toISOString().slice(0, 10);
+};
+const periodKey = (d: string, rule: "W" | "M" | "Q") => {
+  if (rule === "M") return d.slice(0, 7);
+  if (rule === "Q") return `${d.slice(0, 4)}-Q${Math.ceil(Number(d.slice(5, 7)) / 3)}`;
+  const t = new Date(d + "T00:00:00Z");
+  t.setUTCDate(t.getUTCDate() - ((t.getUTCDay() + 6) % 7));
+  return t.toISOString().slice(0, 10);
+};
+
+/**
+ * 데이터 마지막 날(k = dates.length - 1)이 리밸런싱 주기상 매매할 날인지 (자동 매매 저녁 계산용).
+ * 백테스트는 기간의 마지막 영업일에 신호를 내는데, 마지막 날은 내일 시세가 없어 기간이 끝나는지 모른다.
+ * 그래서 다음 평일이 새 기간이면 매매할 날로 보고, 휴일 때문에 그날을 놓쳤으면(어제가 매매할 날이 아니었는데
+ * 오늘이 새 기간의 첫 거래일) 오늘 늦게라도 맞춘다.
+ */
+export function dueOnLastDay(dates: string[], rule: Rebalance): boolean {
+  const k = dates.length - 1;
+  if (k < 0 || rule === "D") return true;
+  if (typeof rule === "number") return k % Math.max(1, rule) === 0;
+  const endsPeriod = (d: string) => periodKey(nextWeekday(d), rule) !== periodKey(d, rule);
+  if (endsPeriod(dates[k])) return true;
+  return k > 0 && periodKey(dates[k], rule) !== periodKey(dates[k - 1], rule) && !endsPeriod(dates[k - 1]);
+}
+
 export function runBacktest(opt: RunOptions): BacktestResult {
   const costs = opt.costs ?? DEFAULT_COSTS;
   const st = opt.settings;
@@ -315,7 +344,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         const notes = Object.keys(lastCtx.notes ?? {}).length ? { ...lastCtx.notes } : undefined;
         const nextStops = intraday ? Object.fromEntries(Object.entries(lastCtx.stops).filter(([, v]) => v?.length)) : {};
         signal = {
-          date: d, kept: !w, ...(notes ? { notes } : {}), ...(Object.keys(nextStops).length ? { stops: nextStops } : {}),
+          date: d, kept: !w, due: dueOnLastDay(dates, st.rebalance), ...(notes ? { notes } : {}), ...(Object.keys(nextStops).length ? { stops: nextStops } : {}),
           picks: Object.entries(weights).map(([t, weight]) => ({ ticker: t, weight, close: P.closeFilled[col(t)][i] }))
             .sort((a, b) => b.weight - a.weight),
         };

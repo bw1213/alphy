@@ -286,7 +286,7 @@ export default function AutoPage() {
           <div className="card">
             <h2>운용 전략</h2>
             <label className="f">전략
-              <select value={form.strategy} onChange={(e) => setForm({ ...form, strategy: e.target.value })}>
+              <select value={form.strategy} onChange={(e) => { const v = e.target.value; const def = STRATEGIES.find((x) => `builtin:${x.id}` === v); setForm({ ...form, strategy: v, ...(def?.tickers && !form.tickers.trim() ? { tickers: def.tickers } : {}) }); }}>
                 <option value="">고르세요</option>
                 {lib.length > 0 && <optgroup label="내 전략 보관함">{lib.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{s.cycle ? " (적립·분할 매도)" : s.builder ? " (조건 고르기)" : " (코드)"}</option>)}</optgroup>}
                 <optgroup label="기본 전략">{STRATEGIES.map((s) => <option key={s.id} value={`builtin:${s.id}`}>{s.name}</option>)}</optgroup>
