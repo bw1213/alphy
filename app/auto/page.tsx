@@ -383,6 +383,7 @@ export default function AutoPage() {
               <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", fontSize: 12, fontWeight: 400 }}>
                 {tg?.linked && <label style={{ display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" style={{ width: "auto", flex: "none" }} checked={sendTg} onChange={(e) => setSendTg(e.target.checked)} />텔레그램으로도</label>}
                 <button disabled={!!busy || !st?.plan} onClick={() => act("run", () => post("/api/auto", { action: "run", notify: sendTg })).then(() => setOpen(0))}>{busy === "run" ? "계산 중…" : "지금 계산해 보기"}</button>
+                <button disabled={!!busy || !st?.plan} title="지금 운용 전략을 저장하기 전의 저녁 계산 기록과 끝난 아침 주문·장중 감시 기록을 지웁니다 (진행 중인 주문은 남김)" onClick={() => { if (confirm("지금 운용 전략을 저장하기 전의 기록과 끝난 주문·감시 기록을 지울까요? 되돌릴 수 없습니다.")) act("clear", () => post("/api/auto", { action: "clear" }), "지난 기록을 지웠습니다."); }}>{busy === "clear" ? "지우는 중…" : "지난 기록 지우기"}</button>
               </span>
             </h2>
             {st?.lastEvening && <p className="help" style={{ marginTop: 0 }}>마지막 자동 계산: {st.lastEvening.date} ({st.lastEvening.done ? "완료" : `시도 ${st.lastEvening.attempts}번`})</p>}
