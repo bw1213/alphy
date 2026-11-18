@@ -70,4 +70,24 @@ describe("레버리지 분산 + 변동성 방어", () => {
   it("비중이 바뀌지 않은 날은 매매 안 함(신호 유지)", () => {
     expect(res.signal?.kept).toBe(true);
   });
+  it("변동성은 낮아도 200일선 아래로 천천히 빠지면 레버리지를 35%로 (최소 10%를 뺀 몫의 절반)", () => {
+    // 1년은 하루 ±3%로 조금씩 오르고, 그 뒤 같은 폭으로 조금씩 빠짐 → 변동성은 기준(80%)보다 훨씬 낮음
+    let px = 100;
+    const slow = dates.map((date, i) => { if (i) px *= 1 + (i < 260 ? (i % 2 ? 0.031 : -0.029) : (i % 2 ? 0.028 : -0.031)); return { date, open: px, high: px, low: px, close: px, volume: 1000 }; });
+    const r = runBacktest({
+      data: { LEV: slow, BOND: calm(8), GOLD: calm(9) }, strategy: (ctx) => g.targetWeights(ctx, gp),
+      settings: { rebalance: g.rebalance, stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: g.warmup(gp) },
+      costs: { commission: 0, slippage: 0, sellTax: 0 }, initialCash: 1e8,
+    });
+    const cut = r.trades.filter((t) => t.ticker === "LEV" && t.side === "SELL" && (t.note ?? "").includes("200일선 아래"));
+    expect(cut.length).toBeGreaterThan(0);
+    expect(cut[0].note).toContain("35%"); // 10 + (60 - 10) × 절반
+    // 끄면(ma 0) 그 이유로는 줄이지 않음
+    const off = runBacktest({
+      data: { LEV: slow, BOND: calm(8), GOLD: calm(9) }, strategy: (ctx) => g.targetWeights(ctx, { ...gp, ma: 0 }),
+      settings: { rebalance: g.rebalance, stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: g.warmup({ ...gp, ma: 0 }) },
+      costs: { commission: 0, slippage: 0, sellTax: 0 }, initialCash: 1e8,
+    });
+    expect(off.trades.some((t) => (t.note ?? "").includes("일선 아래"))).toBe(false);
+  });
 });
