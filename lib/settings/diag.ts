@@ -2,7 +2,9 @@
  * 점검용 접근 키 (서버 전용).
  *
  * 설정 화면에서 발급해 Claude 같은 도우미에게 넘겨 주면, 그쪽이 서버 상태를 직접 볼 수 있습니다.
- * - 쓸 수 있는 곳: /api/diag/* (읽기 전용 점검 API) 뿐. 화면·설정·주문·잔고·전략 저장에는 쓸 수 없습니다.
+ * - 쓸 수 있는 곳: /api/diag/* (점검 API) 뿐. 화면·설정·주문·잔고에는 쓸 수 없습니다.
+ * - 발급할 때 '내 전략 추가'를 켠 키만 POST /api/diag/strategies 로 기본 전략(앱에 들어 있는 코드)에
+ *   종목·파라미터를 넣어 owner 의 내 전략에 저장할 수 있습니다. 코드는 받지 않으므로 남의 코드가 들어가지 않습니다.
  * - 키 원문은 발급할 때 한 번만 보여 주고, 서버에는 SHA-256 해시만 저장합니다.
  * - 유효 기간(최대 30일)이 지나면 자동으로 막히고, 화면에서 언제든 폐기할 수 있습니다.
  * - 비밀번호를 바꾸거나 "모든 기기 로그아웃"을 누르면 점검 키도 모두 폐기됩니다.
@@ -21,6 +23,8 @@ export interface DiagToken {
   expiresAt: number;
   lastUsedAt?: number;
   lastIp?: string;
+  /** true 면 내 전략 추가(기본 전략 + 종목·파라미터)도 허용. 없으면 읽기 전용 */
+  strategies?: boolean;
 }
 
 /** 화면에 보여 주는 모양 (해시 없음) */
@@ -39,11 +43,11 @@ export function listDiagTokens(e: Env = process.env, now = Date.now()): DiagToke
 }
 
 /** 새 키 발급. 원문은 반환값으로 한 번만 나옴 */
-export function createDiagToken(name: string, days: number, e: Env = process.env, now = Date.now()): { token: string; view: DiagTokenView } {
+export function createDiagToken(name: string, days: number, e: Env = process.env, now = Date.now(), strategies = false): { token: string; view: DiagTokenView } {
   if (!DIAG_DAYS.includes(days as (typeof DIAG_DAYS)[number])) throw new Error(`유효 기간은 ${DIAG_DAYS.join("·")}일 중에서 고르세요.`);
   const label = String(name ?? "").trim().slice(0, 40) || "점검용";
   const token = DIAG_PREFIX + randomBytes(32).toString("base64url");
-  const item: DiagToken = { id: randomBytes(4).toString("hex"), name: label, hash: sha(token), createdAt: now, expiresAt: now + days * 864e5 };
+  const item: DiagToken = { id: randomBytes(4).toString("hex"), name: label, hash: sha(token), createdAt: now, expiresAt: now + days * 864e5, ...(strategies ? { strategies: true } : {}) };
   updateSettings((s) => {
     const live = (s.auth.diagTokens ?? []).filter((t) => t.expiresAt > now);
     if (live.length >= MAX_DIAG_TOKENS) throw new Error(`점검 키는 ${MAX_DIAG_TOKENS}개까지 둘 수 있습니다. 안 쓰는 키를 먼저 폐기하세요.`);

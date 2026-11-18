@@ -64,6 +64,7 @@ describe("기본 대용", () => {
     // 채권·금 ETF 는 상장 전을 국채 펀드·금 선물로
     expect(suggestSpec("IEF")!.chain).toEqual(["VFITX"]);
     expect(suggestSpec("GLD")!.chain).toEqual(["GC=F"]);
+    expect(suggestSpec("UST")).toMatchObject({ chain: ["IEF", "VFITX"], lev: 2 });
   });
   it("이름으로 추정", () => {
     expect(guessFromName("KODEX 200선물인버스2X")).toMatchObject({ chain: ["069500", "^KS11"], lev: -2 });
