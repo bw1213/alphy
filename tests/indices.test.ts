@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compareIndices, longestLoss, stats } from "@/lib/engine/metrics";
-import { addIndices, type DataResponse } from "@/lib/data/server";
+import { addIndices, joinEarlier, type DataResponse } from "@/lib/data/server";
 import type { Bar } from "@/lib/engine/types";
 
 const bar = (date: string, close: number): Bar => ({ date, open: close, high: close, low: close, close, volume: 1 });
@@ -59,6 +59,28 @@ describe("addIndices", () => {
     await addIndices(out2, req, { kospi: async () => { throw new Error("403"); }, yahoo: async () => [] });
     expect(out2.indices!.map((x) => x.name)).toEqual(["S&P 500"]);
     expect(out2.warnings.join()).toContain("KOSPI");
+  });
+  it("KOSPI 가 늦게 시작하면 앞 기간을 야후 ^KS11 로 이어 붙임 (비교 지수·시장 필터 모두)", async () => {
+    const out = base({ benchmark: [{ date: "2020-06-01", close: 2000 }, { date: "2020-06-02", close: 2020 }], benchmarkName: "KOSPI", fx: [{ date: "2019-12-01", close: 1000 }] });
+    await addIndices(out, req, {
+      kospi: async () => { throw new Error("부르면 안 됨"); },
+      yahoo: async (sym) => sym === "^KS11" ? [bar("2020-01-02", 1000), bar("2020-03-02", 900), bar("2020-06-01", 1000)] : [bar("2020-01-02", 3)],
+    });
+    const k = out.indices!.find((x) => x.key === "kospi")!;
+    expect(k.bars.map((b) => [b.date, b.close])).toEqual([["2020-01-02", 2000], ["2020-03-02", 1800], ["2020-06-01", 2000], ["2020-06-02", 2020]]);
+    expect(out.benchmark![0].date).toBe("2020-01-02");
+  });
+  it("KOSPI 를 아예 못 받으면 야후로", async () => {
+    const out = base({ benchmark: [{ date: "2020-01-02", close: 4000000 }], benchmarkName: "S&P 500", fx: [{ date: "2020-01-01", close: 1200 }] });
+    await addIndices(out, req, { kospi: async () => { throw new Error("403"); }, yahoo: async () => [bar("2020-01-02", 2100)] });
+    expect(out.indices!.map((x) => x.name)).toEqual(["S&P 500", "KOSPI"]);
+    expect(out.benchmark![0].close).toBe(4000000); // S&P 500 비교 지수는 그대로
+  });
+  it("joinEarlier", () => {
+    const m = [{ date: "2020-02-01", close: 10 }];
+    expect(joinEarlier(m, [])).toBe(m);
+    expect(joinEarlier([], m)).toBe(m);
+    expect(joinEarlier(m, [{ date: "2020-01-01", close: 4 }, { date: "2020-01-31", close: 5 }])).toEqual([{ date: "2020-01-01", close: 8 }, { date: "2020-01-31", close: 10 }, ...m]);
   });
   it("가짜 데이터는 지수 없음", async () => {
     const out = base();

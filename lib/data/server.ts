@@ -240,6 +240,24 @@ export async function loadData(req: DataRequest, opts: LoadOptions = {}): Promis
   return out;
 }
 
+/** 야후의 KOSPI 지수 (1996-12~) */
+export const KOSPI_YAHOO = "^KS11";
+
+/**
+ * main 이 늦게 시작하면 그 전 기간을 early 로 채움. 이어지는 날 값이 같도록 early 를 비율로 맞춤
+ * (같은 지수라 보통 비율 ≈ 1). main 이 없으면 early 그대로
+ */
+export function joinEarlier(main: { date: string; close: number }[], early: { date: string; close: number }[]) {
+  if (!early.length) return main;
+  if (!main.length) return early;
+  const first = main[0];
+  const before = early.filter((b) => b.date < first.date);
+  if (!before.length) return main;
+  const at = [...early].reverse().find((b) => b.date <= first.date)!;
+  const r = first.close / at.close;
+  return [...before.map((b) => ({ date: b.date, close: b.close * r })), ...main];
+}
+
 /** 비교 지수 받는 곳 (테스트에서 바꿔 끼움) */
 export interface IndexDeps {
   kospi: (start: string) => Promise<Bar[]>;
@@ -275,15 +293,24 @@ export async function addIndices(out: DataResponse, req: DataRequest, deps: Inde
       } catch { failed.push("S&P 500"); }
     }
   }
-  // KOSPI
-  if (name === "KOSPI" && out.benchmark?.length) list.push({ key: "kospi", name: "KOSPI", bars: out.benchmark });
+  // KOSPI. 네이버·한국투자증권 지수 일봉이 짧으면(한국투자증권은 2014년쯤부터) 앞 기간을 야후 ^KS11 로 이어 붙임
+  const ownKospi = name === "KOSPI" && !!out.benchmark?.length;
+  let kospi: { date: string; close: number }[] = [];
+  if (ownKospi) kospi = out.benchmark!;
   else if (req.source !== "csv") {
-    try {
-      const bars = clipped(await deps.kospi(req.start));
-      if (!bars.length) throw new Error("데이터 없음");
-      list.push({ key: "kospi", name: "KOSPI", bars });
-    } catch { failed.push("KOSPI"); }
+    try { kospi = clipped(await deps.kospi(req.start)); } catch { kospi = []; }
   }
+  if (req.source !== "csv" && (!kospi.length || kospi[0].date > plusDays(req.start, 14))) {
+    try {
+      const longer = joinEarlier(kospi, clipped(await deps.yahoo(KOSPI_YAHOO, req.start)));
+      if (longer.length > kospi.length) {
+        kospi = longer;
+        if (ownKospi) out.benchmark = longer; // 시장 필터·연도별 비교도 같은 긴 지수로
+      }
+    } catch { /* 있는 만큼만 */ }
+  }
+  if (kospi.length) list.push({ key: "kospi", name: "KOSPI", bars: kospi });
+  else if (req.source !== "csv") failed.push("KOSPI");
   if (list.length) out.indices = list;
   if (failed.length) out.warnings.push(`비교 지수 ${failed.join("·")}를 받지 못해 빼고 보여 줍니다.`);
 }
