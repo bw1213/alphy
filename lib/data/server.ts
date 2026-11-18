@@ -70,7 +70,8 @@ async function writeJson(p: string, v: unknown) {
   await fs.writeFile(p, JSON.stringify(v));
 }
 
-type DailyFetcher = (symbol: string, start: string) => Promise<Bar[]>;
+/** start ~ end(없으면 오늘) 일봉. end 를 못 다루는 출처(네이버)는 오늘까지 줘도 됨 */
+type DailyFetcher = (symbol: string, start: string, end?: string) => Promise<Bar[]>;
 
 interface DailyCache { fetched: string; from?: string; bars: Bar[]; /** 받은 시각(ms) */ fetchedAt?: number }
 
@@ -102,14 +103,26 @@ export function sameHistory(oldBars: Bar[], fresh: Bar[]): boolean {
 
 /**
  * 일봉 캐시.
- * - 캐시에 '요청했던 시작일(from)'을 같이 저장해서, 더 앞선 기간을 요청하면 처음부터 다시 받는다
- *   (캐시의 첫 날짜가 늦은 게 신규상장 때문인지, 짧게 받아서인지 구분하기 위함)
+ * - 캐시에 '요청했던 시작일(from)'을 같이 저장한다 (캐시의 첫 날짜가 늦은 게 신규상장 때문인지, 짧게 받아서인지 구분하기 위함)
+ * - 더 앞선 기간을 요청하면 모자란 앞부분(새 시작일 ~ 캐시 첫 날짜 + 10일)만 받아 앞에 붙인다.
+ *   겹치는 날 종가가 다르면(수정주가가 바뀜) 처음부터 다시 받는다
  * - 오늘 받은 캐시면 그대로, 예전 캐시면 마지막 날짜 근처부터만 받아 이어 붙인다.
  *   액면분할·배당 등으로 수정주가가 바뀌었으면(겹치는 날 종가가 다르면) 전체를 다시 받는다
  */
 export async function cachedDaily(symbol: string, start: string, src: "naver" | "kis" | "kis-us" | "krx" | "yahoo" = "naver", fetcher: DailyFetcher = fetchDaily, cacheDir = CACHE): Promise<Bar[]> {
   const p = path.join(cacheDir, src, `${symbol}.json`);
-  const c = await readJson<DailyCache>(p);
+  let c = await readJson<DailyCache>(p);
+  if (c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) > start) {
+    try {
+      const front = await fetcher(symbol, start, plusDays(c.bars[0].date, 10));
+      if (sameHistory(c.bars, front)) {
+        const byDate = new Map(front.map((b) => [b.date, b]));
+        for (const b of c.bars) byDate.set(b.date, b);
+        c = { ...c, from: start, bars: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)) };
+        await writeJson(p, c);
+      }
+    } catch { /* 앞부분 받기 실패 → 아래에서 전체 다시 */ }
+  }
   const covers = !!c && Array.isArray(c.bars) && c.bars.length > 0 && (c.from ?? c.bars[0].date) <= start;
   if (c && covers) {
     if (c.fetched === today() && !needsAfterCloseRefresh(c.fetchedAt)) return c.bars;
@@ -136,8 +149,7 @@ function kisFetcher(given?: KisCredentials | null): DailyFetcher {
   const cred = given === undefined ? quoteCredentials() : given;
   if (!cred) throw new Error("한국투자증권 앱키가 설정되지 않았습니다. 설정 화면(/settings)에서 실전 또는 모의투자 앱키·앱시크릿을 넣으세요.");
   const client = getClient(cred);
-  const end = today();
-  return (symbol, start) => symbol === "KOSPI" ? kisIndexDaily(client, start, end) : kisDaily(client, symbol, start, end);
+  return (symbol, start, end = today()) => symbol === "KOSPI" ? kisIndexDaily(client, start, end) : kisDaily(client, symbol, start, end);
 }
 
 /** KRX 전종목 시세. 지난 날짜의 목록은 바뀌지 않으므로 계속 캐시 (휴장일의 빈 결과는 저장하지 않음) */
@@ -509,8 +521,8 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
     warnings.push("유니버스는 '현재' 시총 상위 종목입니다. 과거에 상장폐지된 종목이 빠져 있어 성과가 실제보다 좋게 나올 수 있습니다(생존편향). '과거 시점의 시총 상위 종목 사용'을 켜면 줄일 수 있습니다.");
   }
   // 상장폐지 종목은 네이버·한국투자증권에 시세가 없을 수 있어 KRX 개별종목 시세로 대신 받는다
-  const krxFetcher = (code: string): DailyFetcher => async (_, start) => {
-    const bars = await krxDaily(isin.get(code)!, start, today());
+  const krxFetcher = (code: string): DailyFetcher => async (_, start, end = today()) => {
+    const bars = await krxDaily(isin.get(code)!, start, end);
     if (!bars.length) throw new Error(`${code}: 데이터 없음`);
     return bars;
   };
@@ -540,7 +552,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   const usDaily = (code: string) => {
     const m = usMaster.find((u) => u.code === code)?.market;
     const ex: KisExchange[] | undefined = m ? [KIS_EXCHANGE[m]] : undefined;
-    return kisFirst(code, code, req.start, (sym, start) => kisUsSplitOnlyDaily(kisUs!, sym, start, today(), ex), "kis-us");
+    return kisFirst(code, code, req.start, (sym, start, end = today()) => kisUsSplitOnlyDaily(kisUs!, sym, start, end, ex), "kis-us");
   };
   let got = 0;
   opts.onProgress?.(0, list.length);
@@ -559,7 +571,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   let fx: { date: string; close: number }[] | undefined;
   if (usCodes.length) {
     try {
-      fx = (await kisFirst("FX@KRW", USDKRW, minusDays(req.start, 10), (_, start) => kisUsdKrwDaily(kisUs!, start, today()))).map((b) => ({ date: b.date, close: b.close }));
+      fx = (await kisFirst("FX@KRW", USDKRW, minusDays(req.start, 10), (_, start, end = today()) => kisUsdKrwDaily(kisUs!, start, end))).map((b) => ({ date: b.date, close: b.close }));
     } catch (e) {
       throw new Error(`원/달러 환율을 받지 못해 미국 종목을 원화로 바꿀 수 없습니다 (${(e as Error).message}). 잠시 뒤 다시 실행하세요.`);
     }
