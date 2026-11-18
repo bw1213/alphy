@@ -21,6 +21,7 @@ import { intradayOn, planKind, type AutoPlan } from "./store";
 import { kst, minusDays } from "./time";
 import { planMarket, type Market } from "./session";
 import { backfillRequest } from "../data/backfillPick";
+import { withCode } from "../strategies/universe";
 
 type Env = Record<string, string | undefined>;
 
@@ -367,11 +368,11 @@ export function formatReport(r: EveningReport): string {
   if (!r.orders.length) lines.push(r.kept ? "내일 주문: 없음 (보유 유지)" : "내일 주문: 없음");
   else {
     lines.push(`${r.market === "US" ? "오늘 밤 미국 장 시작 주문" : "내일 아침 주문"} ${r.orders.length}건:`);
-    for (const o of r.orders) lines.push(`- ${o.side === "buy" ? "매수" : "매도"} ${o.name} ${o.qty}주 (약 ${won(o.amount)})${o.note ? ` · ${o.note}` : ""}`);
+    for (const o of r.orders) lines.push(`- ${o.side === "buy" ? "매수" : "매도"} ${withCode(o.name, o.ticker)} ${o.qty}주 (약 ${won(o.amount)})${o.note ? ` · ${o.note}` : ""}`);
   }
   if (r.sellLevels.length) {
     lines.push("장중 매도 기준:");
-    for (const s of r.sellLevels) lines.push(`- ${s.name} ${won(s.price)} ${s.kind === "take_profit" ? "이상" : "이하"}${r.intraday ? ` → ${s.qty ? `${s.qty}주` : "전부"} 매도` : ""} (오늘 ${won(s.close)}, ${s.gap >= 0 ? "+" : ""}${s.gap.toFixed(1)}%) · ${s.label}`);
+    for (const s of r.sellLevels) lines.push(`- ${withCode(s.name, s.ticker)} ${won(s.price)} ${s.kind === "take_profit" ? "이상" : "이하"}${r.intraday ? ` → ${s.qty ? `${s.qty}주` : "전부"} 매도` : ""} (오늘 ${won(s.close)}, ${s.gap >= 0 ? "+" : ""}${s.gap.toFixed(1)}%) · ${s.label}`);
   }
   if (r.holdingsFrom === "backtest") lines.push("※ 계좌를 읽지 못해 전략상 보유로 계산했습니다.");
   for (const w of r.warnings.slice(0, 3)) lines.push(`※ ${w}`);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
-import { StockSearch } from "@/components/StockSearch";
+import { StockChips, StockSearch, splitCodes, useNameOf } from "@/components/StockSearch";
 import { STRATEGIES } from "@/lib/strategies";
 import type { SavedStrategy } from "@/lib/strategies/library";
 import { universeLabel, universeTickers } from "@/lib/strategies/universe";
@@ -87,7 +87,7 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>기준 가격</th><th>오늘 종가</th><th>차이</th><th>규칙</th></tr></thead>
             <tbody>{r.sellLevels.map((s, i) => (
-              <tr key={i}><td>{s.name}</td><td>{won(s.price)} {s.kind === "take_profit" ? "이상" : "이하"}</td><td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
+              <tr key={i}><td>{s.name} <span className="help">{s.ticker}</span></td><td>{won(s.price)} {s.kind === "take_profit" ? "이상" : "이하"}</td><td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
             ))}</tbody>
           </table></div>
           
@@ -169,6 +169,7 @@ export default function ManualPage() {
   const recorded = (o: AutoOrder) => !!last && trades.some((t) => t.ticker === o.ticker && t.side === o.side && t.at > last.ranAt);
 
   const picked = form?.strategy.startsWith("saved:") ? lib.find((s) => `saved:${s.name}` === form.strategy) : null;
+  const nameOf = useNameOf(picked?.universe?.mode === "list" ? splitCodes(picked.universe.tickers) : []);
   const isCustom = !!picked && !picked.cycle && !picked.builder;
 
   const saveForm = () => form && act("save", async () => {
@@ -287,11 +288,12 @@ export default function ManualPage() {
               {form.strategy && (
                 <>
                   {picked?.universe ? (
-                    <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
+                    <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe, nameOf)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
                   ) : (<>
                   <label className="f" style={{ marginTop: 10 }}>대상 종목 {picked?.cycle ? "(필수)" : "(비우면 전략 기본: 시총 상위 종목)"}
                     <input value={form.tickers} placeholder="예: 069500, QQQ" onChange={(e) => setForm({ ...form, tickers: e.target.value })} />
                   </label>
+                  <StockChips value={form.tickers} onChange={(v) => setForm((f) => f && ({ ...f, tickers: v }))} />
                   <div style={{ marginTop: 6 }}>
                     <StockSearch placeholder="종목 이름으로 찾아 추가" onPick={(s) => setForm((f) => f && ({ ...f, tickers: [...new Set([...f.tickers.split(/[\s,]+/).filter(Boolean), s.code])].join(", ") }))} />
                   </div>
@@ -444,7 +446,7 @@ export default function ManualPage() {
                   <div className="tablewrap"><table>
                     <thead><tr><th>체결일</th><th>구분</th><th>종목</th><th>수량</th><th>가격</th><th>금액</th><th>수수료·세금</th><th></th></tr></thead>
                     <tbody>{trades.slice(0, 50).map((t) => (
-                      <tr key={t.id}><td>{t.date}</td><td style={{ color: t.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{t.side === "buy" ? "매수" : "매도"}</td><td>{t.name ?? t.ticker}</td><td>{t.qty.toLocaleString("ko-KR")}주</td><td>{won(t.price)}</td><td>{won(t.qty * t.price)}</td><td>{won(t.fee)}</td>
+                      <tr key={t.id}><td>{t.date}</td><td style={{ color: t.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{t.side === "buy" ? "매수" : "매도"}</td><td>{t.name ?? t.ticker} <span className="help">{t.ticker}</span></td><td>{t.qty.toLocaleString("ko-KR")}주</td><td>{won(t.price)}</td><td>{won(t.qty * t.price)}</td><td>{won(t.fee)}</td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           <button disabled={!!busy} style={{ fontWeight: 400, padding: "2px 8px" }} onClick={() => editTrade(t)}>고치기</button>{" "}
                           {tradeDel !== t.id

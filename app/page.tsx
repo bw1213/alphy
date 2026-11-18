@@ -9,7 +9,7 @@ import { defaultSpec, generate, normalizeSpec, type BuilderSpec } from "@/lib/st
 import { runBacktest } from "@/lib/engine/engine";
 import { dividendTaxFn, KR_DIVIDEND_TAX } from "@/lib/engine/dividends";
 import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
-import { StockChips, StockSearch, appendCode, splitCodes } from "@/components/StockSearch";
+import { StockChips, StockSearch, appendCode, cachedStockName, splitCodes } from "@/components/StockSearch";
 import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type IndexBars, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, CostSettings, Rebalance } from "@/lib/engine/types";
@@ -20,7 +20,7 @@ import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, FIXED_MIX_CODE, STRATE
 import { WeightInputs } from "@/components/WeightInputs";
 
 import type { SavedStrategy } from "@/lib/strategies/library";
-import { cleanUniverse, universeLabel } from "@/lib/strategies/universe";
+import { cleanUniverse, universeLabel, withCode } from "@/lib/strategies/universe";
 import type { LastState } from "@/lib/strategies/lastState";
 import FinderResults from "@/components/FinderResults";
 import { buildCandidates, maxWarmup, type Candidate } from "@/lib/finder/candidates";
@@ -139,7 +139,7 @@ export default function Page() {
           if (u.mode === "list") setTickers(u.tickers);
           setBackfill(cleanBackfillState(u.backfill));
         }
-        setStratMsg(u ? `저장된 종목도 불러왔습니다: ${universeLabel(u)}` : "");
+        setStratMsg(u ? `저장된 종목도 불러왔습니다: ${universeLabel(u, cachedStockName)}` : "");
       }
     }
   };
@@ -304,7 +304,7 @@ export default function Page() {
         setOnNas(j);
         const list = local.filter((s) => s.name !== item.name);
         setLocal(list); storeSaved(list);
-        setStratMsg(`NAS에 저장했습니다 (종목: ${universe ? universeLabel(universe) : "없음"}).`);
+        setStratMsg(`NAS에 저장했습니다 (종목: ${universe ? universeLabel(universe, cachedStockName) : "없음"}).`);
       } else if (r.status === 401 || r.status === 403) keepLocal("로그인하지 않아 이 브라우저에만 저장했습니다. 설정 화면에서 로그인한 뒤 다시 저장하면 NAS에 저장됩니다.");
       else { setStratMsg(j.error ?? `저장 실패 (HTTP ${r.status})`); return; }
     } catch { keepLocal("서버에 연결하지 못해 이 브라우저에만 저장했습니다."); }
@@ -466,7 +466,7 @@ export default function Page() {
       const data = await loadData(maxWarmup(buildCandidates(list)), list);
       const all = buildCandidates(list, data.names);
       const missing = list.filter((t) => !data.data[t]?.length);
-      if (missing.length) throw new Error(`시세를 받지 못한 종목이 있습니다: ${missing.join(", ")}`);
+      if (missing.length) throw new Error(`시세를 받지 못한 종목이 있습니다: ${missing.map((t) => withCode(cachedStockName(t), t)).join(", ")}`);
       const { costs, div } = runCosts(data);
       const runs: { c: Candidate; res: BacktestResult }[] = [];
       for (const [k, c] of all.entries()) {

@@ -61,7 +61,7 @@ describe("아침 주문", () => {
     expect(b.calls).toEqual(["sell S 3", "buy B 10"]);
     expect(d.phase).toBe("placed");
     expect(d.items[0].note).toContain("보유 3주만");
-    expect(formatDay(d, false)).toContain("매수 NB 10주: 주문됨");
+    expect(formatDay(d, false)).toContain("매수 NB (B) 10주: 주문됨");
   });
 
   it("현금이 모자라면 매도 체결 뒤 남은 현금만큼 매수, 마감에 미체결 취소", async () => {
@@ -137,7 +137,7 @@ describe("아침 주문 체결 알림", () => {
       { ticker: "005930", name: "삼성전자", side: "sell", planned: 1, qty: 1, status: "placed", filledQty: 0, avgPrice: 0, price: 70000 },
     ] };
     const msg = fillMessages(d, new Map([[0, 1], [1, 0]]));
-    expect(msg).toContain("매수 KODEX 200 1주 체결 (누적 2/3주, 평균 40,100원)");
+    expect(msg).toContain("매수 KODEX 200 (069500) 1주 체결 (누적 2/3주, 평균 40,100원)");
     expect(msg).not.toContain("삼성전자");
     expect(fillMessages(d, new Map([[0, 2], [1, 0]]))).toBe("");
   });

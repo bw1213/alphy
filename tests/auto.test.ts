@@ -107,7 +107,7 @@ describe("저녁 계산", () => {
     expect(r.orders[0]).toMatchObject({ ticker: "069500", side: "buy", note: "적립 매수", curQty: 0 });
     expect(r.orders[0].qty).toBe(1); // 100만 원의 5% = 5만 원 → 4만 원짜리 1주
     expect(r.holdingsFrom).toBe("backtest");
-    expect(formatReport(r)).toContain("매수 KODEX 200 1주");
+    expect(formatReport(r)).toContain("매수 KODEX 200 (069500) 1주");
   });
 
   it("보유 중이면 하락 매도 가격을 알려 줌, 실제 계좌와 다르면 경고", async () => {

@@ -16,6 +16,7 @@ import type { EveningReport, SellLevel } from "./evening";
 import { applyFills, pickReport, type Broker, type ItemStatus, type MorningLimits } from "./morning";
 import { intradayOn, REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
 import { clockOf, krSession, US_SESSION, type Market, type Session } from "./session";
+import { withCode } from "../strategies/universe";
 
 type Env = Record<string, string | undefined>;
 
@@ -114,7 +115,7 @@ export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Bro
   try { open = await b.openDay(k.date); } catch { /* 모르면 진행 */ }
   if (open === false) return off("오늘은 휴장일입니다.");
   d.levels = report.sellLevels;
-  d.log.push(`${k.hm} 감시 시작: ${report.sellLevels.map((l) => `${l.name} ${money(market, levelPrice(l))} ${l.kind === "take_profit" ? "이상" : "이하"}`).join(", ")}`);
+  d.log.push(`${k.hm} 감시 시작: ${report.sellLevels.map((l) => `${withCode(l.name, l.ticker)} ${money(market, levelPrice(l))} ${l.kind === "take_profit" ? "이상" : "이하"}`).join(", ")}`);
   return d;
 }
 
@@ -171,7 +172,7 @@ export async function intradayCheck(d: IntradayDay, b: Broker, now: number, lim:
       if (d.market === "US") s.level = levelPrice(hit.kind === "drop" ? hit.levels.at(-1)! : top);
       d.sells.push(s);
       const how = d.market === "US" ? "지정가(현재가 -1%)" : "시장가";
-      const what = `${top.name} 현재가 ${money(d.market, price)}가 ${money(d.market, s.level)} ${hit.kind === "take_profit" ? "이상" : "이하"}(${s.label})`;
+      const what = `${withCode(top.name, t)} 현재가 ${money(d.market, price)}가 ${money(d.market, s.level)} ${hit.kind === "take_profit" ? "이상" : "이하"}(${s.label})`;
       if (qty <= 0) {
         Object.assign(s, { status: "skipped", error: "계좌에 팔 주식이 없습니다." });
         d.log.push(`${hm} ${what}: 팔 주식이 없어 건너뜀`);
@@ -202,7 +203,7 @@ export async function intradayCheck(d: IntradayDay, b: Broker, now: number, lim:
     for (const s of d.sells) {
       if (s.told || !s.orderNo || !(s.status === "filled" || s.status === "cancelled" || hm >= ses.close)) continue;
       s.told = true;
-      msgs.push(`${head}\n${s.name} ${s.qty}주 중 ${s.filledQty}주 체결${s.filledQty ? `, 평균 ${money(d.market, s.avgPrice)}` : ""}.`);
+      msgs.push(`${head}\n${withCode(s.name, s.ticker)} ${s.qty}주 중 ${s.filledQty}주 체결${s.filledQty ? `, 평균 ${money(d.market, s.avgPrice)}` : ""}.`);
     }
   }
 

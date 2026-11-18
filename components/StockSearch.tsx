@@ -107,6 +107,15 @@ export function useStockNames(codes: string[]): Record<string, StockItem | null>
   return out;
 }
 
+/** 이미 받아 둔 이름 (없으면 undefined) */
+export const cachedStockName = (code: string): string | undefined => nameCache.get(code.toUpperCase())?.name ?? undefined;
+
+/** 코드 → 이름 함수 (모르면 코드 그대로) */
+export function useNameOf(codes: string[]): (code: string) => string {
+  const names = useStockNames(codes);
+  return (c) => names[c]?.name ?? cachedStockName(c) ?? c;
+}
+
 /** 쉼표로 적은 종목코드를 이름 칩으로 보여 주고 × 로 뺄 수 있게 */
 export function StockChips({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const codes = splitCodes(value);

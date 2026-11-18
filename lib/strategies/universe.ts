@@ -22,10 +22,13 @@ export function cleanUniverse(x: any): SavedUniverse | undefined {
   return { mode, size, pit: x.pit === true, tickers, ...(bf && (bf.on || Object.keys(bf.picks).length) ? { backfill: bf } : {}) };
 }
 
+/** "이름 (코드)", 이름을 모르면 코드만 */
+export const withCode = (name: string | undefined | null, code: string) => (name && name !== code ? `${name} (${code})` : code);
+
 /** 짧은 설명: "069500, QQQ" 또는 "시가총액 상위 100" */
-export function universeLabel(u: SavedUniverse): string {
+export function universeLabel(u: SavedUniverse, nameOf?: (code: string) => string | undefined): string {
   if (u.mode === "top") return `시가총액 상위 ${u.size}${u.pit ? " (그때 기준)" : ""}`;
-  const list = u.tickers.split(/[\s,]+/).filter(Boolean);
+  const list = u.tickers.split(/[\s,]+/).filter(Boolean).map((c) => withCode(nameOf?.(c), c));
   return list.length > 5 ? `${list.slice(0, 5).join(", ")} 외 ${list.length - 5}개` : list.join(", ");
 }
 

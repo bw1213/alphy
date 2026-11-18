@@ -10,6 +10,7 @@ import { fetchJob } from "@/lib/client/fetchData";
 import type { AutoOrder } from "@/lib/auto/evening";
 import type { ManualPosition, ManualTrade } from "@/lib/manual/store";
 import type { KisView, PriceBook, Snapshot } from "@/lib/manual/value";
+import { withCode } from "@/lib/strategies/universe";
 
 interface Last { runDate: string; orders: AutoOrder[]; equity: number | null; label: string }
 interface DashState {
@@ -415,7 +416,7 @@ export default function DashboardPage() {
                       <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} />{a.name}</td>
                       <td>{a.kind === "auto" ? "자동 주문" : <a href="/manual">직접 주문</a>}</td>
                       <td style={{ color: o.side === "buy" ? "var(--bad)" : "var(--accent)", fontWeight: 600 }}>{o.side === "buy" ? "매수" : "매도"}</td>
-                      <td>{o.name}</td><td>{o.qty.toLocaleString("ko-KR")}주</td><td>{won(o.amount)}</td><td>{o.note ?? ""}</td><td>{runDate}</td>
+                      <td>{o.name} <span className="help">{o.ticker}</span></td><td>{o.qty.toLocaleString("ko-KR")}주</td><td>{won(o.amount)}</td><td>{o.note ?? ""}</td><td>{runDate}</td>
                     </tr>
                   ))}</tbody>
                 </table></div>
@@ -449,7 +450,7 @@ export default function DashboardPage() {
                   ];
                 })}</tbody>
               </table></div>
-              {st.trades.some((t) => accts.some((a) => a.id === t.accountId)) && <p className="help">최근 수동 체결 기록: {st.trades.filter((t) => accts.some((a) => a.id === t.accountId)).slice(0, 5).map((t) => `${t.date} ${t.side === "buy" ? "매수" : "매도"} ${t.name ?? t.ticker} ${t.qty}주`).join(" · ")}</p>}
+              {st.trades.some((t) => accts.some((a) => a.id === t.accountId)) && <p className="help">최근 수동 체결 기록: {st.trades.filter((t) => accts.some((a) => a.id === t.accountId)).slice(0, 5).map((t) => `${t.date} ${t.side === "buy" ? "매수" : "매도"} ${withCode(t.name, t.ticker)} ${t.qty}주`).join(" · ")}</p>}
             </div>
           </>
         )}

@@ -9,6 +9,7 @@ import { compareIndices, drawdown, perf, type IndexBars, type IndexCompare, type
 import type { BacktestResult } from "@/lib/engine/types";
 import type { BackfillNote } from "@/lib/data/backfillApply";
 import { proxyName } from "@/lib/data/backfill";
+import { withCode } from "@/lib/strategies/universe";
 
 /** 비교용 매수 후 보유 결과 (같은 자금·기간·비용, 같은 종목을 똑같이 나눠 사기만 함) */
 export interface HoldCompare {
@@ -133,7 +134,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
     year: String(a.year), strategy: a.ret * 100, hold: holdYear.has(a.year) ? holdYear.get(a.year)! * 100 : null,
     ...Object.fromEntries(idx.map((x) => [`ix_${x.key}`, x.annual.has(a.year) ? x.annual.get(a.year)! * 100 : null])),
   }));
-  const holdName = hold ? (hold.tickers.length === 1 ? (names[hold.tickers[0]] ?? hold.tickers[0]) : `${hold.tickers.length}종목 똑같이`) : "";
+  const holdName = hold ? (hold.tickers.length === 1 ? withCode(names[hold.tickers[0]], hold.tickers[0]) : `${hold.tickers.length}종목 똑같이`) : "";
   const sells = res.trades.filter((t) => t.side === "SELL");
   const eqByDate = new Map(res.equity.map((e) => [e.date, e.equity]));
   const won0 = (v: number | undefined) => (v == null ? "" : Math.round(v).toLocaleString());
@@ -222,7 +223,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
             </LineChart>
           </ResponsiveContainer>
         </div>
-        {fills.length > 0 && <p className="help">상장 전 채움: {fills.map((n) => `${names[n.ticker] ?? n.ticker} ${n.until} 전은 ${n.chain.map(proxyName).join(" → ")}${n.lev !== 1 ? ` ×${n.lev}` : ""}`).join(" · ")}</p>}
+        {fills.length > 0 && <p className="help">상장 전 채움: {fills.map((n) => `${withCode(names[n.ticker], n.ticker)} ${n.until} 전은 ${n.chain.map(proxyName).join(" → ")}${n.lev !== 1 ? ` ×${n.lev}` : ""}`).join(" · ")}</p>}
         <h3>낙폭 (%)</h3>
         <div style={{ height: 120 }}>
           <ResponsiveContainer>
@@ -526,7 +527,7 @@ function HoldCard({ s, hold, names }: { s: Summary; hold: HoldCompare; names: Re
   const h = hold.s;
   const diff = (a: number, b: number) => (Number.isFinite(a) && Number.isFinite(b) ? `${a - b >= 0 ? "+" : ""}${((a - b) * 100).toFixed(1)}%p` : "–");
   const tone = (good: boolean) => ({ color: good ? "var(--good)" : "var(--bad)" });
-  const list = hold.tickers.map((t) => names[t] ?? t);
+  const list = hold.tickers.map((t) => withCode(names[t], t));
   const shown = list.length > 8 ? `${list.slice(0, 8).join(", ")} 외 ${list.length - 8}종목` : list.join(", ");
   const rows: [string, (x: Summary) => string, number, number, boolean][] = [
     ["누적 수익률", (x) => pct(x?.totalReturn), s.totalReturn, h.totalReturn, true],
