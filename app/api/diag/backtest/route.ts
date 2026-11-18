@@ -13,7 +13,8 @@ const jobs = namedJobs<Awaited<ReturnType<typeof backtestReport>>>("diag-backtes
 /**
  * 서버에서 백테스트 재현 (결과는 저장하지 않음).
  * 20초 안에 안 끝나면 202 { job } → GET ?job=<id> 로 이어서 물어봄 (프록시 60초 제한).
- * { "strategy": "저장한 전략 이름 또는 기본 전략 id", "tickers": ["069500"], "start": "2023-01-01", "end": "2026-11-13", "cash": 10000000, "monthly": 0 }
+ * { "strategy": "저장한 전략 이름 또는 기본 전략 id", "tickers": ["069500"], "start": "2023-01-01", "end": "2026-11-13", "cash": 10000000, "monthly": 0, "backfill": true }
+ * backfill: true 면 상장 전 기간을 지수로 채움 (화면의 '상장 전 기간은 지수로 채우기')
  * 또는 저장하지 않은 적립·분할 매도 설정: { "cycle": { ... }, "tickers": ["069500"] }
  */
 export async function POST(req: Request) {

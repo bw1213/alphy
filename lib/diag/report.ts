@@ -205,6 +205,8 @@ export interface DiagBacktestRequest {
   params?: Record<string, number>;
   /** 거래 내역 몇 건까지 돌려줄지 (최근부터, 기본 50, 최대 500) */
   trades?: number;
+  /** 상장 전 기간을 지수로 채우기 (화면의 같은 옵션, 모든 종목 자동 대용) */
+  backfill?: boolean;
 }
 
 interface Prepared { label: string; kind: string; fn: (ctx: any, p: Params) => any; p: Params; warmup: number; rebalance: Rebalance; stopLoss: number | null; takeProfit: number | null; needsTickers: boolean }
@@ -257,7 +259,7 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const useDiv = r.dividends !== false;
   const divTax = dividendTaxFn(Number.isFinite(Number(r.dividendTax)) && r.dividendTax != null ? Number(r.dividendTax) / 100 : KR_DIVIDEND_TAX);
   const loadStart = minusDays(start, Math.max(400, Math.ceil(st.warmup * 1.5) + 30));
-  const d = await load({ source, start: loadStart, end, tickers: tickers.length ? tickers : undefined, universeSize, dividends: useDiv });
+  const d = await load({ source, start: loadStart, end, tickers: tickers.length ? tickers : undefined, universeSize, dividends: useDiv, backfill: r.backfill === true ? { "*": "auto" } : null });
   const div = useDiv ? { dividends: d.dividends, dividendTax: divTax } : {};
   const res = runBacktest({
     data: d.data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
@@ -279,7 +281,7 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const monthlyEquity = res.equity.filter((x, i) => i === res.equity.length - 1 || x.date.slice(0, 7) !== res.equity[i + 1].date.slice(0, 7))
     .map((x) => ({ date: x.date, equity: Math.round(x.equity), cash: Math.round(x.cash), invested: Math.round(x.invested) }));
   return {
-    request: { strategy: st.label, kind: st.kind, params: st.p, source, tickers, universeSize: tickers.length ? undefined : universeSize, start, end, cash, monthly, rebalance: st.rebalance, dividends: useDiv },
+    request: { strategy: st.label, kind: st.kind, params: st.p, source, tickers, universeSize: tickers.length ? undefined : universeSize, start, end, cash, monthly, rebalance: st.rebalance, dividends: useDiv, backfill: r.backfill === true },
     data: Object.fromEntries(Object.entries(d.data).slice(0, 20).map(([t, b]) => [t, { first: b[0]?.date ?? null, last: b.at(-1)?.date ?? null, count: b.length }])),
     summary: {
       start: s.start, end: s.end, initial: s.initial, final: s.final, deposits: s.deposits, contributed: s.contributed,
