@@ -234,6 +234,6 @@ describe("기본 전략", () => {
       expect(res.equity.length, st.id).toBeGreaterThan(100);
       expect(Number.isFinite(res.equity.at(-1)!.equity), st.id).toBe(true);
     }
-    expect(STRATEGIES.map((s) => s.id)).toEqual(["momentum", "ma_cross", "rsi_reversal", "breakout", "low_vol", "lev_mix", "lev_guard", "cc_mix"]);
+    expect(STRATEGIES.map((s) => s.id)).toEqual(["momentum", "ma_cross", "rsi_reversal", "breakout", "low_vol", "lev_mix", "lev_guard", "rotation", "trend_parity", "cc_mix"]);
   });
 });

@@ -84,7 +84,7 @@ export const KNOWN: Record<string, BackfillSpec> = {
   SSO: C(SP, 2, 0.89), UPRO: C(SP, 3, 0.91), SPXL: C(SP, 3, 0.91), SH: C(SP, -1, 0.89), SDS: C(SP, -2, 0.89), SPXU: C(SP, -3, 0.9), SPXS: C(SP, -3, 1.0),
   QLD: C(NQ, 2, 0.95), TQQQ: C(NQ, 3, 0.84), PSQ: C(NQ, -1, 0.95), QID: C(NQ, -2, 0.95), SQQQ: C(NQ, -3, 0.95),
   SOXL: C(SOX, 3, 0.75), SOXS: C(SOX, -3, 0.97), USD: C(SOX, 2, 0.95),
-  TMF: C(LT, 3, 1.06), TMV: C(LT, -3, 1.0), UBT: C(LT, 2, 0.95), TBT: C(LT, -2, 0.9),
+  TMF: C(LT, 3, 1.06), TMV: C(LT, -3, 1.0), UBT: C(LT, 2, 0.95), TBT: C(LT, -2, 0.9), UST: C(IT, 2, 0.95), TYD: C(IT, 3, 1.0),
   // 채권·금: 상장 전은 뱅가드 국채 펀드(1986~·1991~), 금·은은 선물(2000~)
   TLT: C(["VUSTX"], 1, 0.15), IEF: C(["VFITX"], 1, 0.15), SHY: C(["VFISX"], 1, 0.15), AGG: C(["VBMFX"], 1, 0.03),
   GLD: C(["GC=F"], 1, 0.4), IAU: C(AU, 1, 0.25), SLV: C(["SI=F"], 1, 0.5),

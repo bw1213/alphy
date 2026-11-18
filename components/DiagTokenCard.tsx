@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Info from "./Info";
 
-interface TokenRow { id: string; name: string; createdAt: number; expiresAt: number; lastUsedAt?: number; lastIp?: string }
+interface TokenRow { id: string; name: string; createdAt: number; expiresAt: number; lastUsedAt?: number; lastIp?: string; strategies?: boolean }
 
 const when = (t?: number) => (t ? new Date(t).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) : "-");
 
@@ -13,11 +14,12 @@ const post = async (body: unknown) => {
   return j;
 };
 
-/** 설정 화면의 "점검 키" 칸: Claude 같은 도우미가 서버 상태를 읽기 전용으로 볼 수 있게 하는 키 */
+/** 설정 화면의 "점검 키" 칸: Claude 같은 도우미가 서버 상태를 볼 수 있게 하는 키 (켜면 내 전략 추가도) */
 export default function DiagTokenCard() {
   const [rows, setRows] = useState<TokenRow[] | null>(null);
   const [name, setName] = useState("Claude 점검");
   const [days, setDays] = useState(7);
+  const [strategies, setStrategies] = useState(false);
   const [fresh, setFresh] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -41,10 +43,11 @@ export default function DiagTokenCard() {
 
   return (
     <div className="card wide">
-      <h2>점검 키 (읽기 전용)</h2>
+      <h2>점검 키</h2>
       {msg && (msg.ok ? <span className="saved">✓ {msg.text}</span> : <div className="error">{msg.text}</div>)}
       <p className="help">
         Claude 점검용 키입니다. <b>점검(/api/diag)만</b> 되고 주문·설정 변경·비밀값 보기는 안 됩니다. 점검이 끝나면 폐기하세요.
+        <Info>'내 전략 추가도 허용'을 켜면 이 키로 앱에 들어 있는 기본 전략에 종목·파라미터를 넣어 내 전략에 저장할 수도 있습니다. 코드는 받지 않고, 직접 작성한 전략은 덮어쓰지 않습니다. 저장할 때마다 접속 기록에 남습니다.</Info>
       </p>
 
       <div className="row" style={{ alignItems: "flex-end" }}>
@@ -56,7 +59,10 @@ export default function DiagTokenCard() {
             <option value={30}>30일</option>
           </select>
         </label>
-        <button className="primary" onClick={() => run(async () => { const j = await post({ action: "diag-create", name, days }); setFresh(j.token); return "점검 키를 만들었습니다. 지금 복사하세요"; })}>점검 키 만들기</button>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, paddingBottom: 8 }}>
+          <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={strategies} onChange={(e) => setStrategies(e.target.checked)} />내 전략 추가도 허용
+        </label>
+        <button className="primary" onClick={() => run(async () => { const j = await post({ action: "diag-create", name, days, strategies }); setFresh(j.token); return "점검 키를 만들었습니다. 지금 복사하세요"; })}>점검 키 만들기</button>
       </div>
 
       {fresh && (
@@ -74,11 +80,12 @@ export default function DiagTokenCard() {
       {!rows ? <p className="help">불러오는 중…</p> : rows.length === 0 ? <p className="help">없습니다.</p> : (
         <div style={{ overflowX: "auto" }}>
           <table>
-            <thead><tr><th>이름</th><th>만든 시각</th><th>만료</th><th>마지막 사용</th><th></th></tr></thead>
+            <thead><tr><th>이름</th><th>권한</th><th>만든 시각</th><th>만료</th><th>마지막 사용</th><th></th></tr></thead>
             <tbody>
               {rows.map((t) => (
                 <tr key={t.id}>
                   <td>{t.name}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{t.strategies ? "점검 + 내 전략 추가" : "점검"}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{when(t.createdAt)}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{when(t.expiresAt)}</td>
                   <td>{t.lastUsedAt ? <>{when(t.lastUsedAt)} <code>{t.lastIp}</code></> : "아직 안 씀"}</td>

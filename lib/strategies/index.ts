@@ -159,6 +159,51 @@ ctx.state.period = period;
 for (const t in w) ctx.notes[t] = "정기 리밸런싱";
 return w;`;
 
+const rotationCode = `// 모멘텀 상위 N 회전: 매달 말, 1·3·6·12개월 수익률의 평균(모멘텀)이 가장 높은 p.topK 종목을 똑같이 나눠 보유.
+// 모멘텀이 p.minMom% 이하인 종목은 사지 않고 그 몫은 현금으로 둠 (다 같이 떨어지는 때 대비).
+// 12개월 시세가 아직 없는 종목은 고르지 않음.
+const score = (t) => {
+  const r = [21, 63, 126, 252].map((n) => ctx.ret(t, n));
+  return r.every(Number.isFinite) ? (r[0] + r[1] + r[2] + r[3]) / 4 * 100 : NaN;
+};
+const ok = ctx.tickers.filter((t) => ctx.close(t) > 0 && Number.isFinite(score(t)));
+const ranked = [...ok].sort((a, b) => score(b) - score(a));
+const picks = ranked.slice(0, p.topK).filter((t) => score(t) > p.minMom);
+const w = {};
+for (const t of picks) { w[t] = 1 / p.topK; ctx.notes[t] = \`모멘텀 \${score(t).toFixed(1)}% (\${ranked.indexOf(t) + 1}위)\`; }
+for (const t of ctx.held()) if (!w[t]) ctx.notes[t] = Number.isFinite(score(t)) && score(t) <= p.minMom ? \`모멘텀 \${score(t).toFixed(1)}% → 현금\` : \`상위 \${p.topK}에서 빠짐\`;
+return w;`;
+
+const trendParityCode = `// 추세 + 위험 균형: 매달 말, 각 종목을 덜 출렁이는 만큼 더 많이(60일 변동성의 역수) 나눠 담되,
+// p.ma 일선 아래이거나 3개월 수익률이 0 이하인 종목은 빼고 그 몫은 현금.
+// 그다음 전체 변동성이 연 p.target% 가 되도록 비중을 줄이거나 늘림(합계 최대 100%). 레버리지 ETF 로 고르면 같은 목표에 덜 담음.
+const ts = ctx.tickers.filter((t) => ctx.close(t) > 0 && ctx.history(t, 61).length === 61 && Number.isFinite(ctx.sma(t, p.ma)));
+if (!ts.length) return {};
+const vol = (t) => ctx.volatility(t, 60);
+const inv = {};
+let sum = 0;
+for (const t of ts) { const v = vol(t); inv[t] = Number.isFinite(v) ? 1 / Math.max(v, 1e-6) : 0; sum += inv[t]; }
+if (!sum) return {};
+const w = {};
+for (const t of ts) {
+  const on = ctx.close(t) > ctx.sma(t, p.ma) && ctx.ret(t, 63) > 0;
+  if (on) w[t] = inv[t] / sum;
+  else ctx.notes[t] = ctx.close(t) <= ctx.sma(t, p.ma) ? \`\${p.ma}일선 아래 → 현금\` : "3개월 수익률 0 이하 → 현금";
+}
+// 지금 비중으로 지난 60일을 들고 있었다면의 변동성
+const h = {};
+for (const t in w) h[t] = ctx.history(t, 61);
+const rets = [];
+for (let k = 1; k < 61; k++) { let r = 0; for (const t in w) r += w[t] * (h[t][k] / h[t][k - 1] - 1); if (Number.isFinite(r)) rets.push(r); }
+if (rets.length < 20) return w;
+const mean = rets.reduce((a, b) => a + b, 0) / rets.length;
+const pv = Math.sqrt(rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (rets.length - 1)) * Math.sqrt(252) * 100;
+const tot = Object.values(w).reduce((a, b) => a + b, 0);
+// 목표보다 출렁이면 줄이고, 덜 출렁이면 늘림 (현금 없이 다 담는 데까지)
+const k = Math.min(pv > 0 ? p.target / pv : Infinity, 1 / tot);
+for (const t in w) { w[t] *= k; ctx.notes[t] = \`위험 균형 \${(w[t] * 100).toFixed(0)}% (전체 변동성 \${pv.toFixed(0)}% → 목표 \${p.target}%)\`; }
+return w;`;
+
 /** 코드 문자열 → 함수. 브라우저(사용자 본인 PC)에서만 실행된다. 코드에서는 lib.cycle 같은 도우미도 쓸 수 있다. */
 export function compileStrategy(code: string): (ctx: StrategyContext, p: Params) => Weights | null | undefined {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -275,6 +320,32 @@ export const STRATEGIES: StrategyDef[] = [
     warmup: (p) => Math.max(61, (p.ma ?? 0) + 1),
     targetWeights: compileStrategy(levGuardCode),
     code: levGuardCode,
+  },
+  {
+    id: "rotation",
+    name: "모멘텀 상위 N 회전",
+    description: "매달 말, 1·3·6·12개월 평균 수익률이 가장 높은 3종목을 똑같이 보유. 모멘텀이 0 이하인 종목 몫은 현금. 종목은 직접 입력(주식·채권·금처럼 서로 다르게 움직이는 ETF 몇 개).",
+    params: [
+      { key: "topK", label: "보유 종목 수", default: 3, min: 1, max: 10 },
+      { key: "minMom", label: "이 모멘텀(%) 이하는 현금", default: 0, min: -20, max: 20, step: 1 },
+    ],
+    rebalance: "M", stopLoss: null, takeProfit: null,
+    warmup: () => 253,
+    targetWeights: compileStrategy(rotationCode),
+    code: rotationCode,
+  },
+  {
+    id: "trend_parity",
+    name: "추세 + 위험 균형",
+    description: "매달 말, 덜 출렁이는 종목을 더 많이 담고(변동성 역수), 200일선 아래이거나 3개월 수익률이 0 이하인 종목은 현금. 전체 변동성이 목표를 넘으면 비중을 줄임. 종목은 직접 입력.",
+    params: [
+      { key: "target", label: "목표 변동성(연 %)", default: 15, min: 3, max: 60, step: 1 },
+      { key: "ma", label: "추세 이동평균(일)", default: 200, min: 20, max: 400, step: 10 },
+    ],
+    rebalance: "M", stopLoss: null, takeProfit: null,
+    warmup: (p) => Math.max(64, (p.ma ?? 200) + 1),
+    targetWeights: compileStrategy(trendParityCode),
+    code: trendParityCode,
   },
   {
     id: "cc_mix",

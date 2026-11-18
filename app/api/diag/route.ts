@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
  * 접근: 로그인 쿠키 또는 Authorization: Bearer <점검 키>
  * 다른 점검: GET /api/diag/data?tickers=069500&start=YYYY-MM-DD&end=YYYY-MM-DD
  *            POST /api/diag/backtest { strategy, tickers, start, end, cash, monthly }
+ * 쓰기 (내 전략 추가를 켠 키만): POST /api/diag/strategies { name, builtin, params, tickers, backfill, overwrite }
  */
 export function GET(req: Request) {
   const who = diagAccess(req);

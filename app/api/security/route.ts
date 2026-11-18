@@ -24,7 +24,7 @@ export async function GET(req: Request) {
  * { action: "totp-enable", code }     인증 앱 코드로 확인되면 켬
  * { action: "totp-disable", code }    지금 코드로 확인되면 끔
  * { action: "logout-all" }            내 모든 기기 로그아웃 (이 기기는 새로 로그인 유지, owner 면 점검 키도 폐기)
- * { action: "diag-create", name, days } 읽기 전용 점검 키 발급 (원문은 이 응답에만) — owner 만
+ * { action: "diag-create", name, days, strategies? } 점검 키 발급 (원문은 이 응답에만, strategies = 내 전략 추가도 허용) — owner 만
  * { action: "diag-revoke", id }       점검 키 폐기 — owner 만
  * 2단계 인증은 모두 "내 계정" 것
  */
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
     }
     if (b.action?.startsWith("diag-") && me !== OWNER_ID) return NextResponse.json({ error: "점검 키는 owner 계정만 다룰 수 있습니다." }, { status: 403 });
     if (b.action === "diag-create") {
-      const { token, view } = createDiagToken(String(b.name ?? ""), Number(b.days));
+      const { token, view } = createDiagToken(String(b.name ?? ""), Number(b.days), process.env, Date.now(), (b.strategies as unknown) === true);
       log("diag-create");
       return NextResponse.json({ token, view });
     }
