@@ -56,3 +56,23 @@ describe("추세 + 위험 균형", () => {
     expect(sum(run("trend_parity", data, { ...defaults("trend_parity"), target: 3 }))).toBeLessThan(sum(run("trend_parity", data)));
   });
 });
+
+describe("모멘텀 회전 (조절 많은 버전)", () => {
+  const data = () => ({ A: walk(0.003, 0.005), B: walk(0.002, 0.005), C: walk(0.001, 0.005), D: walk(-0.001, 0.005) });
+  it("기본값은 모멘텀 상위 N 회전과 같은 매매", () => {
+    const a = run("rotation", data()), b = run("rotation_plus", data());
+    expect(b.trades.map((t) => [t.date, t.ticker, t.qty])).toEqual(a.trades.map((t) => [t.date, t.ticker, t.qty]));
+  });
+  it("피난처: 남는 몫을 가장 덜 출렁이는 오르는 종목에", () => {
+    const d = { UP: walk(0.003, 0.01), SAFE: walk(0.0002, 0.001), DOWN: walk(-0.002, 0.01) };
+    const w = firstBuys(run("rotation_plus", d, { ...defaults("rotation_plus"), topK: 3, minMom: 5, safe: 1 }));
+    expect(w.UP).toBeCloseTo(1 / 3, 1);
+    expect(w.SAFE).toBeCloseTo(2 / 3, 1);
+    expect(w.DOWN).toBeUndefined();
+  });
+  it("변동성 목표를 낮추면 덜 담음", () => {
+    const sum = (res: ReturnType<typeof run>) => Object.values(firstBuys(res)).reduce((a, b) => a + b, 0);
+    const d = { A: walk(0.003, 0.02), B: walk(0.002, 0.02), C: walk(0.001, 0.02) };
+    expect(sum(run("rotation_plus", d, { ...defaults("rotation_plus"), volT: 10 }))).toBeLessThan(sum(run("rotation_plus", d)) - 0.2);
+  });
+});

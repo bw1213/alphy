@@ -174,6 +174,62 @@ for (const t of picks) { w[t] = 1 / p.topK; ctx.notes[t] = \`모멘텀 \${score(
 for (const t of ctx.held()) if (!w[t]) ctx.notes[t] = Number.isFinite(score(t)) && score(t) <= p.minMom ? \`모멘텀 \${score(t).toFixed(1)}% → 현금\` : \`상위 \${p.topK}에서 빠짐\`;
 return w;`;
 
+const rotationPlusCode = `// 모멘텀 회전 (조절 많은 버전): 매달 말, 모멘텀이 높은 p.topK 종목을 고름. 기본값은 '모멘텀 상위 N 회전'과 같음.
+// p.lb  모멘텀 재는 법: 0 = 1·3·6·12개월 평균, 1 = 최근에 무게(1개월×12·3개월×4·6개월×2·12개월 ÷ 19),
+//       2 = 3·6·12개월 평균, 3 = 6개월, 4 = 12개월(최근 1개월 빼고)
+// p.minMom 이 모멘텀(%) 이하인 종목 몫은 현금(또는 피난처)
+// p.wmode 0 = 고른 종목마다 1/topK 씩, 1 = 고른 종목 안에서 덜 출렁이는 종목에 더 많이 (합계는 같음)
+// p.safe  1 = 현금으로 남는 몫을 '피난처'(60일 변동성이 가장 낮은 종목, 3개월 수익률이 0보다 클 때만)에 넣음
+// p.canary 0보다 크면: 모멘텀이 0보다 큰 종목이 전체의 p.canary% 미만일 때 주식 몫을 p.cut% 로 줄임
+// p.volT  0보다 크면: 고른 비중의 최근 60일 변동성이 연 p.volT% 를 넘으면 그만큼 줄임
+const R = (t, n, skip = 0) => ctx.ret(t, n, skip);
+const score = (t) => {
+  const a = [R(t, 21), R(t, 63), R(t, 126), R(t, 252)];
+  if (!a.every(Number.isFinite)) return NaN;
+  const m = p.lb === 1 ? (12 * a[0] + 4 * a[1] + 2 * a[2] + a[3]) / 19
+    : p.lb === 2 ? (a[1] + a[2] + a[3]) / 3
+    : p.lb === 3 ? a[2]
+    : p.lb === 4 ? R(t, 252, 21)
+    : (a[0] + a[1] + a[2] + a[3]) / 4;
+  return Number.isFinite(m) ? m * 100 : NaN;
+};
+const ok = ctx.tickers.filter((t) => ctx.close(t) > 0 && Number.isFinite(score(t)));
+if (!ok.length) return {};
+const ranked = [...ok].sort((a, b) => score(b) - score(a));
+const picks = ranked.slice(0, p.topK).filter((t) => score(t) > p.minMom);
+const vol = (t) => ctx.volatility(t, 60);
+const w = {};
+const slot = 1 / p.topK;
+if (p.wmode === 1 && picks.length > 1 && picks.every((t) => Number.isFinite(vol(t)) && vol(t) > 0)) {
+  const iv = picks.map((t) => 1 / vol(t)), s = iv.reduce((x, y) => x + y, 0);
+  picks.forEach((t, k) => { w[t] = (iv[k] / s) * slot * picks.length; });
+} else for (const t of picks) w[t] = slot;
+let scale = 1;
+if (p.canary > 0) {
+  const up = ok.filter((t) => score(t) > 0).length / ok.length * 100;
+  if (up < p.canary) scale = p.cut / 100;
+}
+if (p.volT > 0 && picks.length) {
+  const n = 60, h = picks.map((t) => ctx.history(t, n + 1));
+  if (h.every((x) => x.length === n + 1)) {
+    const r = [];
+    for (let i = 1; i <= n; i++) r.push(picks.reduce((s, t, k) => s + w[t] * (h[k][i] / h[k][i - 1] - 1), 0));
+    const m = r.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1)) * Math.sqrt(252) * 100;
+    if (sd > p.volT) scale = Math.min(scale, p.volT / sd);
+  }
+}
+for (const t of Object.keys(w)) w[t] *= scale;
+for (const t of picks) ctx.notes[t] = \`모멘텀 \${score(t).toFixed(1)}% (\${ranked.indexOf(t) + 1}위)\${scale < 1 ? \` · 비중 \${(scale * 100).toFixed(0)}%로 줄임\` : ""}\`;
+if (p.safe === 1) {
+  const rest = 1 - Object.values(w).reduce((a, b) => a + b, 0);
+  const cands = ok.filter((t) => Number.isFinite(vol(t)) && vol(t) > 0).sort((a, b) => vol(a) - vol(b));
+  const s = cands[0];
+  if (s && rest > 0.01 && R(s, 63) > 0) { w[s] = (w[s] ?? 0) + rest; ctx.notes[s] = \`피난처(가장 덜 출렁임) \${(rest * 100).toFixed(0)}%\`; }
+}
+for (const t of ctx.held()) if (!w[t]) ctx.notes[t] = Number.isFinite(score(t)) && score(t) <= p.minMom ? \`모멘텀 \${score(t).toFixed(1)}% → 현금\` : \`상위 \${p.topK}에서 빠짐\`;
+return w;`;
+
 const trendParityCode = `// 추세 + 위험 균형: 매달 말, 각 종목을 덜 출렁이는 만큼 더 많이(60일 변동성의 역수) 나눠 담되,
 // p.ma 일선 아래이거나 3개월 수익률이 0 이하인 종목은 빼고 그 몫은 현금.
 // 그다음 전체 변동성이 연 p.target% 가 되도록 비중을 줄이거나 늘림(합계 최대 100%). 레버리지 ETF 로 고르면 같은 목표에 덜 담음.
@@ -333,6 +389,25 @@ export const STRATEGIES: StrategyDef[] = [
     warmup: () => 253,
     targetWeights: compileStrategy(rotationCode),
     code: rotationCode,
+  },
+  {
+    id: "rotation_plus",
+    name: "모멘텀 회전 (조절 많은 버전)",
+    description: "모멘텀 상위 N 회전에 조절 장치를 더한 것. 모멘텀 재는 법, 고른 종목 비중(같게·덜 출렁이는 쪽 더), 남는 몫을 가장 덜 출렁이는 종목(피난처)에 넣기, 오르는 종목이 적을 때 줄이기, 변동성 목표를 고를 수 있음. 기본값은 '모멘텀 상위 N 회전'과 같음. 종목은 직접 입력.",
+    params: [
+      { key: "topK", label: "보유 종목 수", default: 3, min: 1, max: 10 },
+      { key: "minMom", label: "이 모멘텀(%) 이하는 현금", default: 0, min: -20, max: 20, step: 1 },
+      { key: "lb", label: "모멘텀 재는 법(0 1·3·6·12 평균, 1 최근 무게, 2 3·6·12, 3 6개월, 4 12개월-1)", default: 0, min: 0, max: 4 },
+      { key: "wmode", label: "비중(0 같게, 1 덜 출렁이는 쪽 더)", default: 0, min: 0, max: 1 },
+      { key: "safe", label: "남는 몫을 피난처에(0 끔, 1 켬)", default: 0, min: 0, max: 1 },
+      { key: "canary", label: "오르는 종목 비율 기준(%, 0 = 끔)", default: 0, min: 0, max: 100, step: 5 },
+      { key: "cut", label: "기준 밑일 때 주식 몫(%)", default: 50, min: 0, max: 100, step: 10 },
+      { key: "volT", label: "변동성 목표(연 %, 0 = 끔)", default: 0, min: 0, max: 200, step: 5 },
+    ],
+    rebalance: "M", stopLoss: null, takeProfit: null,
+    warmup: () => 253,
+    targetWeights: compileStrategy(rotationPlusCode),
+    code: rotationPlusCode,
   },
   {
     id: "trend_parity",
