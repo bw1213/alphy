@@ -1,6 +1,7 @@
 /** 서버 측 데이터 로딩: 캐시 → 소스 순서 */
 import { promises as fs } from "fs";
 import path from "path";
+import type { IndexBars } from "../engine/metrics";
 import type { Bar, Dividend, DividendData, PriceData, StockInfo, UniverseSnapshot } from "../engine/types";
 import { dividendGaps, fetchDividends, fetchSplits, parseDividendCsv } from "./dividends";
 import { buildPitUniverse, krxDaily, krxListings, type KrxListing } from "./krx";
@@ -38,6 +39,8 @@ export interface DataRequest {
    * "*" 키는 나머지 종목 전체 (보통 "auto")
    */
   backfill?: BackfillRequestMap | null;
+  /** S&P 500·KOSPI 비교 지수도 받기 (기본 true) */
+  indices?: boolean;
 }
 
 export interface DataResponse {
@@ -55,6 +58,8 @@ export interface DataResponse {
   fx?: { date: string; close: number }[];
   /** 상장 전 기간을 지수로 채운 종목 (그래프에 다른 색으로 표시) */
   backfilled?: BackfillNote[];
+  /** 항상 보여 주는 비교 지수 (S&P 500·KOSPI, 원화). 못 받은 지수는 빠짐 */
+  indices?: IndexBars[];
 }
 
 async function readJson<T>(p: string): Promise<T | null> {
@@ -218,6 +223,7 @@ export interface LoadOptions {
 
 export async function loadData(req: DataRequest, opts: LoadOptions = {}): Promise<DataResponse> {
   const out = await loadPrices(req, opts);
+  if (req.indices !== false) await addIndices(out, req);
   if (req.dividends === false || req.source === "synthetic") return out;
   try {
     out.dividends = req.source === "csv" ? await csvDividends(Object.keys(out.data)) : await onlineDividends(Object.keys(out.data), req, out, opts);
@@ -225,13 +231,61 @@ export async function loadData(req: DataRequest, opts: LoadOptions = {}): Promis
   if (req.backfill && req.tickers?.length) {
     try {
       await applyBackfill(out, req, {
-        loadTickers: (codes) => loadData({ ...req, tickers: codes, backfill: null }, { ...opts, onProgress: undefined }),
+        loadTickers: (codes) => loadData({ ...req, tickers: codes, backfill: null, indices: false }, { ...opts, onProgress: undefined }),
         yahoo: (sym) => cachedDaily(sym, req.start, "yahoo", fetchYahooDaily),
         nameOf: (code) => { try { return lookupCodes([code])[0]?.name; } catch { return undefined; } },
       });
     } catch (e) { out.warnings.push(`상장 전 기간 채우기 실패: ${(e as Error).message}`); }
   }
   return out;
+}
+
+/** 비교 지수 받는 곳 (테스트에서 바꿔 끼움) */
+export interface IndexDeps {
+  kospi: (start: string) => Promise<Bar[]>;
+  yahoo: (symbol: string, start: string) => Promise<Bar[]>;
+}
+const indexDeps: IndexDeps = {
+  kospi: (start) => cachedDaily("KOSPI", start),
+  yahoo: (sym, start) => cachedDaily(sym, start, "yahoo", fetchYahooDaily),
+};
+
+/**
+ * S&P 500(원화 환산)·KOSPI 를 항상 비교 지수로 붙임. 이미 받은 비교 지수(benchmark)는 다시 받지 않음.
+ * 가짜 데이터는 없음, CSV 는 KOSPI.csv 만. 실패하면 경고만
+ */
+export async function addIndices(out: DataResponse, req: DataRequest, deps: IndexDeps = indexDeps): Promise<void> {
+  if (req.source === "synthetic") return;
+  const name = out.benchmarkName ?? "KOSPI";
+  const short = (b: { date: string; close: number }[]) => b.map((x) => ({ date: x.date, close: x.close }));
+  const clipped = (b: Bar[]) => short(clip(b, req.start, req.end));
+  const list: IndexBars[] = [];
+  const failed: string[] = [];
+  // S&P 500 (원화)
+  if (req.source !== "csv") {
+    if (name === "S&P 500" && out.benchmark?.length) list.push({ key: "sp500", name: "S&P 500", bars: out.benchmark });
+    else {
+      try {
+        let fx = out.fx;
+        if (!fx?.length) fx = short(await deps.yahoo(USDKRW, minusDays(req.start, 10)));
+        const bars = clipped(toKrw(await deps.yahoo(SP500, req.start), fx));
+        if (!bars.length) throw new Error("데이터 없음");
+        list.push({ key: "sp500", name: "S&P 500", bars });
+        if (fx.length && fx[0].date > bars[0].date) out.warnings.push(`S&P 500 비교: 원/달러 환율이 ${fx[0].date}부터 있어 그 전은 첫 환율로 원화 환산했습니다.`);
+      } catch { failed.push("S&P 500"); }
+    }
+  }
+  // KOSPI
+  if (name === "KOSPI" && out.benchmark?.length) list.push({ key: "kospi", name: "KOSPI", bars: out.benchmark });
+  else if (req.source !== "csv") {
+    try {
+      const bars = clipped(await deps.kospi(req.start));
+      if (!bars.length) throw new Error("데이터 없음");
+      list.push({ key: "kospi", name: "KOSPI", bars });
+    } catch { failed.push("KOSPI"); }
+  }
+  if (list.length) out.indices = list;
+  if (failed.length) out.warnings.push(`비교 지수 ${failed.join("·")}를 받지 못해 빼고 보여 줍니다.`);
 }
 
 const isKrCode = isKrTicker;
