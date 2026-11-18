@@ -291,6 +291,7 @@ export default function Page() {
     // 이 백테스트에 쓴 종목도 함께 저장
     const universe = cleanUniverse({ mode: universeMode, size: universeSize, pit, tickers, backfill });
     if (universe) item.universe = universe;
+    item.intraday = intraday; // 장중 실시간 매도도 매매에 그대로
     setStratMsg("");
     const keepLocal = (why: string) => {
       const list = [...local.filter((s) => s.name !== item.name), item];

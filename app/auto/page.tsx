@@ -5,7 +5,7 @@ import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import { StockSearch } from "@/components/StockSearch";
 import { STRATEGIES } from "@/lib/strategies";
 import type { SavedStrategy } from "@/lib/strategies/library";
-import { universeTickers } from "@/lib/strategies/universe";
+import { universeLabel, universeTickers } from "@/lib/strategies/universe";
 import type { EveningReport } from "@/lib/auto/evening";
 import type { MorningDay } from "@/lib/auto/morning";
 import type { IntradayDay } from "@/lib/auto/intraday";
@@ -287,19 +287,23 @@ export default function AutoPage() {
           <div className="card">
             <h2>운용 전략</h2>
             <label className="f">전략
-              <select value={form.strategy} onChange={(e) => { const v = e.target.value; const own = universeTickers(lib.find((x) => `saved:${x.name}` === v)?.universe); setForm({ ...form, strategy: v, ...(own && !form.tickers.trim() ? { tickers: own } : {}) }); }}>
+              <select value={form.strategy} onChange={(e) => { const v = e.target.value; const s = lib.find((x) => `saved:${x.name}` === v); const own = universeTickers(s?.universe); setForm({ ...form, strategy: v, ...(own ? { tickers: own } : {}), ...(typeof s?.intraday === "boolean" ? { intraday: s.intraday } : {}) }); }}>
                 <option value="">고르세요</option>
                 {lib.length > 0 && <optgroup label="내 전략 보관함">{lib.map((s) => <option key={s.name} value={`saved:${s.name}`}>{s.name}{s.cycle ? " (적립·분할 매도)" : s.builder ? " (조건 고르기)" : " (코드)"}</option>)}</optgroup>}
                 <optgroup label="기본 전략">{STRATEGIES.map((s) => <option key={s.id} value={`builtin:${s.id}`}>{s.name}</option>)}</optgroup>
               </select>
             </label>
             {isCustom && !auth?.user?.owner && <p className="help">코드 전략은 관리자만 운용할 수 있습니다.</p>}
+            {picked?.universe ? (
+              <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
+            ) : (<>
             <label className="f" style={{ marginTop: 10 }}>대상 종목 {isCycle ? "(필수)" : "(비우면 전략 기본: 시총 상위 종목)"}
               <input value={form.tickers} placeholder="예: 069500, 005930" onChange={(e) => setForm({ ...form, tickers: e.target.value })} />
             </label>
             <div style={{ marginTop: 6 }}>
               <StockSearch placeholder="종목 이름으로 찾아 추가" onPick={(s) => setForm((f) => ({ ...f, tickers: [...new Set([...f.tickers.split(/[\s,]+/).filter(Boolean), s.code])].join(", ") }))} />
             </div>
+            </>)}
             <div className="row" style={{ marginTop: 10 }}>
               <label className="f">운용 금액(원)<input type="number" min={100000} step={100000} value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></label>
               <label className="f">운용 시작일<input type="date" value={form.startDate} max={st?.today} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
@@ -309,7 +313,7 @@ export default function AutoPage() {
               <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> 매일 저녁 자동 계산·알림 켜기
             </label>
             <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 4 }}>
-              <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={form.intraday} onChange={(e) => setForm({ ...form, intraday: e.target.checked })} /> 장중 실시간 매도 (손절·익절·하락 매도 가격에 장중에 닿으면 바로 팖)
+              <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={typeof picked?.intraday === "boolean" ? picked.intraday : form.intraday} disabled={typeof picked?.intraday === "boolean"} onChange={(e) => setForm({ ...form, intraday: e.target.checked })} /> 장중 실시간 매도 (손절·익절·하락 매도 가격에 장중에 닿으면 바로 팖){typeof picked?.intraday === "boolean" && " · 내 전략 설정"}
             </label>
             <p className="help">끄면 종가 확인 후 다음 날 아침에 팝니다.</p>
             <div className="btns" style={{ marginTop: 12 }}>

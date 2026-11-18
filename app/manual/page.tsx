@@ -5,7 +5,7 @@ import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import { StockSearch } from "@/components/StockSearch";
 import { STRATEGIES } from "@/lib/strategies";
 import type { SavedStrategy } from "@/lib/strategies/library";
-import { universeTickers } from "@/lib/strategies/universe";
+import { universeLabel, universeTickers } from "@/lib/strategies/universe";
 import type { EveningReport, AutoOrder } from "@/lib/auto/evening";
 import type { ManualPosition, ManualTrade, FeeRates } from "@/lib/manual/store";
 import type { PriceBook } from "@/lib/manual/value";
@@ -271,7 +271,7 @@ export default function ManualPage() {
                 <select value={form.strategy} onChange={(e) => {
                   const v = e.target.value;
                   const own = universeTickers(lib.find((x) => `saved:${x.name}` === v)?.universe);
-                  setForm({ ...form, strategy: v, ...(own && !form.tickers.trim() ? { tickers: own } : {}) });
+                  setForm({ ...form, strategy: v, ...(own ? { tickers: own } : {}) });
                 }}>
                   <option value="">없음 (계좌만 기록)</option>
                   {(() => {
@@ -286,6 +286,9 @@ export default function ManualPage() {
               {isCustom && !auth?.user?.owner && <p className="help">코드 전략은 관리자만 쓸 수 있습니다.</p>}
               {form.strategy && (
                 <>
+                  {picked?.universe ? (
+                    <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
+                  ) : (<>
                   <label className="f" style={{ marginTop: 10 }}>대상 종목 {picked?.cycle ? "(필수)" : "(비우면 전략 기본: 시총 상위 종목)"}
                     <input value={form.tickers} placeholder="예: 069500, QQQ" onChange={(e) => setForm({ ...form, tickers: e.target.value })} />
                   </label>
@@ -295,6 +298,7 @@ export default function ManualPage() {
                   <div className="btns" style={{ marginTop: 6 }}>
                     {form.positions.length > 0 && <button onClick={() => setForm({ ...form, tickers: [...new Set([...form.tickers.split(/[\s,]+/).filter(Boolean), ...form.positions.map((p) => p.ticker)])].join(", ") })}>보유 종목 넣기</button>}
                   </div>
+                  </>)}
                   <div className="row" style={{ marginTop: 10 }}>
                     <label className="f">운용 금액(원)<input type="number" min={100000} step={100000} value={form.budget}
                       placeholder={String(Math.round(Number(form.cash || 0) + form.positions.reduce((s, p) => s + Number(p.qty || 0) * (price(p.ticker) ?? Number(p.avgPrice || 0)), 0)))}

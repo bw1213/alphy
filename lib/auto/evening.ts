@@ -20,6 +20,7 @@ import { loadSettings } from "../settings/store";
 import { intradayOn, planKind, type AutoPlan } from "./store";
 import { kst, minusDays } from "./time";
 import { planMarket, type Market } from "./session";
+import { backfillRequest } from "../data/backfillPick";
 
 type Env = Record<string, string | undefined>;
 
@@ -159,7 +160,11 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const source = def.source === "kis" ? "naver" : def.source; // 한국투자증권 시세는 호출 한도를 아끼려고 저녁 계산에선 쓰지 않음
   const end = r.runDate;
   const loadStart = minusDays(plan.startDate, Math.max(400, Math.ceil(st.warmup * 1.5) + 30));
-  const d = await (deps.load ?? loadData)({ source, start: loadStart, end, tickers: plan.tickers.length ? plan.tickers : undefined, universeSize: def.universeSize, dividends: true });
+  // 내 전략에 저장된 백테스트 설정을 그대로: 시가총액 상위 N 의 N, 상장 전 기간 채우기
+  const u = plan.strategy?.universe;
+  const bf = plan.tickers.length && u?.backfill ? backfillRequest(u.backfill, plan.tickers) : undefined;
+  const d = await (deps.load ?? loadData)({ source, start: loadStart, end, tickers: plan.tickers.length ? plan.tickers : undefined,
+    universeSize: u?.mode === "top" ? u.size : def.universeSize, dividends: true, ...(bf ? { backfill: bf } : {}) });
   const lastDates = Object.values(d.data).map((b) => b.at(-1)?.date ?? "").filter(Boolean);
   const dataDate = [...lastDates, d.benchmark?.at(-1)?.date ?? ""].sort().at(-1) ?? "";
   if (!dataDate) throw new Error("시세를 받지 못했습니다.");
