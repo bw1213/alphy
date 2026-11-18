@@ -63,7 +63,7 @@ export async function fetchYahooChart(symbol: string, start: string, end?: strin
 }
 
 /** 일봉만 (cachedDaily 용) */
-export const fetchYahooDaily = async (symbol: string, start: string) => (await fetchYahooChart(symbol, start)).bars;
+export const fetchYahooDaily = async (symbol: string, start: string, end?: string) => (await fetchYahooChart(symbol, start, end)).bars;
 
 /** 원/달러 환율 심볼, S&P 500 지수 심볼 */
 export const USDKRW = "KRW=X";

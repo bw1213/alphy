@@ -63,6 +63,24 @@ describe("일봉 캐시", () => {
     expect(calls).toEqual(["2024-06-18", "2024-01-01"]);
     expect(full.every((b) => b.close === 50)).toBe(true);
   });
+  it("더 앞선 기간은 모자란 앞부분만 받아 붙이고, 앞부분 가격이 안 맞으면 처음부터 다시 받는다", async () => {
+    const calls: [string, string | undefined][] = [];
+    const fetcher = async (_: string, start: string, end?: string) => { calls.push([start, end]); return series(start, end ?? todayIso()); };
+    await cachedDaily("069500", "2020-01-01", "kis", fetcher, dir);
+    const b = await cachedDaily("069500", "2015-01-01", "kis", fetcher, dir);
+    expect(calls).toEqual([["2020-01-01", undefined], ["2015-01-01", "2020-01-11"]]); // 첫 날짜(2020-01-01) + 10일까지만
+    expect(b[0].date).toBe("2015-01-01");
+    expect(new Set(b.map((x) => x.date)).size).toBe(b.length);
+    // 이제 2015년부터 있으니 2018년 요청은 다시 받지 않음
+    await cachedDaily("069500", "2018-01-01", "kis", fetcher, dir);
+    expect(calls.length).toBe(2);
+
+    // 앞부분 가격이 다름(수정주가 바뀜) → 전체 다시
+    const other = async (_: string, start: string, end?: string) => { calls.push([start, end]); return series(start, end ?? todayIso(), 50); };
+    const c = await cachedDaily("069500", "2010-01-01", "kis", other, dir);
+    expect(calls.slice(2)).toEqual([["2010-01-01", "2015-01-11"], ["2010-01-01", undefined]]);
+    expect(c.every((x) => x.close === 50)).toBe(true);
+  });
   it("sameHistory: 겹치는 날이 없으면 이어 붙이지 않는다", () => {
     expect(sameHistory([bar("2024-01-02")], [bar("2024-01-03")])).toBe(false);
     expect(sameHistory([bar("2024-01-02")], [bar("2024-01-02"), bar("2024-01-03", 120)])).toBe(true);
