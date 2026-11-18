@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/settings/auth";
 import { credentialsFor, quoteCredentials, type KisCredentials } from "@/lib/kis/config";
 import { kisEnvFor } from "@/lib/kis/userkeys";
 import { normalizeTicker } from "@/lib/data/market";
+import { cleanSpec } from "@/lib/data/backfill";
 import { BusyError, dataGate, rateLimited } from "@/lib/server/limiter";
 import { createJobStore, type JobStore, type JobView } from "@/lib/server/jobs";
 
@@ -54,6 +55,11 @@ export async function POST(req: Request) {
     const kisDividendCred = credentialsFor("real", userEnv);
     if (body.tickers) body.tickers = [...new Set(body.tickers.map((t) => normalizeTicker(String(t))).filter(Boolean))];
     body.pit = body.pit === true;
+    if (body.backfill && typeof body.backfill === "object") {
+      body.backfill = Object.fromEntries(Object.entries(body.backfill).slice(0, 50)
+        .map(([k, v]) => [k === "*" ? "*" : normalizeTicker(k), v === "auto" || v === null ? v : cleanSpec(v)] as const)
+        .filter(([k]) => k));
+    } else body.backfill = null;
     // 시점별 목록은 종목이 계속 바뀌어 전체 종목 수가 2배쯤 되므로 200 까지만
     body.universeSize = Math.min(Math.max(body.universeSize ?? 100, 1), body.pit ? 200 : 300);
     // 느린 NAS 를 위해 한 번에 2건만 받고 나머지는 줄을 섬. 같은 요청을 다시 누르면 돌던 작업을 이어서 봄
