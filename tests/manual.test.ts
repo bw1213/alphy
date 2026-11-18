@@ -220,11 +220,10 @@ describe("대시보드 기록", () => {
     expect(h.points[KIS_ID]).toBeUndefined();
   });
 
-  it("총자산 조회값(원화·달러 예수금 포함)을 읽었으면 그것이 계좌 총액", () => {
-    const v = kisViewOf({ env: "real", kr: { cash: 0, total: 100, holdings: [] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 1, avgPrice: 1, price: 1, value: 1 }], totalAsset: 5000 } }, { at: "", map: { QQQ: { close: 1400, date: today } }, fx: 1400 }, 0);
-    expect(v.total).toBe(5000);
-    expect(v.cash).toBe(3600);
-    expect(v.partial).toBeUndefined();
+  it("계좌 총액 = 국내 총평가 + 미국 주식 + 달러 예수금 (총자산 조회값은 안 씀)", () => {
+    const v = kisViewOf({ env: "real", kr: { cash: 0, total: 100, holdings: [] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 1, avgPrice: 1, price: 1, value: 1 }], totalAsset: 5000, cashUsd: 2, fx: 1400 } }, { at: "", map: { QQQ: { close: 1400, date: today } }, fx: 1400 }, 0);
+    expect(v.total).toBe(100 + 1400 + 2800);
+    expect(v.cash).toBe(2900);
   });
 });
 
@@ -311,17 +310,15 @@ describe("수동 계좌: 목표 보유 기준", () => {
   });
 });
 
-describe("한국투자증권 총자산", () => {
-  it("모의 실서버 값: 총자산 338,839,665원(달러 예수금 포함)을 그대로", () => {
-    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [{ code: "UPRO", name: "UPRO", qty: 57, avgPrice: 129.12, price: 125.76, value: 7168.13 }], totalAsset: 338_839_665, cashUsd: 92_566.56, fx: 1338.8 } }, null, 0);
-    expect(v.total).toBe(338_839_665);
+describe("한국투자증권 평가액 (모의 실서버 값)", () => {
+  it("초기화 직후: 원화 1,000만 + 달러 $100,000, 총자산 조회값 3.39억은 무시", () => {
+    const v = kisViewOf({ env: "mock", kr: { cash: 10_000_000, total: 10_000_000, holdings: [] }, us: { holdings: [], totalAsset: 339_378_500, cashUsd: 100_000, fx: 1338.8 } }, null, 0);
+    expect(v.total).toBe(10_000_000 + 133_880_000);
     expect(v.partial).toBeUndefined();
   });
-  it("총자산을 못 읽으면 국내 총평가 + 미국 주식 어림값, partial 표시", () => {
-    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [{ code: "UPRO", name: "UPRO", qty: 57, avgPrice: 129.12, price: 125.76, value: 7168.13 }], fx: 1338.8 } }, null, 0);
-    expect(v.total).toBe(Math.round(9_999_071 + 57 * 125.76 * 1338.8));
+  it("달러 예수금을 못 읽으면 partial", () => {
+    const v = kisViewOf({ env: "mock", kr: { cash: 10_000_000, total: 10_000_000, holdings: [] }, cashNote: "달러 예수금을 읽지 못해" }, null, 0);
+    expect(v.total).toBe(10_000_000);
     expect(v.partial).toBe(true);
-    const kr = kisViewOf({ env: "mock", kr: { cash: 100, total: 100, holdings: [] } }, null, 0);
-    expect(kr.partial).toBeUndefined();
   });
 });
