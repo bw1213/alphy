@@ -96,6 +96,40 @@ ctx.state.period = period;
 for (const t of ts) ctx.notes[t] = "정기 리밸런싱";
 return w;`;
 
+const levGuardCode = `// 레버리지 분산 + 변동성 방어: 평소엔 가장 많이 출렁이는 종목(레버리지 ETF)에 p.main%, 나머지 종목에 똑같이.
+// 레버리지 종목의 20일 변동성(연)이 p.v0% ~ p.v1% 사이 다섯 기준을 하나씩 넘을 때마다 레버리지 비중을 p.low% 쪽으로 한 칸씩 줄인다.
+// 각 기준은 변동성이 그 기준의 p.back% 아래로 내려와야 다시 늘린다(바로 되돌아가며 사고파는 것을 막음).
+// 비중이 바뀐 날과 p.months 개월(3 = 분기)마다 새 기간의 첫 거래일에만 매매, 그 밖의 날은 null(매매 안 함)
+const ts = ctx.tickers.filter((t) => ctx.close(t) > 0);
+if (!ts.length) return {};
+const vol250 = (t) => { const v = ctx.volatility(t, 250); return Number.isFinite(v) ? v : ctx.volatility(t, 60) || 0; };
+const main = [...ts].sort((a, b) => vol250(b) - vol250(a))[0];
+const rest = ts.filter((t) => t !== main);
+const st = ctx.state;
+const v = ctx.volatility(main, 20) * Math.sqrt(252) * 100;
+const N = 5;
+st.sw = st.sw || [];
+let calm = 0;
+for (let k = 0; k < N; k++) {
+  const th = p.v0 + (p.v1 - p.v0) * k / (N - 1);
+  let on = st.sw[k] || false;
+  if (!on && v > th) on = true;
+  else if (on && v < th * p.back / 100) on = false;
+  st.sw[k] = on;
+  if (!on) calm++;
+}
+const lev = rest.length ? (p.low + (p.main - p.low) * calm / N) / 100 : 1;
+const m = Number(ctx.date.slice(0, 4)) * 12 + Number(ctx.date.slice(5, 7)) - 1;
+const period = Math.floor(m / Math.max(1, p.months));
+if (st.lev === lev && st.period === period) return null;
+const why = st.lev === undefined || st.lev === lev ? "정기 리밸런싱" : lev < st.lev ? \`변동성 \${v.toFixed(0)}% → 레버리지 \${Math.round(lev * 100)}%로 줄임\` : \`변동성 \${v.toFixed(0)}% → 레버리지 \${Math.round(lev * 100)}%로 늘림\`;
+st.lev = lev; st.period = period;
+const w = {};
+w[main] = lev;
+for (const t of rest) w[t] = (1 - lev) / rest.length;
+for (const t of ts) ctx.notes[t] = why;
+return w;`;
+
 const fixedMixCode = `// 비중 고정: 종목마다 정한 비율(p["w_종목코드"], %)로 나눠 들고, p.months 개월마다(3 = 분기)
 // 새 기간의 첫 거래일 종가에 비율을 다시 맞춘다(체결은 다음 날 시가). 비율이 없는 종목은 사지 않음, 합이 100 미만이면 나머지는 현금
 const w = {};
@@ -204,6 +238,24 @@ export const STRATEGIES: StrategyDef[] = [
     targetWeights: compileStrategy(levMixCode),
     code: levMixCode,
     tickers: "UPRO, TLT, GLD",
+  },
+  {
+    id: "lev_guard",
+    name: "레버리지 분산 + 변동성 방어 (UPRO·IEF·GLD)",
+    description: "평소 레버리지 ETF 60%, 나머지는 중기 국채·금. 레버리지 종목이 크게 출렁이기 시작하면 단계적으로 10%까지 줄였다가 잠잠해지면 되돌림. 종목은 직접 입력(가장 많이 출렁이는 종목이 레버리지 몫).",
+    params: [
+      { key: "main", label: "평소 레버리지 비중(%)", default: 60, min: 10, max: 100, step: 5 },
+      { key: "low", label: "가장 위험할 때 비중(%)", default: 10, min: 0, max: 100, step: 5 },
+      { key: "v0", label: "줄이기 시작하는 변동성(연 %)", default: 80, min: 20, max: 300, step: 5 },
+      { key: "v1", label: "최소로 줄이는 변동성(연 %)", default: 160, min: 20, max: 400, step: 5 },
+      { key: "back", label: "되돌리는 기준(기준의 %)", default: 85, min: 50, max: 100, step: 5 },
+      { key: "months", label: "다시 맞추는 주기(개월)", default: 3, min: 1, max: 12 },
+    ],
+    rebalance: "D", stopLoss: null, takeProfit: null,
+    warmup: () => 61,
+    targetWeights: compileStrategy(levGuardCode),
+    code: levGuardCode,
+    tickers: "UPRO, IEF, GLD",
   },
   {
     id: "cc_mix",
