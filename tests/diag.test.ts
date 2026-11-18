@@ -141,6 +141,16 @@ describe("점검 내용", () => {
     await expect(backtestReport({ cycle: defaultCycleSpec(), start: "2023-01-02", end: "2024-12-30" }, env, fakeLoad)).rejects.toThrow(/tickers/);
   });
 
+  it("backfill: true 면 상장 전 채우기를 켜고 시세를 받음", async () => {
+    const asked: DataRequest[] = [];
+    const spy = (q: DataRequest) => { asked.push(q); return fakeLoad(q); };
+    const out = await backtestReport({ cycle: defaultCycleSpec(), tickers: ["069500"], start: "2023-01-02", end: "2024-12-30", source: "synthetic", backfill: true }, env, spy);
+    await backtestReport({ cycle: defaultCycleSpec(), tickers: ["069500"], start: "2023-01-02", end: "2024-12-30", source: "synthetic" }, env, spy);
+    expect(asked[0].backfill).toEqual({ "*": "auto" });
+    expect(asked[1].backfill).toBeNull();
+    expect(out.request.backfill).toBe(true);
+  });
+
   it("시세 범위·빈 구간", async () => {
     const bars = [
       { date: "2025-11-17", open: 1, high: 1, low: 1, close: 1, volume: 1 },
