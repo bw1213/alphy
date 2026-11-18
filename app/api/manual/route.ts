@@ -7,7 +7,7 @@ import { planKind } from "@/lib/auto/store";
 import { kst } from "@/lib/auto/time";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { manualEveningFor } from "@/lib/manual/evening";
-import { MAX_ACCOUNTS, brokerList, cleanAccount, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, saveAccounts, undoLastTrade, type FeeRates } from "@/lib/manual/store";
+import { MAX_ACCOUNTS, brokerList, cleanAccount, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, rewriteTrade, saveAccounts, undoLastTrade, type FeeRates } from "@/lib/manual/store";
 import { fetchPrices, loadHistory, refreshHistory } from "@/lib/manual/value";
 import type { EveningReport } from "@/lib/auto/evening";
 
@@ -55,6 +55,8 @@ export async function GET(req: Request) {
  * { action: "save", account: { id?, name, broker, cash, positions: [{ticker, name?, qty, avgPrice}], plan: { strategy, tickers, budget, startDate, enabled } | null } }
  * { action: "delete", id }
  * { action: "trade", accountId, ticker, name?, side, qty, price, fee?, date? }   체결 기록
+ * { action: "editTrade", accountId, id, ticker, name?, side, qty, price, fee?, date? }   체결 기록 고치기 (잔고 다시 계산)
+ * { action: "deleteTrade", accountId, id }   체결 기록 지우기 (잔고 다시 계산)
  * { action: "undo", accountId }   그 계좌의 마지막 체결 기록 되돌리기
  * { action: "run", accountId?, notify? }   지금 계산해 보기
  * { action: "reset", accountId }   전략 기준 다시 잡기 (시작일=오늘, 운용 금액=지금 평가액). 결과는 ?kind=reset&job=
@@ -88,6 +90,14 @@ export async function POST(req: Request) {
       case "trade": {
         const r = recordTrade(user.id, String(body.accountId ?? ""), body, rates(), kst().date);
         return NextResponse.json({ ok: true, trade: r.trade });
+      }
+      case "editTrade": {
+        const r = rewriteTrade(user.id, String(body.accountId ?? ""), String(body.id ?? ""), body, rates(), kst().date);
+        return NextResponse.json({ ok: true, trade: r.trade });
+      }
+      case "deleteTrade": {
+        rewriteTrade(user.id, String(body.accountId ?? ""), String(body.id ?? ""), null, rates(), kst().date);
+        return NextResponse.json({ ok: true });
       }
       case "undo": {
         const t = undoLastTrade(user.id, String(body.accountId ?? ""));

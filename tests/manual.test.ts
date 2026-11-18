@@ -7,7 +7,7 @@ import type { Bar } from "@/lib/engine/types";
 import { defaultCycleSpec } from "@/lib/strategies/cycle";
 import type { SavedStrategy } from "@/lib/strategies/library";
 import {
-  applyTrade, brokerList, cleanAccount, estimateFee, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, saveAccounts, undoLastTrade, type ManualAccount,
+  applyTrade, brokerList, cleanAccount, estimateFee, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, rewriteTrade, saveAccounts, undoLastTrade, type ManualAccount,
 } from "@/lib/manual/store";
 import { formatManual, manualEveningFor, runManual } from "@/lib/manual/evening";
 import { addSnapshot, kisViewOf, loadHistory, refreshHistory, KIS_ID } from "@/lib/manual/value";
@@ -96,6 +96,54 @@ describe("체결 기록", () => {
     recordTrade("owner", a.id, { ticker: "069500", side: "sell", qty: 3, price: 41000, fee: 0 }, rates, today, env);
     undoLastTrade("owner", a.id, env);
     expect(loadAccounts("owner", env)[0].positions[0]).toMatchObject({ qty: 3, avgPrice: 40000 });
+  });
+
+  it("예전 기록을 고치면 뒤 기록까지 다시 계산", () => {
+    saveAccounts([account({ positions: [{ ticker: "069500", qty: 10, avgPrice: 40000 }] } as any)], "owner", env);
+    const id = loadAccounts("owner", env)[0].id;
+    const { trade: first } = recordTrade("owner", id, { ticker: "069500", side: "buy", qty: 10, price: 60000, fee: 0 }, rates, today, env); // 잘못 넣음
+    recordTrade("owner", id, { ticker: "069500", side: "sell", qty: 5, price: 55000, fee: 0 }, rates, today, env);
+    recordTrade("owner", id, { ticker: "005930", side: "buy", qty: 1, price: 70000, fee: 0, name: "삼성전자" }, rates, today, env);
+    // 첫 매수 가격을 50,000원으로 고침
+    rewriteTrade("owner", id, first.id, { ticker: "069500", side: "buy", qty: 10, price: 50000, fee: "0", date: today }, rates, today, env);
+    const a = loadAccounts("owner", env)[0];
+    expect(a.positions.find((p) => p.ticker === "069500")).toMatchObject({ qty: 15, avgPrice: 45000 });
+    expect(a.positions.find((p) => p.ticker === "005930")).toMatchObject({ qty: 1, avgPrice: 70000 });
+    expect(a.cash).toBe(1_000_000 - 500_000 + 275_000 - 70_000);
+    const ts = loadTrades("owner", env);
+    expect(ts).toHaveLength(3);
+    expect(ts[2]).toMatchObject({ id: first.id, price: 50000, prevAvg: 40000 });
+    expect(ts[1].prevAvg).toBe(45000); // 다시 넣은 매도의 되돌리기 기준도 새 값
+    // 고친 뒤에도 되돌리기가 맞게
+    undoLastTrade("owner", id, env); undoLastTrade("owner", id, env); undoLastTrade("owner", id, env);
+    expect(loadAccounts("owner", env)[0]).toMatchObject({ cash: 1_000_000, positions: [{ ticker: "069500", qty: 10, avgPrice: 40000 }] });
+  });
+
+  it("중간 기록 지우기, 뒤 매도가 모자라면 막음", () => {
+    saveAccounts([account({ positions: [] } as any)], "owner", env);
+    const id = loadAccounts("owner", env)[0].id;
+    const { trade: b1 } = recordTrade("owner", id, { ticker: "069500", side: "buy", qty: 10, price: 40000, fee: 0 }, rates, today, env);
+    const { trade: b2 } = recordTrade("owner", id, { ticker: "069500", side: "buy", qty: 10, price: 50000, fee: 0 }, rates, today, env);
+    recordTrade("owner", id, { ticker: "069500", side: "sell", qty: 15, price: 50000, fee: 0 }, rates, today, env);
+    // b1 을 지우면 뒤 15주 매도를 할 수 없음 → 아무것도 바뀌지 않음
+    expect(() => rewriteTrade("owner", id, b1.id, null, rates, today, env)).toThrow(/모자랍니다/);
+    expect(loadTrades("owner", env)).toHaveLength(3);
+    expect(loadAccounts("owner", env)[0].positions[0]).toMatchObject({ qty: 5, avgPrice: 45000 });
+    // b2 수량을 줄여도 (매도 15주보다 적어짐) 막음
+    expect(() => rewriteTrade("owner", id, b2.id, { ticker: "069500", side: "buy", qty: 1, price: 50000, fee: 0 }, rates, today, env)).toThrow(/모자랍니다/);
+    // b2 를 10주→6주로: 16주 매수 후 15주 매도 → 1주
+    rewriteTrade("owner", id, b2.id, { ticker: "069500", side: "buy", qty: 6, price: 50000, fee: 0 }, rates, today, env);
+    let a = loadAccounts("owner", env)[0];
+    expect(a.positions[0].qty).toBe(1);
+    expect(a.cash).toBe(1_000_000 - 400_000 - 300_000 + 750_000);
+    // 매도 지우기
+    const sell = loadTrades("owner", env)[0];
+    rewriteTrade("owner", id, sell.id, null, rates, today, env);
+    a = loadAccounts("owner", env)[0];
+    expect(a.positions[0]).toMatchObject({ qty: 16, avgPrice: 43750 });
+    expect(a.cash).toBe(300_000);
+    expect(loadTrades("owner", env)).toHaveLength(2);
+    expect(() => rewriteTrade("owner", id, "nope", null, rates, today, env)).toThrow(/찾지 못했습니다/);
   });
 });
 
