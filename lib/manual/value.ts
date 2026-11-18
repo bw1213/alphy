@@ -127,8 +127,8 @@ export function kisViewOf(raw: KisRaw, prices: PriceBook | null, now: number): K
     positions.push({ ticker: h.code, name: h.name, qty: h.qty, avgPrice: h.avgPrice * fx, price: krw, value });
   }
   // 평가액 = 국내 총평가(원화 예수금 포함) + 미국 주식 + 달러 예수금 (모두 원화).
-  // 실서버 확인(2026-11-18 모의, 초기화 직후 원화 1,000만·달러 $100,000): 매수가능금액의 주문 가능 외화가 $100,000 으로 맞았고
-  // (UPRO $7.4k 매수 뒤엔 $92,566), 증권사 "총자산" 조회값(CTRP6504R)은 3.39억 원으로 실제보다 1.95억 원 커서 쓰지 않음.
+  // 실서버(모의) 확인: 매수가능금액의 주문 가능 외화는 실제 달러 예수금과 맞았고,
+  // 증권사 "총자산" 조회값(CTRP6504R)은 실제보다 크게 나와 쓰지 않음.
   // 달러 예수금을 못 읽은 날은 달러가 빠진 어림값 → partial (자동 매매 손익에 안 씀)
   const usCashKrw = raw.us?.cashUsd != null && fx ? raw.us.cashUsd * fx : 0;
   const partial = raw.cashNote != null || (raw.us?.cashUsd != null && raw.us.cashUsd > 0 && !fx);

@@ -114,7 +114,6 @@ export default function Page() {
       setRebalance(b.rebalance);
       setStopLoss(b.stopLoss ? String(b.stopLoss * 100) : "");
       setTakeProfit(b.takeProfit ? String(b.takeProfit * 100) : "");
-      if (b.tickers) { setUniverseMode("list"); setTickers(b.tickers); }
     } else if (id === "builder") {
       setMode("builder"); setSpec(defaultSpec()); setCustomName("내 조건 전략"); setRebalance("M"); setStopLoss(""); setTakeProfit("");
     } else if (id === "cycle") {
