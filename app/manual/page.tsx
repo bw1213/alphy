@@ -270,7 +270,7 @@ export default function ManualPage() {
               <label className="f">적용할 전략
                 <select value={form.strategy} onChange={(e) => {
                   const v = e.target.value;
-                  const own = STRATEGIES.find((x) => `builtin:${x.id}` === v)?.tickers ?? universeTickers(lib.find((x) => `saved:${x.name}` === v)?.universe);
+                  const own = universeTickers(lib.find((x) => `saved:${x.name}` === v)?.universe);
                   setForm({ ...form, strategy: v, ...(own && !form.tickers.trim() ? { tickers: own } : {}) });
                 }}>
                   <option value="">없음 (계좌만 기록)</option>

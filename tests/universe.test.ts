@@ -6,13 +6,13 @@ const base = { name: "내 전략", code: "return {};", params: "{}", rebalance: 
 
 describe("전략 저장에 종목 함께", () => {
   it("직접 입력 종목과 상장 전 채우기를 저장·복원", () => {
-    const s = cleanStrategy({ ...base, universe: { mode: "list", size: 100, pit: false, tickers: "UPRO, TLT, GLD",
-      backfill: { on: true, picks: { UPRO: { proxy: "auto", lev: "1", fee: "0", hedged: false } } } } });
+    const s = cleanStrategy({ ...base, universe: { mode: "list", size: 100, pit: false, tickers: "AAPL, MSFT, QQQ",
+      backfill: { on: true, picks: { AAPL: { proxy: "auto", lev: "1", fee: "0", hedged: false } } } } });
     expect(s.universe?.mode).toBe("list");
-    expect(s.universe?.tickers).toBe("UPRO, TLT, GLD");
+    expect(s.universe?.tickers).toBe("AAPL, MSFT, QQQ");
     expect(s.universe?.backfill?.on).toBe(true);
-    expect(universeTickers(s.universe)).toBe("UPRO, TLT, GLD");
-    expect(universeLabel(s.universe!)).toBe("UPRO, TLT, GLD");
+    expect(universeTickers(s.universe)).toBe("AAPL, MSFT, QQQ");
+    expect(universeLabel(s.universe!)).toBe("AAPL, MSFT, QQQ");
   });
   it("시가총액 상위 N", () => {
     const u = cleanUniverse({ mode: "top", size: 999, pit: true, tickers: "" })!;

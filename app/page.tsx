@@ -16,7 +16,8 @@ import type { BacktestResult, CostSettings, Rebalance } from "@/lib/engine/types
 import { isUsTicker, parseTickers } from "@/lib/data/market";
 import type { DataResponse, Source } from "@/lib/data/server";
 import { paramVariants, summarizeSensitivity, type SensitivityResult, type SensitivityRow } from "@/lib/engine/validate";
-import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Params } from "@/lib/strategies";
+import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, FIXED_MIX_CODE, STRATEGIES, type Params } from "@/lib/strategies";
+import { WeightInputs } from "@/components/WeightInputs";
 
 import type { SavedStrategy } from "@/lib/strategies/library";
 import { cleanUniverse, universeLabel } from "@/lib/strategies/universe";
@@ -62,6 +63,7 @@ export default function Page() {
   const [onNas, setOnNas] = useState<SavedStrategy[]>([]);
   const [local, setLocal] = useState<SavedStrategy[]>([]);
   const [stratMsg, setStratMsg] = useState("");
+  const [saveName, setSaveName] = useState("");
   const saved = useMemo(() => [...onNas, ...local.filter((l) => !onNas.some((s) => s.name === l.name))], [onNas, local]);
   const isLocalOnly = (name: string) => !onNas.some((s) => s.name === name);
   useEffect(() => {
@@ -111,10 +113,10 @@ export default function Page() {
     setSid(id);
     const b = STRATEGIES.find((s) => s.id === id);
     if (b) {
+      setSaveName("");
       setRebalance(b.rebalance);
       setStopLoss(b.stopLoss ? String(b.stopLoss * 100) : "");
       setTakeProfit(b.takeProfit ? String(b.takeProfit * 100) : "");
-      if (b.tickers) { setUniverseMode("list"); setTickers(b.tickers); }
     } else if (id === "builder") {
       setMode("builder"); setSpec(defaultSpec()); setCustomName("내 조건 전략"); setRebalance("M"); setStopLoss(""); setTakeProfit("");
     } else if (id === "cycle") {
@@ -268,14 +270,24 @@ export default function Page() {
     setSid("custom");
   };
 
-  const saveCustom = async () => {
-    const g = mode === "builder" ? generate(spec) : null;
+  /** 기본 전략을 지금 파라미터·종목 그대로 내 전략으로 저장 (이후엔 코드 전략으로 열림) */
+  const saveBuiltin = () => {
+    if (!builtin) return;
+    const p = params[builtin.id];
+    const name = saveName.trim() || builtin.name;
+    const pj = JSON.stringify(p);
+    setCode(builtin.code); setCustomParams(pj); setCustomName(name); setCustomWarmup(builtin.warmup(p)); setMode("code");
+    return saveCustom({ name, code: builtin.code, params: pj, rebalance, stopLoss, takeProfit, warmup: builtin.warmup(p) });
+  };
+
+  const saveCustom = async (given?: SavedStrategy) => {
+    const g = !given && mode === "builder" ? generate(spec) : null;
     const name = customName.trim() || "내 전략";
-    const item: SavedStrategy = mode === "cycle"
+    const item: SavedStrategy = given ?? (mode === "cycle"
       ? { name, code: CYCLE_CODE, params: JSON.stringify(cycleParams(cycleSpec)), rebalance: "D", stopLoss, takeProfit, warmup: cycleWarmup(cycleSpec), cycle: normalizeCycleSpec(cycleSpec) }
       : g
       ? { name, code: g.code, params: JSON.stringify(g.params), rebalance, stopLoss, takeProfit, warmup: g.warmup, builder: normalizeSpec(spec) }
-      : { name, code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
+      : { name, code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup });
     // 이 백테스트에 쓴 종목도 함께 저장
     const universe = cleanUniverse({ mode: universeMode, size: universeSize, pit, tickers, backfill });
     if (universe) item.universe = universe;
@@ -544,7 +556,16 @@ export default function Page() {
                     </label>
                   ))}
                 </div>
-                <p className="help"><button className="link" onClick={editAsCustom}>이 전략의 코드를 열어 직접 수정하기 →</button></p>
+                {builtin.code === FIXED_MIX_CODE && (
+                  <WeightInputs tickers={universeMode === "list" ? parseTickers(tickers) : []} value={params[builtin.id]}
+                    onChange={(v) => setParams({ ...params, [builtin.id]: v as Params })} />
+                )}
+                <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
+                  <label className="f">내 전략 이름<input value={saveName} placeholder={builtin.name} onChange={(e) => setSaveName(e.target.value)} /></label>
+                  <div className="btns"><button onClick={saveBuiltin}>내 전략으로 저장</button></div>
+                </div>
+                {stratMsg && <p className="help">{stratMsg}</p>}
+                <p className="help">파라미터·종목도 함께 저장됩니다. <button className="link" onClick={editAsCustom}>코드 직접 수정하기 →</button></p>
               </>
             )}
             {isCustom && (
@@ -580,6 +601,12 @@ export default function Page() {
                     <label className="f" style={{ marginTop: 10 }}>전략 코드 (JavaScript, ctx·p 사용)
                       <textarea rows={18} wrap="off" value={code} onChange={(e) => setCode(e.target.value)} spellCheck={false} />
                     </label>
+                    {code === FIXED_MIX_CODE && (() => {
+                      let cur: Record<string, number> = {};
+                      try { cur = JSON.parse(customParams) ?? {}; } catch { /* 고치는 중 */ }
+                      return <WeightInputs tickers={universeMode === "list" ? parseTickers(tickers) : []} value={cur}
+                        onChange={(v) => setCustomParams(JSON.stringify(v))} />;
+                    })()}
                     <div className="row" style={{ marginTop: 10 }}>
                       <label className="f">파라미터 (JSON)
                         <input value={customParams} onChange={(e) => setCustomParams(e.target.value)} spellCheck={false} />
@@ -591,7 +618,7 @@ export default function Page() {
                   </>
                 )}
                 <div className="btns" style={{ marginTop: 10 }}>
-                  <button onClick={saveCustom}>저장</button>
+                  <button onClick={() => saveCustom()}>저장</button>
                   {sid.startsWith("saved:") && <button onClick={deleteCustom}>삭제</button>}
                   {local.some((l) => isLocalOnly(l.name)) && <button onClick={moveLocalToNas}>이 브라우저의 전략을 NAS로 옮기기</button>}
                 </div>
