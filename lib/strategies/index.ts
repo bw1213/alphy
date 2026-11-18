@@ -128,10 +128,17 @@ for (const t of rest) w[t] = (1 - lev) / rest.length;
 for (const t of ts) ctx.notes[t] = why;
 return w;`;
 
-const fixedMixCode = `// 비중 고정: 입력한 종목 순서대로 p.w1·p.w2·p.w3(%)로 나눠 들고, p.months 개월마다(3 = 분기)
-// 새 기간의 첫 거래일 종가에 비율을 다시 맞춘다(체결은 다음 날 시가). 넷째 종목부터는 사지 않음, 합이 100 미만이면 나머지는 현금
+/** 비중 고정 전략 코드 (화면에서 이 코드면 종목별 비중 입력칸을 보여 줌) */
+export const FIXED_MIX_CODE = `// 비중 고정: 종목마다 정한 비중(p["w_종목코드"], %)으로 나눠 들고, p.months 개월마다(3 = 분기)
+// 새 기간의 첫 거래일 종가에 비중을 다시 맞춘다(체결은 다음 날 시가).
+// 비중을 하나도 안 정했으면 모든 종목을 똑같이. 정한 종목만 사고, 합이 100 미만이면 나머지는 현금
+const set = ctx.tickers.filter((t) => p["w_" + t] !== undefined);
 const w = {};
-ctx.tickers.slice(0, 3).forEach((t, i) => { const v = p["w" + (i + 1)]; if (v > 0 && ctx.close(t) > 0) w[t] = v / 100; });
+for (const t of ctx.tickers) {
+  if (!(ctx.close(t) > 0)) continue;
+  const v = set.length ? p["w_" + t] / 100 : 1 / ctx.tickers.length;
+  if (v > 0) w[t] = v;
+}
 const m = Number(ctx.date.slice(0, 4)) * 12 + Number(ctx.date.slice(5, 7)) - 1;
 const period = Math.floor(m / Math.max(1, p.months));
 if (ctx.state.period === period) return null;
@@ -255,18 +262,15 @@ export const STRATEGIES: StrategyDef[] = [
   },
   {
     id: "cc_mix",
-    name: "비중 고정 3종목 (30·50·20)",
-    description: "입력한 종목 순서대로 30%·50%·20%. 분기마다 비율을 다시 맞춤. 종목은 직접 입력.",
+    name: "비중 고정 (종목별 비중)",
+    description: "종목마다 정한 비중으로 나눠 들고 분기마다 다시 맞춤. 비중을 비우면 똑같이.",
     params: [
-      { key: "w1", label: "첫째 종목(%)", default: 30, min: 0, max: 100, step: 5 },
-      { key: "w2", label: "둘째 종목(%)", default: 50, min: 0, max: 100, step: 5 },
-      { key: "w3", label: "셋째 종목(%)", default: 20, min: 0, max: 100, step: 5 },
       { key: "months", label: "다시 맞추는 주기(개월)", default: 3, min: 1, max: 12 },
     ],
     rebalance: "D", stopLoss: null, takeProfit: null,
     warmup: () => 2,
-    targetWeights: compileStrategy(fixedMixCode),
-    code: fixedMixCode,
+    targetWeights: compileStrategy(FIXED_MIX_CODE),
+    code: FIXED_MIX_CODE,
   },
 ];
 

@@ -69,20 +69,28 @@ describe("자동 매매 저녁 계산: 주기가 매일이 아닌 전략", () =>
   });
 });
 
-describe("비중 고정 3종목", () => {
-  it("정한 비율 30·50·20 으로 사고, 분기마다만 매매", () => {
-    const def = STRATEGIES.find((s) => s.id === "cc_mix")!;
-    const p = Object.fromEntries(def.params.map((x) => [x.key, x.default]));
-    const ds2 = days("2025-01-02", "2025-12-31");
-    const mk = (k: number) => ds2.map((date, i) => { const c = 10_000 * (1 + k * 0.001 * i); return { date, open: c, high: c, low: c, close: c, volume: 1000 }; });
-    const res = runBacktest({ data: { "AAA": mk(1), "BBB": mk(0.5), "CCC": mk(0.1) }, strategy: (c) => def.targetWeights(c, p),
+describe("비중 고정 (종목별 비중)", () => {
+  const def = STRATEGIES.find((s) => s.id === "cc_mix")!;
+  const ds2 = days("2025-01-02", "2025-12-31");
+  const mk = (k: number) => ds2.map((date, i) => { const c = 10_000 * (1 + k * 0.001 * i); return { date, open: c, high: c, low: c, close: c, volume: 1000 }; });
+  const first = (p: Record<string, number>) => {
+    const res = runBacktest({ data: { AAA: mk(1), BBB: mk(0.5), CCC: mk(0.1) }, strategy: (c) => def.targetWeights(c, p),
       settings: { rebalance: def.rebalance, stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: def.warmup(p) }, costs: { commission: 0, slippage: 0, sellTax: 0 }, initialCash: 1e8 });
-    const first = res.trades.filter((t) => t.date === res.trades[0].date);
-    const amt = (t: string) => first.filter((x) => x.ticker === t).reduce((a, x) => a + x.qty * x.price, 0) / 1e8;
+    const f = res.trades.filter((t) => t.date === res.trades[0].date);
+    return { res, amt: (t: string) => f.filter((x) => x.ticker === t).reduce((a, x) => a + x.qty * x.price, 0) / 1e8 };
+  };
+  it("종목마다 정한 비중으로 사고, 분기마다만 매매", () => {
+    const { res, amt } = first({ months: 3, w_AAA: 30, w_BBB: 50, w_CCC: 20 });
     expect(amt("AAA")).toBeCloseTo(0.3, 2);
     expect(amt("BBB")).toBeCloseTo(0.5, 2);
     expect(amt("CCC")).toBeCloseTo(0.2, 2);
-    const tradeDays = new Set(res.trades.map((t) => t.date));
-    expect(tradeDays.size).toBeLessThanOrEqual(4);
+    expect(new Set(res.trades.map((t) => t.date)).size).toBeLessThanOrEqual(4);
+  });
+  it("비중을 안 정하면 똑같이, 일부만 정하면 정한 종목만", () => {
+    const eq = first({ months: 3 });
+    expect(eq.amt("AAA")).toBeCloseTo(1 / 3, 2);
+    const part = first({ months: 3, w_AAA: 60 });
+    expect(part.amt("AAA")).toBeCloseTo(0.6, 2);
+    expect(part.amt("BBB")).toBe(0);
   });
 });
