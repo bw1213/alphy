@@ -41,6 +41,8 @@ export interface RunSettings {
   stopLoss: number | null; // 0.1 = -10%
   takeProfit: number | null; // 0.3 = +30%
   rebalanceBand: number; // 보유비중 차이가 이보다 작으면 수량 조정 안 함
+  /** 평가 시작 전날(시작일 직전 거래일)도 리밸런싱 날로 봄 → 주·월·분기 전략도 첫 거래일 시가에 바로 비중대로 삼 (수동 계좌 저녁 계산) */
+  rebalanceAtStart?: boolean;
   warmup: number; // 최소 영업일 수
   /**
    * 장중 매도: 손절·익절과 전략이 걸어 둔 매도 가격(ctx.stops)을 그날 장중 저가·고가로 확인해

@@ -46,6 +46,20 @@ describe("engine", () => {
     expect(res.trades.some((t) => t.reason === "stop_loss")).toBe(true);
   });
 
+  it("rebalanceAtStart: 월 전략도 시작 첫 거래일 시가에 바로 삼", () => {
+    const B = A.filter((b) => b.date <= "2021-11-18");
+    const opt = { data: { B }, strategy: () => ({ B: 1 }), costs: noCost, initialCash: 1e8, startDate: "2021-11-18" };
+    const off = runBacktest({ ...opt, settings: { ...base, rebalance: "M" } });
+    expect(off.trades).toHaveLength(0);
+    const on = runBacktest({ ...opt, settings: { ...base, rebalance: "M", rebalanceAtStart: true } });
+    expect(on.trades.map((t) => [t.date, t.side])).toEqual([["2021-11-18", "BUY"]]);
+    // 운용 첫 저녁(시작일이 데이터 뒤): 마지막 날 신호가 매매할 날로 나옴
+    const first = runBacktest({ ...opt, startDate: "2021-11-19", settings: { ...base, rebalance: "M", rebalanceAtStart: true } });
+    expect(first.signal?.due).toBe(true);
+    const firstOff = runBacktest({ ...opt, startDate: "2021-11-19", settings: { ...base, rebalance: "M" } });
+    expect(firstOff.signal?.due).toBe(false);
+  });
+
   it("월말 리밸런싱 날짜", () => {
     const r = rebalanceDays(["2024-01-30", "2024-01-31", "2024-02-01", "2024-02-29"], "M");
     expect([...r]).toEqual([1, 3]);

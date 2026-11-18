@@ -101,6 +101,8 @@ export function runBacktest(opt: RunOptions): BacktestResult {
   // 시작일이 데이터보다 뒤면(자동 매매 첫날 저녁) 거래 없이 마지막 날 신호만 계산
   const found = opt.startDate ? dates.findIndex((d) => d >= opt.startDate!) : 0;
   const startIdx = found < 0 ? N : found;
+  /** 시작 직전 날을 리밸런싱 날로 볼지 (startIdx = N 이면 마지막 날 = 운용 첫 저녁) */
+  const startReb = (i: number) => !!st.rebalanceAtStart && i === startIdx - 1;
 
   let cash = opt.initialCash ?? 10_000_000;
   // 추가 입금: 수익률은 펀드 '좌수'처럼 계산해 입금 효과를 뺀다 (nav = 평가액 / 좌수, 시작 nav = 시작 자금)
@@ -344,7 +346,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         const notes = Object.keys(lastCtx.notes ?? {}).length ? { ...lastCtx.notes } : undefined;
         const nextStops = intraday ? Object.fromEntries(Object.entries(lastCtx.stops).filter(([, v]) => v?.length)) : {};
         signal = {
-          date: d, kept: !w, due: dueOnLastDay(dates, st.rebalance), ...(notes ? { notes } : {}), ...(Object.keys(nextStops).length ? { stops: nextStops } : {}),
+          date: d, kept: !w, due: dueOnLastDay(dates, st.rebalance) || startReb(i), ...(notes ? { notes } : {}), ...(Object.keys(nextStops).length ? { stops: nextStops } : {}),
           picks: Object.entries(weights).map(([t, weight]) => ({ ticker: t, weight, close: P.closeFilled[col(t)][i] }))
             .sort((a, b) => b.weight - a.weight),
         };
@@ -360,7 +362,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         else if (st.takeProfit && r >= st.takeProfit) forced.set(t, "take_profit");
       }
     }
-    if (reb.has(i) && i + 1 >= st.warmup && i + 1 >= startIdx) {
+    if ((reb.has(i) || startReb(i)) && i + 1 >= st.warmup && i + 1 >= startIdx) {
       const ctx = makeCtx(i, eq);
       const w = opt.strategy(ctx);
       if (intraday) stops = Object.fromEntries(Object.entries(ctx.stops).filter(([t, v]) => v?.length && P.index.has(t)));
