@@ -61,6 +61,9 @@ describe("기본 대용", () => {
     expect(suggestSpec("498400")!.chain).toEqual(["069500", "^KS11"]);
     expect(suggestSpec("UPRO")).toMatchObject({ chain: ["SPY", "^GSPC"], lev: 3 });
     expect(suggestSpec("453010")!.chain).toEqual(["RATE:KR"]);
+    // 채권·금 ETF 는 상장 전을 국채 펀드·금 선물로
+    expect(suggestSpec("IEF")!.chain).toEqual(["VFITX"]);
+    expect(suggestSpec("GLD")!.chain).toEqual(["GC=F"]);
   });
   it("이름으로 추정", () => {
     expect(guessFromName("KODEX 200선물인버스2X")).toMatchObject({ chain: ["069500", "^KS11"], lev: -2 });
@@ -72,6 +75,7 @@ describe("기본 대용", () => {
   it("요청 값 정리", () => {
     expect(cleanSpec({ chain: ["^gspc", "rm -rf", "SPY"], lev: 9, fee: -1 })).toEqual({ chain: ["^GSPC", "SPY"], lev: 1, fee: 0 });
     expect(cleanSpec({ chain: [] })).toBeNull();
+    expect(cleanSpec({ chain: ["GLD", "GC=F"] })!.chain).toEqual(["GLD", "GC=F"]);
   });
   it("화면 선택 → 요청", () => {
     expect(chainFor("069500")).toEqual(["069500", "^KS11"]);
@@ -117,4 +121,17 @@ describe("applyBackfill", () => {
     expect(b[0].close).toBeLessThan(b[149].close);
     expect(rateBars([["2000-01-01", 2]], "2020-01-01", "2020-12-31").length).toBeGreaterThan(250);
   });
+
+  it("선물(GC=F)은 종목이 아니라 야후 시세로 받음", async () => {
+    const asked: string[] = [];
+    const out: BackfillTarget = { data: { GLD: target.map((b) => ({ ...b })) }, warnings: [], fx: days.map((date) => ({ date, close: 1000 })) };
+    await applyBackfill(out, { start: days[0], end: days.at(-1)!, backfill: { "*": "auto" } }, {
+      loadTickers: async (codes) => { asked.push(...codes); return { data: {} }; },
+      yahoo: async (sym) => { asked.push("yahoo:" + sym); return sym === "GC=F" ? proxy : []; },
+    });
+    expect(asked).toContain("yahoo:GC=F");
+    expect(asked).not.toContain("GC=F");
+    expect(out.data.GLD[0].date).toBe(days[0]);
+  });
 });
+

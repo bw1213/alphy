@@ -61,7 +61,9 @@ export async function applyBackfill(out: BackfillTarget, req: { start: string; e
 
   // 대용 시세 모으기
   const ids = [...new Set(plan.flatMap((p) => p.spec.chain))];
-  const tickers = ids.filter((x) => !x.startsWith("^") && !x.startsWith("RATE:"));
+  /** 야후에서 바로 받는 지수·선물 (^GSPC, GC=F) */
+  const isYahooOnly = (x: string) => x.startsWith("^") || x.includes("=");
+  const tickers = ids.filter((x) => !isYahooOnly(x) && !x.startsWith("RATE:"));
   const series = new Map<string, { bars: Bar[]; divs: Dividend[]; cur: Currency; krw: boolean }>(); // krw: 이미 원화로 바뀐 값
   const failed: string[] = [];
   let fx = out.fx;
@@ -82,7 +84,7 @@ export async function applyBackfill(out: BackfillTarget, req: { start: string; e
   let irx: [string, number][] | null = null;
   const needIrx = ids.includes("RATE:US") || plan.some((p) => p.spec.lev !== 1);
   if (needIrx) { try { irx = (await deps.yahoo("^IRX")).map((b) => [b.date, b.close] as [string, number]); } catch { irx = null; } }
-  for (const id of ids.filter((x) => x.startsWith("^"))) {
+  for (const id of ids.filter(isYahooOnly)) {
     try { const b = await deps.yahoo(id); if (b.length) series.set(id, { bars: b, divs: [], cur: proxyCurrency(id), krw: false }); else failed.push(id); }
     catch { failed.push(id); }
   }
