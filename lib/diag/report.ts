@@ -17,7 +17,7 @@ import { staleWarnings } from "../data/stale";
 import { holdTickers, runBuyAndHold } from "../engine/buyhold";
 import { runBacktest } from "../engine/engine";
 import { dividendTaxFn, KR_DIVIDEND_TAX } from "../engine/dividends";
-import { summarize } from "../engine/metrics";
+import { compareIndices, summarize } from "../engine/metrics";
 import type { Bar, Rebalance } from "../engine/types";
 import { generate, normalizeSpec } from "../strategies/builder";
 import { cycle, cycleParams, cycleStatus, cycleWarmup, normalizeCycleSpec } from "../strategies/cycle";
@@ -172,7 +172,7 @@ export async function dataReport(q: { tickers: unknown; start?: string; end?: st
   const start = q.start && ISO.test(q.start) ? q.start : minusDays(end, 3 * 365);
   const source = cleanSource(q.source);
   const before = source === "naver" ? Object.fromEntries(tickers.map((t) => [t, cacheFileInfo("naver", t)])) : null;
-  const d = await load({ source, tickers, start, end });
+  const d = await load({ source, tickers, start, end, indices: false });
   return {
     request: { source, tickers, start, end },
     tickers: Object.fromEntries(tickers.map((t) => [t, {
@@ -285,11 +285,13 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
     data: Object.fromEntries(Object.entries(d.data).slice(0, 20).map(([t, b]) => [t, { first: b[0]?.date ?? null, last: b.at(-1)?.date ?? null, count: b.length }])),
     summary: {
       start: s.start, end: s.end, initial: s.initial, final: s.final, deposits: s.deposits, contributed: s.contributed,
-      cagr: s.cagr, mdd: s.mdd, sharpe: s.sharpe, nTrades: s.nTrades, nSells: s.nSells, winRate: s.winRate,
+      cagr: s.cagr, mdd: s.mdd, lossDays: s.lossDays, sharpe: s.sharpe, nTrades: s.nTrades, nSells: s.nSells, winRate: s.winRate,
       dividendsNet: s.dividendsNet, dividendTax: s.dividendTax, nDividends: s.nDividends,
     },
     dividendData: d.dividends ? Object.fromEntries(Object.entries(d.dividends).slice(0, 20).map(([t, x]) => [t, { count: x.length, first: x[0]?.date ?? null, last: x.at(-1)?.date ?? null }])) : null,
-    buyAndHold: hs && pick ? { basis: pick.basis, tickers: pick.tickers, final: hs.final, dividendsNet: hs.dividendsNet, totalReturn: hs.totalReturn, cagr: hs.cagr, mdd: hs.mdd, sharpe: hs.sharpe, nTrades: hs.nTrades } : null,
+    buyAndHold: hs && pick ? { basis: pick.basis, tickers: pick.tickers, final: hs.final, dividendsNet: hs.dividendsNet, totalReturn: hs.totalReturn, cagr: hs.cagr, mdd: hs.mdd, lossDays: hs.lossDays, sharpe: hs.sharpe, nTrades: hs.nTrades } : null,
+    /** S&P 500(원화)·KOSPI 지수 비교. lossDays = 최장 손실 구간(일) */
+    indices: compareIndices(dates, d.indices ?? []).map((x) => ({ name: x.name, from: x.from, totalReturn: x.stats.totalReturn, cagr: x.stats.cagr, mdd: x.stats.mdd, lossDays: x.stats.lossDays })),
     lastTrade: res.trades.at(-1)?.date ?? null,
     trades: nTrades ? res.trades.slice(-nTrades) : [],
     finalPositions: res.finalPositions,

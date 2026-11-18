@@ -164,7 +164,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const u = plan.strategy?.universe;
   const bf = plan.tickers.length && u?.backfill ? backfillRequest(u.backfill, plan.tickers) : undefined;
   const d = await (deps.load ?? loadData)({ source, start: loadStart, end, tickers: plan.tickers.length ? plan.tickers : undefined,
-    universeSize: u?.mode === "top" ? u.size : def.universeSize, dividends: true, ...(bf ? { backfill: bf } : {}) });
+    universeSize: u?.mode === "top" ? u.size : def.universeSize, dividends: true, indices: false, ...(bf ? { backfill: bf } : {}) });
   const lastDates = Object.values(d.data).map((b) => b.at(-1)?.date ?? "").filter(Boolean);
   const dataDate = [...lastDates, d.benchmark?.at(-1)?.date ?? ""].sort().at(-1) ?? "";
   if (!dataDate) throw new Error("시세를 받지 못했습니다.");

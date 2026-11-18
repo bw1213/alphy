@@ -102,7 +102,7 @@ describe("전략 찾기 평가", () => {
     const [a, b] = cands.filter((c) => c.family === "trend" && c.rebalance === "W" && c.params.splitMode === 0);
     expect(isNeighbor(a, b)).toBe(true);
     expect(isNeighbor(a, a)).toBe(false);
-    const s = { totalReturn: 0.5, cagr: 0.2, mdd: -0.3, volatility: 0.2, sharpe: 1, sortino: 1, calmar: 0.2 / 0.3 };
+    const s = { totalReturn: 0.5, cagr: 0.2, mdd: -0.3, volatility: 0.2, sharpe: 1, sortino: 1, calmar: 0.2 / 0.3, lossDays: 100 };
     expect(score(s, "cagr", 0.25)).toBe(0.2);
     expect(score(s, "capped", 0.25)).toBeLessThan(0);
     expect(score(s, "calmar", 0.25)).toBeCloseTo(0.2 / 0.3);

@@ -102,7 +102,7 @@ export async function fetchPrices(tickers: string[], e: Env = process.env, load:
     const def = loadSettings(e).backtest;
     const source = def.source === "kis" ? "naver" : def.source;
     const today = kst(now).date;
-    const d = await load({ source, start: minusDays(today, 21), end: today, tickers, dividends: false });
+    const d = await load({ source, start: minusDays(today, 21), end: today, tickers, dividends: false, indices: false });
     for (const t of tickers) {
       const b = d.data[t]?.at(-1);
       if (b && b.close > 0) map[t] = { close: b.close, date: b.date, ...(d.names[t] ? { name: d.names[t] } : {}) };

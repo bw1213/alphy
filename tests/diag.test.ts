@@ -129,7 +129,7 @@ describe("점검 내용", () => {
     const codes = Object.keys(d.data);
     const data: typeof d.data = {}, names: Record<string, string> = {};
     codes.forEach((c, i) => { const t = r.tickers?.[i] ?? c; data[t] = d.data[c]; names[t] = t; });
-    return { data, names, benchmark: d.benchmark, warnings: [] };
+    return { data, names, benchmark: d.benchmark, warnings: [], indices: [{ key: "kospi", name: "KOSPI", bars: d.benchmark }] };
   };
 
   it("백테스트 재현: 적립·분할 매도", async () => {
@@ -138,6 +138,9 @@ describe("점검 내용", () => {
     expect(out.summary.nTrades).toBeGreaterThan(0);
     expect(out.cycleStatus[0].ticker).toBe("069500");
     expect(out.monthlyEquity.length).toBeGreaterThan(20);
+    expect(out.indices[0]).toMatchObject({ name: "KOSPI", from: out.summary.start });
+    expect(out.indices[0].lossDays).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(out.summary.lossDays)).toBe(true);
     await expect(backtestReport({ cycle: defaultCycleSpec(), start: "2023-01-02", end: "2024-12-30" }, env, fakeLoad)).rejects.toThrow(/tickers/);
   });
 

@@ -11,7 +11,7 @@ import { dividendTaxFn, KR_DIVIDEND_TAX } from "@/lib/engine/dividends";
 import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
 import { StockChips, StockSearch, appendCode, splitCodes } from "@/components/StockSearch";
 import { staleWarnings } from "@/lib/data/stale";
-import { summarize, type Summary } from "@/lib/engine/metrics";
+import { summarize, type IndexBars, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult, CostSettings, Rebalance } from "@/lib/engine/types";
 import { isUsTicker, parseTickers } from "@/lib/data/market";
 import type { DataResponse, Source } from "@/lib/data/server";
@@ -104,7 +104,7 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string; hold: HoldCompare | null; benchName: string; backfilled?: BackfillNote[] } | null>(null);
+  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string; hold: HoldCompare | null; benchName: string; backfilled?: BackfillNote[]; indices?: IndexBars[] } | null>(null);
   const dataCache = useRef<Map<string, DataResponse>>(new Map());
   /** 마지막 실행을 파라미터만 바꿔 다시 돌리는 함수 (민감도 검사용) */
   const rerun = useRef<{ p: Params; run: (p: Params) => SensitivityRow } | null>(null);
@@ -423,7 +423,7 @@ export default function Page() {
         });
         if (h && h.equity.length >= 2) hold = { res: h, s: summarize(h, target.cagr / 100, target.mdd / 100), basis: pick.basis, tickers: pick.tickers.filter((t) => t in data!.data) };
       }
-      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략"), hold, benchName: data.benchmarkName ?? "KOSPI", backfilled: data.backfilled });
+      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략"), hold, benchName: data.benchmarkName ?? "KOSPI", backfilled: data.backfilled, indices: data.indices });
     } catch (e) {
       setError((e as Error).message);
     } finally {
