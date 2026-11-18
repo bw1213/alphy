@@ -55,6 +55,8 @@ export const PROXIES: ProxyInfo[] = [
     ["TLT", "미국 장기채 20년+ (TLT)"], ["IEF", "미국 중기채 7~10년 (IEF)"], ["SHY", "미국 단기채 1~3년 (SHY)"], ["AGG", "미국 종합채권 (AGG)"],
     ["LQD", "미국 회사채 (LQD)"], ["HYG", "미국 하이일드 (HYG)"], ["TIP", "미국 물가연동채 (TIP)"],
     ["GLD", "금 (GLD)"], ["SLV", "은 (SLV)"], ["USO", "원유 (USO)"], ["DBC", "원자재 (DBC)"],
+    ["VUSTX", "미국 장기 국채 펀드 (VUSTX, 1986~)"], ["VFITX", "미국 중기 국채 펀드 (VFITX, 1991~)"], ["VFISX", "미국 단기 국채 펀드 (VFISX, 1991~)"],
+    ["VBMFX", "미국 종합채권 펀드 (VBMFX, 1986~)"], ["GC=F", "금 선물 (2000~)"], ["SI=F", "은 선물 (2000~)"], ["CL=F", "원유 선물 (2000~)"],
   ] as const).map(([id, name]) => ({ id, name, group: "채권·원자재", currency: "USD" as Currency })),
   { id: "RATE:KR", name: "한국 기준금리 (현금성)", group: "금리", currency: "KRW" },
   { id: "RATE:US", name: "미국 3개월 국채 금리 (^IRX)", group: "금리", currency: "USD" },
@@ -70,6 +72,7 @@ export function proxyCurrency(id: string): Currency {
 }
 
 const C = (chain: string[], lev = 1, fee = 0, hedged = false): BackfillSpec => ({ chain, lev, fee, ...(hedged ? { hedged } : {}) });
+const LT = ["TLT", "VUSTX"], IT = ["IEF", "VFITX"], AU = ["GLD", "GC=F"], AG = ["SLV", "SI=F"];
 const SP = ["SPY", "^GSPC"], NQ = ["QQQ", "^NDX"], SOX = ["SOXX", "^SOX"], K200 = ["069500", "^KS11"], KQ = ["229200", "^KQ11"];
 
 /** 잘 알려진 ETF 의 기본 대용 */
@@ -81,10 +84,13 @@ export const KNOWN: Record<string, BackfillSpec> = {
   SSO: C(SP, 2, 0.89), UPRO: C(SP, 3, 0.91), SPXL: C(SP, 3, 0.91), SH: C(SP, -1, 0.89), SDS: C(SP, -2, 0.89), SPXU: C(SP, -3, 0.9), SPXS: C(SP, -3, 1.0),
   QLD: C(NQ, 2, 0.95), TQQQ: C(NQ, 3, 0.84), PSQ: C(NQ, -1, 0.95), QID: C(NQ, -2, 0.95), SQQQ: C(NQ, -3, 0.95),
   SOXL: C(SOX, 3, 0.75), SOXS: C(SOX, -3, 0.97), USD: C(SOX, 2, 0.95),
-  TMF: C(["TLT"], 3, 1.06), TMV: C(["TLT"], -3, 1.0), UBT: C(["TLT"], 2, 0.95), TBT: C(["TLT"], -2, 0.9),
+  TMF: C(LT, 3, 1.06), TMV: C(LT, -3, 1.0), UBT: C(LT, 2, 0.95), TBT: C(LT, -2, 0.9),
+  // 채권·금: 상장 전은 뱅가드 국채 펀드(1986~·1991~), 금·은은 선물(2000~)
+  TLT: C(["VUSTX"], 1, 0.15), IEF: C(["VFITX"], 1, 0.15), SHY: C(["VFISX"], 1, 0.15), AGG: C(["VBMFX"], 1, 0.03),
+  GLD: C(["GC=F"], 1, 0.4), IAU: C(AU, 1, 0.25), SLV: C(["SI=F"], 1, 0.5),
   TNA: C(["IWM", "^RUT"], 3, 1.08), TZA: C(["IWM", "^RUT"], -3, 1.0), UWM: C(["IWM", "^RUT"], 2, 0.95),
   UDOW: C(["DIA", "^DJI"], 3, 0.95), DDM: C(["DIA", "^DJI"], 2, 0.95), SDOW: C(["DIA", "^DJI"], -3, 0.95),
-  TECL: C(["XLK"], 3, 0.94), FAS: C(["XLF"], 3, 0.93), UGL: C(["GLD"], 2, 0.95), AGQ: C(["SLV"], 2, 0.95),
+  TECL: C(["XLK"], 3, 0.94), FAS: C(["XLF"], 3, 0.93), UGL: C(AU, 2, 0.95), AGQ: C(AG, 2, 0.95),
   // 한국
   "069500": C(["^KS11"], 1, 0.15), "102110": C(K200, 1, 0.05), "498400": C(K200, 1, 0.39),
   "122630": C(K200, 2, 0.64), "114800": C(K200, -1, 0.64), "252670": C(K200, -2, 0.64),
@@ -94,7 +100,7 @@ export const KNOWN: Record<string, BackfillSpec> = {
   "280930": C(["IWM", "^RUT"], 1, 0.3, true), "446720": C(["SCHD"], 1, 0.01), "458730": C(["SCHD"], 1, 0.01),
   "453010": C(["RATE:KR"], 1, 0.05), "423160": C(["RATE:KR"], 1, 0.05), "449170": C(["RATE:KR"], 1, 0.05),
   "357870": C(["RATE:KR"], 1, 0.03), "459580": C(["RATE:KR"], 1, 0.05),
-  "132030": C(["GLD"], 1, 0.68, true), "411060": C(["GLD"], 1, 0.5), "308620": C(["IEF"], 1, 0.3), "304660": C(["TLT"], 1, 0.3, true),
+  "132030": C(AU, 1, 0.68, true), "411060": C(AU, 1, 0.5), "308620": C(IT, 1, 0.3), "304660": C(LT, 1, 0.3, true),
 };
 
 /** 이름으로 대용 추측 (한국 ETF 이름 규칙). 모르면 null */
@@ -110,9 +116,9 @@ export function guessFromName(name: string): BackfillSpec | null {
   else if (/러셀2000/.test(n)) chain = ["IWM", "^RUT"];
   else if (/배당다우존스/.test(n)) chain = ["SCHD"];
   else if (/다우존스/.test(n)) chain = ["DIA", "^DJI"];
-  else if (/금현물|골드|GOLD/.test(n)) chain = ["GLD"];
-  else if (/미국.*(30년|울트라|20년)/.test(n)) chain = ["TLT"];
-  else if (/미국.*10년/.test(n)) chain = ["IEF"];
+  else if (/금현물|골드|GOLD/.test(n)) chain = AU;
+  else if (/미국.*(30년|울트라|20년)/.test(n)) chain = LT;
+  else if (/미국.*10년/.test(n)) chain = IT;
   else if (/(^|[A-Z가-힣])200($|[^0-9])/.test(n) && !/코스닥/.test(n)) chain = K200;
   if (!chain) return null;
   const lev = /인버스2X|인버스\(2X\)/.test(n) ? -2 : /인버스/.test(n) ? -1 : /레버리지|2X/.test(n) ? 2 : 1;
@@ -127,7 +133,7 @@ export function suggestSpec(code: string, name?: string): BackfillSpec | null {
 
 /** 화면·요청에서 온 값 정리 */
 export function cleanSpec(x: any): BackfillSpec | null {
-  const chain = (Array.isArray(x?.chain) ? x.chain : String(x?.chain ?? "").split(/[\s,>]+/)).map((s: any) => String(s).trim().toUpperCase()).filter((s: string) => /^(\^[A-Z0-9.]{2,10}|RATE:(KR|US)|[0-9][0-9A-Z]{5}|[A-Z][A-Z0-9.]{0,9})$/.test(s)).slice(0, 4);
+  const chain = (Array.isArray(x?.chain) ? x.chain : String(x?.chain ?? "").split(/[\s,>]+/)).map((s: any) => String(s).trim().toUpperCase()).filter((s: string) => /^(\^[A-Z0-9.]{2,10}|[A-Z]{1,3}=F|RATE:(KR|US)|[0-9][0-9A-Z]{5}|[A-Z][A-Z0-9.]{0,9})$/.test(s)).slice(0, 4);
   if (!chain.length) return null;
   const lev = Number(x?.lev);
   const fee = Number(x?.fee);

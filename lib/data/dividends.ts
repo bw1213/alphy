@@ -51,7 +51,8 @@ export async function fetchDividends(code: string): Promise<Dividend[]> {
   for (const sym of yahooSymbols(code)) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const host = HOSTS[attempt % HOSTS.length];
-      const url = `https://${host}/v8/finance/chart/${encodeURIComponent(sym)}?period1=0&period2=9999999999&interval=3mo&events=div`;
+      // 일봉으로 받아야 매달·매주 분배금이 다 옴 (3개월봉은 한 칸에 하나만 와서 월 분배 ETF 의 2/3 가 빠졌음)
+      const url = `https://${host}/v8/finance/chart/${encodeURIComponent(sym)}?period1=0&period2=9999999999&interval=1d&events=div`;
       const { status, json } = await getJson(url);
       if (status === 429 || status >= 500) { lastErr = `HTTP ${status}`; await wait(800 * (attempt + 1)); continue; }
       const divs = status === 200 ? parseYahooDividends(json) : null;
