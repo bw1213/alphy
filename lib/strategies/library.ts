@@ -26,6 +26,8 @@ export interface SavedStrategy {
   cycle?: CycleSpec;
   /** 저장할 때 백테스트에 쓴 종목 (예전에 저장한 전략엔 없음) */
   universe?: SavedUniverse;
+  /** 백테스트의 "장중 실시간 매도" (예전에 저장한 전략엔 없음 → 매매 화면 설정을 씀) */
+  intraday?: boolean;
   /** 저장 시각 (ISO) */
   updatedAt?: string;
 }
@@ -53,6 +55,7 @@ export function cleanStrategy(x: any): SavedStrategy {
     ...(x?.builder && typeof x.builder === "object" ? { builder: normalizeSpec(x.builder) } : {}),
     ...(x?.cycle && typeof x.cycle === "object" ? { cycle: normalizeCycleSpec(x.cycle) } : {}),
     ...((u) => (u ? { universe: u } : {}))(cleanUniverse(x?.universe)),
+    ...(typeof x?.intraday === "boolean" ? { intraday: x.intraday } : {}),
     updatedAt: typeof x?.updatedAt === "string" ? x.updatedAt.slice(0, 30) : undefined };
 }
 

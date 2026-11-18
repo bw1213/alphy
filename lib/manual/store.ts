@@ -15,8 +15,8 @@ import { randomBytes } from "crypto";
 import fs from "fs";
 import { normalizeTicker, isUsTicker } from "../data/market";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
-import { cleanPlan, type AutoPlan } from "../auto/store";
-import type { SavedStrategy } from "../strategies/library";
+import { cleanPlan, syncPlan, type AutoPlan } from "../auto/store";
+import { loadStrategies, type SavedStrategy } from "../strategies/library";
 import type { EveningReport } from "../auto/evening";
 
 type Env = Record<string, string | undefined>;
@@ -86,7 +86,11 @@ function loadFile(user: string, e: Env): ManualFile {
 const saveFile = (f: ManualFile, user: string, e: Env) => writeUserFile("manual.json", JSON.stringify(f, null, 1), user, e);
 
 export function loadAccounts(user: string = OWNER_ID, e: Env = process.env): ManualAccount[] {
-  return loadFile(user, e).accounts;
+  const accounts = loadFile(user, e).accounts;
+  if (!accounts.some((a) => a.plan?.strategy)) return accounts;
+  // 내 전략을 백테스트에서 다시 저장하면 계좌 운용도 그 내용(규칙·종목)을 따라감
+  const lib = loadStrategies(e, user);
+  return accounts.map((a) => (a.plan?.strategy ? { ...a, plan: { ...syncPlan(a.plan, lib, { allowMix: true }), intraday: false } } : a));
 }
 
 /** 계좌 목록 저장. 기본 목록에 없는 증권사 이름은 "직접 입력한 증권사"로 기억 */

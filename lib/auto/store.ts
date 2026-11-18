@@ -9,7 +9,7 @@
 import fs from "fs";
 import { isUsTicker, normalizeTicker } from "../data/market";
 import { STRATEGIES } from "../strategies";
-import { cleanStrategy, type SavedStrategy } from "../strategies/library";
+import { cleanStrategy, loadStrategies, type SavedStrategy } from "../strategies/library";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport } from "./evening";
 
@@ -86,7 +86,9 @@ export function cleanPlan(x: any, user: string, today: string, lib: SavedStrateg
       throw new Error("직접 작성한 코드 전략은 서버에서 매일 실행되므로 관리자만 운용할 수 있습니다. 조건 고르기·적립 전략으로 만들어 주세요.");
     }
   }
-  const raw = Array.isArray(x?.tickers) ? x.tickers.map(String) : String(x?.tickers ?? "").split(/[\s,]+/);
+  // 내 전략에 종목이 저장돼 있으면 그 종목을 그대로 씀 (백테스트와 같게)
+  const own = strategy ? strategyTickers(strategy) : null;
+  const raw = own ?? (Array.isArray(x?.tickers) ? x.tickers.map(String) : String(x?.tickers ?? "").split(/[\s,]+/));
   const tickers = [...new Set(raw.map(normalizeTicker).filter(Boolean))].slice(0, 20) as string[];
   if (!opts.allowMix && tickers.some(isUsTicker) && !tickers.every(isUsTicker)) throw new Error("한국 종목과 미국 종목을 한 운용에 섞을 수 없습니다 (주문 시간과 계좌 통화가 달라서). 한쪽만 넣어 주세요.");
   if (strategy?.cycle && !tickers.length) throw new Error("적립·분할 매도 전략은 대상 종목을 넣어야 합니다 (예: 069500).");
@@ -98,13 +100,44 @@ export function cleanPlan(x: any, user: string, today: string, lib: SavedStrateg
   let startDate = String(x?.startDate ?? "").trim();
   if (!ISO.test(startDate)) startDate = today;
   if (startDate > today) startDate = today;
-  return { strategy, builtin, label, tickers, budget, startDate, enabled: x?.enabled !== false, intraday: x?.intraday !== false, updatedAt: new Date().toISOString() };
+  const intraday = typeof strategy?.intraday === "boolean" ? strategy.intraday : x?.intraday !== false;
+  return { strategy, builtin, label, tickers, budget, startDate, enabled: x?.enabled !== false, intraday, updatedAt: new Date().toISOString() };
+}
+
+/** 내 전략에 저장된 종목 (직접 입력이면 그 목록, 시가총액 상위면 빈 목록 = 상위 N). 종목 정보가 없으면 null */
+export function strategyTickers(s: SavedStrategy): string[] | null {
+  const u = s.universe;
+  if (!u) return null;
+  if (u.mode === "top") return [];
+  return [...new Set(u.tickers.split(/[\s,]+/).map(normalizeTicker).filter(Boolean))].slice(0, 20) as string[];
+}
+
+const stratKey = (s?: SavedStrategy) => (s ? JSON.stringify({ ...s, updatedAt: undefined }) : "");
+
+/**
+ * 운용에 복사해 둔 내 전략을 보관함의 최신 내용으로 맞춤 (백테스트에서 다시 저장하면 매매도 바로 따라감).
+ * 보관함에서 지워졌으면 복사본 그대로. 전략·종목이 바뀌면 실전 전환 확인은 지워져 다시 확인해야 함.
+ */
+export function syncPlan(plan: AutoPlan, lib: SavedStrategy[], opts: { allowMix?: boolean } = {}): AutoPlan {
+  if (!plan.strategy) return plan;
+  const found = lib.find((v) => v.name === plan.strategy!.name);
+  if (!found) return plan;
+  let fresh: SavedStrategy;
+  try { fresh = cleanStrategy(found); } catch { return plan; }
+  const own = strategyTickers(fresh);
+  const tickers = own ?? plan.tickers;
+  if (!opts.allowMix && tickers.some(isUsTicker) && !tickers.every(isUsTicker)) return plan;
+  const intraday = typeof fresh.intraday === "boolean" ? fresh.intraday : plan.intraday;
+  const changed = stratKey(fresh) !== stratKey(plan.strategy) || tickers.join(",") !== plan.tickers.join(",");
+  if (!changed && intraday === plan.intraday) return plan;
+  return { ...plan, strategy: fresh, tickers, intraday, ...(changed ? { realConfirmedAt: undefined } : {}) };
 }
 
 export function loadPlan(user: string = OWNER_ID, e: Env = process.env): AutoPlan | null {
   try {
     const j = JSON.parse(fs.readFileSync(userFile("auto.json", user, e), "utf8"));
-    return j && typeof j === "object" && j.plan && typeof j.plan === "object" ? (j.plan as AutoPlan) : null;
+    if (!(j && typeof j === "object" && j.plan && typeof j.plan === "object")) return null;
+    return syncPlan(j.plan as AutoPlan, loadStrategies(e, user));
   } catch { return null; }
 }
 
