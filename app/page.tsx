@@ -25,6 +25,9 @@ import { buildCandidates, maxWarmup, type Candidate } from "@/lib/finder/candida
 import { evaluate, OBJECTIVES, type FinderReport, type Objective } from "@/lib/finder/search";
 import { userKey } from "@/lib/client/userStorage";
 import { fetchData } from "@/lib/client/fetchData";
+import type { BackfillNote } from "@/lib/data/backfillApply";
+import BackfillPicker from "@/components/BackfillPicker";
+import { backfillRequest, cleanBackfillState, DEFAULT_BACKFILL, type BackfillState } from "@/lib/data/backfillPick";
 import Info from "@/components/Info";
 // 브라우저 저장 이름은 사람마다 다름 (같은 기기를 여럿이 써도 섞이지 않게)
 const lsKey = () => userKey("kbt.custom-strategies");
@@ -81,6 +84,7 @@ export default function Page() {
   const [universeSize, setUniverseSize] = useState(100);
   const [pit, setPit] = useState(false);
   const [tickers, setTickers] = useState("005930, 000660, 005380, 035420, 051910");
+  const [backfill, setBackfill] = useState<BackfillState>(DEFAULT_BACKFILL);
 
   // 비용
   const [cash, setCash] = useState(10_000_000);
@@ -97,7 +101,7 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
-  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string; hold: HoldCompare | null; benchName: string } | null>(null);
+  const [out, setOut] = useState<{ res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title: string; hold: HoldCompare | null; benchName: string; backfilled?: BackfillNote[] } | null>(null);
   const dataCache = useRef<Map<string, DataResponse>>(new Map());
   /** 마지막 실행을 파라미터만 바꿔 다시 돌리는 함수 (민감도 검사용) */
   const rerun = useRef<{ p: Params; run: (p: Params) => SensitivityRow } | null>(null);
@@ -182,7 +186,7 @@ export default function Page() {
     if (s.cycleSpec) setCycleSpec(normalizeCycleSpec(s.cycleSpec));
     setRebalance(s.rebalance); setStopLoss(s.stopLoss ?? ""); setTakeProfit(s.takeProfit ?? ""); setIntraday(!!s.intraday);
     setSource(s.source); setStart(s.start); setEnd(s.end || today());
-    setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? "");
+    setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? ""); setBackfill(cleanBackfillState(s.backfill));
     setCash(s.cash); setMonthly(s.monthly ?? 0);
     setCommission(s.commission); setSlippage(s.slippage); setSellTax(s.sellTax ?? "");
     if (s.usCommission) setUsCommission(s.usCommission);
@@ -195,9 +199,9 @@ export default function Page() {
   const snapshot = useMemo<LastState>(() => ({
     version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
     rebalance, stopLoss, takeProfit, intraday, source, start, end: end === today() ? "" : end,
-    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax, usCommission, usFx,
+    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax, usCommission, usFx, backfill,
   }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit, intraday,
-    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax, usCommission, usFx]);
+    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax, usCommission, usFx, backfill]);
   const snapRef = useRef(snapshot);
   snapRef.current = snapshot;
   const saveNow = (keepalive = false) => {
@@ -314,7 +318,8 @@ export default function Page() {
   async function loadData(warmup: number, list: string[] | undefined): Promise<DataResponse> {
     const loadStart = minusDays(start, Math.max(400, Math.ceil(warmup * 1.5) + 30));
     const usePit = pit && !list && (source === "naver" || source === "kis");
-    const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit, dividends: useDiv };
+    const bf = list && (source === "naver" || source === "kis") ? backfillRequest(backfill, list) : undefined;
+    const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit, dividends: useDiv, ...(bf ? { backfill: bf } : {}) };
     const key = JSON.stringify(req);
     let data = dataCache.current.get(key);
     if (!data) {
@@ -394,7 +399,7 @@ export default function Page() {
         });
         if (h && h.equity.length >= 2) hold = { res: h, s: summarize(h, target.cagr / 100, target.mdd / 100), basis: pick.basis, tickers: pick.tickers.filter((t) => t in data!.data) };
       }
-      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략"), hold, benchName: data.benchmarkName ?? "KOSPI" });
+      setOut({ res, s: summarize(res, target.cagr / 100, target.mdd / 100), names: data.names, label, title: builtin?.name ?? (customName.trim() || "내 전략"), hold, benchName: data.benchmarkName ?? "KOSPI", backfilled: data.backfilled });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -646,6 +651,7 @@ export default function Page() {
                 </label>
                 <StockChips value={tickers} onChange={setTickers} />
                 <p className="help">한국 005930, 미국 AAPL·SPY 처럼 넣고 섞어도 됩니다.</p>
+                {(source === "naver" || source === "kis") && <BackfillPicker tickers={parseTickers(tickers)} value={backfill} onChange={setBackfill} />}
               </>
             )}
           </div>

@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { drawdown, perf, type Summary } from "@/lib/engine/metrics";
 import type { BacktestResult } from "@/lib/engine/types";
+import type { BackfillNote } from "@/lib/data/backfillApply";
+import { proxyName } from "@/lib/data/backfill";
 
 /** 비교용 매수 후 보유 결과 (같은 자금·기간·비용, 같은 종목을 똑같이 나눠 사기만 함) */
 export interface HoldCompare {
@@ -59,7 +61,9 @@ function Tip({ active, payload, label, fmt }: any) {
   );
 }
 
-export default function Results({ res, s, names, label, title, hold, onSensitivity, benchName = "KOSPI" }: {
+export default function Results({ res, s, names, label, title, hold, onSensitivity, benchName = "KOSPI", backfilled }: {
+  /** 상장 전 기간을 지수로 채운 종목 */
+  backfilled?: BackfillNote[];
   res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title?: string; hold?: HoldCompare | null;
   /** 비교 지수 이름 (KOSPI, 미국 종목만이면 S&P 500) */
   benchName?: string;
@@ -90,6 +94,15 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
       dd: dd[k] * 100,
     }));
   }, [res, hold]);
+  // 평가 구간 안에서 지수로 채운 부분 (차트에 회색으로)
+  const fills = (backfilled ?? []).filter((n) => series.length && n.until > series[0].date);
+  const fillEnd = useMemo(() => {
+    if (!fills.length) return null;
+    const until = fills.reduce((m, n) => (n.until > m ? n.until : m), "");
+    let last: string | null = null;
+    for (const p of series) { if (p.date < until) last = p.date; else break; }
+    return last;
+  }, [fills.map((n) => n.until).join(), series]);
 
   const split = useMemo(() => splitStats(res.equity), [res]);
   const rolling = useMemo(() => rollingReturns(res.equity.map(perf), 252, s.target), [res, s.target]);
@@ -176,6 +189,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
           {hold && <span><i style={{ background: c.s3 }} />매수 후 보유 ({holdName})</span>}
           {hasBench && <span><i style={{ background: c.s2 }} />{B} 지수</span>}
           <span><i className="dash" />연 {T} 목표</span>
+          {fillEnd && <span><i style={{ background: c.t3, opacity: 0.25 }} />지수로 채운 구간</span>}
         </div>
         <div style={{ height: 320 }}>
           <ResponsiveContainer>
@@ -186,6 +200,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
               <YAxis scale={log ? "log" : "linear"} domain={["auto", "auto"]} tick={{ fill: c.t2, fontSize: 11 }}
                 stroke={c.grid} width={48} allowDataOverflow tickFormatter={(v: number) => v.toFixed(0)} />
               <Tooltip content={<Tip fmt={(v: number) => v.toFixed(1)} />} />
+              {fillEnd && <ReferenceArea x1={series[0].date} x2={fillEnd} fill={c.t3} fillOpacity={0.12} stroke="none" ifOverflow="hidden" />}
               <Line dataKey="target" name={`연 ${T} 목표`} stroke={c.t3} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
               {hasBench && <Line dataKey="kospi" name={B} stroke={c.s2} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
               {hold && <Line dataKey="hold" name="매수 후 보유" stroke={c.s3} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
@@ -193,6 +208,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
             </LineChart>
           </ResponsiveContainer>
         </div>
+        {fills.length > 0 && <p className="help">상장 전 채움: {fills.map((n) => `${names[n.ticker] ?? n.ticker} ${n.until} 전은 ${n.chain.map(proxyName).join(" → ")}${n.lev !== 1 ? ` ×${n.lev}` : ""}`).join(" · ")}</p>}
         <h3>낙폭 (%)</h3>
         <div style={{ height: 120 }}>
           <ResponsiveContainer>

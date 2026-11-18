@@ -9,6 +9,8 @@ import { syntheticData } from "./synthetic";
 import { isKrTicker, isUsTicker } from "./market";
 import { fetchUsMaster, type UsStock } from "./usMaster";
 import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
+import { applyBackfill, type BackfillNote, type BackfillRequestMap } from "./backfillApply";
+import { lookupCodes } from "../stocks/master";
 import { credentialsFor, quoteCredentials, type KisCredentials } from "../kis/config";
 import { kisDividendRows, kisRawMonthly, kisUsDividendRows, mergeDividends, toEngineDividends, toEngineUsDividends, type KisDividendRow } from "../kis/dividends";
 import { getClient } from "../kis/client";
@@ -31,6 +33,11 @@ export interface DataRequest {
   pit?: boolean;
   /** 배당금·분배금 이력도 받기 (기본 true) */
   dividends?: boolean;
+  /**
+   * 상장 전 기간을 지수로 채우기 (종목 직접 입력일 때). 종목별 대용, "auto" = 기본 대용, null = 채우지 않음.
+   * "*" 키는 나머지 종목 전체 (보통 "auto")
+   */
+  backfill?: BackfillRequestMap | null;
 }
 
 export interface DataResponse {
@@ -46,6 +53,8 @@ export interface DataResponse {
   dividends?: DividendData;
   /** 원/달러 환율 (미국 종목이 있을 때) */
   fx?: { date: string; close: number }[];
+  /** 상장 전 기간을 지수로 채운 종목 (그래프에 다른 색으로 표시) */
+  backfilled?: BackfillNote[];
 }
 
 async function readJson<T>(p: string): Promise<T | null> {
@@ -213,6 +222,15 @@ export async function loadData(req: DataRequest, opts: LoadOptions = {}): Promis
   try {
     out.dividends = req.source === "csv" ? await csvDividends(Object.keys(out.data)) : await onlineDividends(Object.keys(out.data), req, out, opts);
   } catch (e) { out.warnings.push(`배당금·분배금 이력을 받지 못해 배당 없이 계산합니다: ${(e as Error).message}`); }
+  if (req.backfill && req.tickers?.length) {
+    try {
+      await applyBackfill(out, req, {
+        loadTickers: (codes) => loadData({ ...req, tickers: codes, backfill: null }, { ...opts, onProgress: undefined }),
+        yahoo: (sym) => cachedDaily(sym, req.start, "yahoo", fetchYahooDaily),
+        nameOf: (code) => { try { return lookupCodes([code])[0]?.name; } catch { return undefined; } },
+      });
+    } catch (e) { out.warnings.push(`상장 전 기간 채우기 실패: ${(e as Error).message}`); }
+  }
   return out;
 }
 

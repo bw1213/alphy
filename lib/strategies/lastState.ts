@@ -8,6 +8,7 @@ import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { Rebalance } from "../engine/types";
 import { normalizeSpec, type BuilderSpec } from "./builder";
 import { normalizeCycleSpec, type CycleSpec } from "./cycle";
+import { cleanBackfillState, type BackfillState } from "../data/backfillPick";
 
 export interface LastState {
   version: 1;
@@ -47,6 +48,8 @@ export interface LastState {
   dividends?: boolean;
   /** 한국 종목 배당소득세 % 문자열 */
   divTax?: string;
+  /** 상장 전 기간 지수로 채우기 */
+  backfill?: BackfillState;
   savedAt?: string;
 }
 
@@ -107,6 +110,7 @@ export function cleanLastState(x: any): LastState {
     usFx: str(x.usFx, 20, "0.1"),
     dividends: x.dividends !== false,
     divTax: str(x.divTax, 20, "15.4"),
+    backfill: cleanBackfillState(x.backfill),
     savedAt: typeof x.savedAt === "string" ? x.savedAt.slice(0, 30) : undefined,
   };
 }
