@@ -172,12 +172,11 @@ describe("대시보드 기록", () => {
     expect(h.points[KIS_ID]).toBeUndefined();
   });
 
-  it("계좌 총액 = 국내 총평가 + 미국 주식(원화). 총자산 조회값은 미국 종목을 원화로 못 바꿨을 때만", () => {
+  it("총자산 조회값(원화·달러 예수금 포함)을 읽었으면 그것이 계좌 총액", () => {
     const v = kisViewOf({ env: "real", kr: { cash: 0, total: 100, holdings: [] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 1, avgPrice: 1, price: 1, value: 1 }], totalAsset: 5000 } }, { at: "", map: { QQQ: { close: 1400, date: today } }, fx: 1400 }, 0);
-    expect(v.total).toBe(1500);
-    expect(v.cash).toBe(100);
-    const noFx = kisViewOf({ env: "real", kr: { cash: 0, total: 100, holdings: [] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 1, avgPrice: 1, price: 1, value: 1 }], totalAsset: 5000 } }, null, 0);
-    expect(noFx.total).toBe(5000);
+    expect(v.total).toBe(5000);
+    expect(v.cash).toBe(3600);
+    expect(v.partial).toBeUndefined();
   });
 });
 
@@ -264,17 +263,17 @@ describe("수동 계좌: 목표 보유 기준", () => {
   });
 });
 
-describe("한국투자증권 총자산 조회값 검사", () => {
-  it("모의투자에서 엉뚱하게 큰 총자산 조회값(3억)은 쓰지 않음", () => {
-    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [], totalAsset: 338_236_500 } }, null, 0);
-    expect(v.total).toBe(9_999_071);
+describe("한국투자증권 총자산", () => {
+  it("모의 실서버 값: 총자산 338,839,665원(달러 예수금 포함)을 그대로", () => {
+    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [{ code: "UPRO", name: "UPRO", qty: 57, avgPrice: 129.12, price: 125.76, value: 7168.13 }], totalAsset: 338_839_665, cashUsd: 92_566.56, fx: 1338.8 } }, null, 0);
+    expect(v.total).toBe(338_839_665);
+    expect(v.partial).toBeUndefined();
   });
-});
-
-describe("달러 예수금", () => {
-  it("평가액에 달러 예수금(원화 환산)을 더하고, 예수금에도 포함", () => {
-    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [{ code: "UPRO", name: "UPRO", qty: 57, avgPrice: 129.12, price: 129.52, value: 7382.64 }], cashUsd: 220_000, fx: 1450 } }, null, 0);
-    expect(v.total).toBe(Math.round(9_999_071 + 57 * 129.52 * 1450 + 220_000 * 1450));
-    expect(v.cash).toBe(Math.round(9_999_071 + 220_000 * 1450));
+  it("총자산을 못 읽으면 국내 총평가 + 미국 주식 어림값, partial 표시", () => {
+    const v = kisViewOf({ env: "mock", kr: { cash: 9_999_071, total: 9_999_071, holdings: [] }, us: { holdings: [{ code: "UPRO", name: "UPRO", qty: 57, avgPrice: 129.12, price: 125.76, value: 7168.13 }], fx: 1338.8 } }, null, 0);
+    expect(v.total).toBe(Math.round(9_999_071 + 57 * 125.76 * 1338.8));
+    expect(v.partial).toBe(true);
+    const kr = kisViewOf({ env: "mock", kr: { cash: 100, total: 100, holdings: [] } }, null, 0);
+    expect(kr.partial).toBeUndefined();
   });
 });

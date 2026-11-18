@@ -28,11 +28,12 @@ export const kisReader = (u: User, e: Env = process.env) => async (): Promise<Ki
   const out: KisRaw = { env: client.env, kr: { cash: kr.cash, total: kr.totalValue, holdings: kr.holdings } };
   try {
     const us = await getUsBalance(client);
-    // 달러 예수금: 못 읽으면 평가액이 그만큼 빠지므로 메모를 남김 (자동 매매 성과 기록은 이때 평가액을 쓰지 않음)
+    // 달러가 있는지 알아보는 용도 (주문 가능 외화. 예수금 전체는 아님)
     let cash: { usd: number; fx: number } | undefined;
-    try { cash = await usCash(client); } catch (err) { out.cashNote = `달러 예수금을 읽지 못했습니다: ${(err as Error).message}`; }
-    const totalAsset = us.holdings.length ? await usTotalAsset(client).catch(() => undefined) : undefined;
-    if (us.holdings.length || cash?.usd) out.us = { holdings: us.holdings, ...(totalAsset ? { totalAsset } : {}), ...(cash ? { cashUsd: cash.usd, ...(cash.fx > 0 ? { fx: cash.fx } : {}) } : {}) };
+    try { cash = await usCash(client); } catch { /* 모르면 총자산으로만 판단 */ }
+    // 총자산(원화·달러 예수금 포함)은 가끔 실패해 한 번 더 물어봄
+    const totalAsset = await usTotalAsset(client).catch(() => usTotalAsset(client)).catch(() => undefined);
+    if (us.holdings.length || cash?.usd || totalAsset) out.us = { holdings: us.holdings, ...(totalAsset ? { totalAsset } : {}), ...(cash ? { cashUsd: cash.usd, ...(cash.fx > 0 ? { fx: cash.fx } : {}) } : {}) };
   } catch (err) {
     out.note = `미국 잔고를 읽지 못했습니다: ${(err as Error).message}`;
   }
