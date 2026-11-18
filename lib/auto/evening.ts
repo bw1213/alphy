@@ -189,7 +189,9 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const res = runBacktest({
     data: d.data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate, initialCash: plan.budget, monthlyDeposit: 0,
     dividends: d.dividends, dividendTax: dividendTaxFn(KR_DIVIDEND_TAX),
-    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup, intraday: intradayOn(plan) },
+    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup, intraday: intradayOn(plan),
+      // 수동 계좌: 시작일에 바로 전략 비중대로 (월 전략이 다음 달까지 현금으로 기다리지 않게)
+      rebalanceAtStart: !!deps.manual },
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
     strategy: (ctx) => st.fn(ctx, st.p),
   });
