@@ -259,3 +259,22 @@ describe("계정별 자동 매매 한도", () => {
     expect(autoLimitFor("owner", env).realBudget).toBe(2_000_000);
   });
 });
+
+describe("지난 기록 지우기", () => {
+  it("운용 저장 전 저녁 기록과 끝난 주문·감시 기록만 지우고 진행 중인 것은 남김", async () => {
+    const fs = await import("fs"); const os = await import("os"); const path = await import("path");
+    const { clearOldRecords } = await import("@/lib/auto/clear");
+    const { appendLog, loadLog } = await import("@/lib/auto/store");
+    const { saveDay, loadDays } = await import("@/lib/auto/morning");
+    const env = { ALPHY_CONFIG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "alphy-clear-")) };
+    const r = (runDate: string, ranAt: string, trigger: "schedule" | "manual") => ({ runDate, ranAt, trigger, status: "ok" as const, label: "a", orders: [], sellLevels: [], warnings: [] });
+    appendLog(r("2026-11-17", "2026-11-17T09:00:00Z", "schedule"), "owner", env);
+    appendLog(r("2026-11-18", "2026-11-18T09:00:00Z", "schedule"), "owner", env);
+    saveDay({ date: "2026-11-17", label: "a", env: "mock", phase: "done", items: [], log: [] }, "owner", env);
+    saveDay({ date: "2026-11-18", label: "a", env: "mock", market: "US", phase: "placed", items: [], log: [] }, "owner", env);
+    const n = clearOldRecords("2026-11-18T02:48:00Z", "owner", env);
+    expect(n).toMatchObject({ log: 1, days: 1 });
+    expect(loadLog("owner", env).map((x) => x.runDate)).toEqual(["2026-11-18"]);
+    expect(Object.keys(loadDays("owner", env))).toEqual(["2026-11-18:US"]);
+  });
+});

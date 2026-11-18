@@ -19,6 +19,7 @@ import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
 import { tradeEnv } from "@/lib/kis/config";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import type { EveningReport } from "@/lib/auto/evening";
+import { clearOldRecords } from "@/lib/auto/clear";
 import { hasKisAccount } from "@/lib/manual/kis";
 import { loadHistory } from "@/lib/manual/value";
 
@@ -148,6 +149,13 @@ export async function POST(req: Request) {
         savePlan({ ...plan, realConfirmedAt: at }, user.id);
         await notify(user.id, `[알피] 실전 전환을 확인했습니다. 다음 거래일 아침부터 실전 계좌로 자동 주문합니다 (${plan.label}, 운용 금액 ${plan.budget.toLocaleString("ko-KR")}원).`).catch(() => false);
         return NextResponse.json({ ok: true, confirmedAt: at });
+      }
+      case "clear": {
+        // 지난 기록 지우기: 지금 운용 전략을 저장하기 전 기록과 끝난 주문·감시 기록
+        const plan = loadPlan(user.id);
+        const before = plan?.updatedAt || new Date().toISOString();
+        const n = clearOldRecords(before, user.id);
+        return NextResponse.json({ ok: true, ...n });
       }
       case "rebase": {
         // 입금·출금 뒤: 손익은 그대로 두고 성과 기준을 지금 계좌 평가액에 맞춤
