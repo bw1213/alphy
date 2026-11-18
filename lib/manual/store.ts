@@ -236,14 +236,11 @@ export function applyTrade(a: ManualAccount, t: Pick<ManualTrade, "ticker" | "na
   return { ...a, cash: Math.round(cash), positions: positions.filter((p) => p.qty > 0), updatedAt: new Date().toISOString() };
 }
 
-/** 체결 기록 추가 → 계좌 반영. 돌려줌: 바뀐 계좌와 기록 */
-export function recordTrade(user: string, accountId: string, x: any, rates: FeeRates, today: string, e: Env = process.env): { account: ManualAccount; trade: ManualTrade } {
-  const list = loadAccounts(user, e);
-  const i = list.findIndex((a) => a.id === accountId);
-  if (i < 0) throw new Error("그 계좌를 찾지 못했습니다.");
+/** 사람이 넣은 체결 값 검사 (기록·고치기 공통). held: 지금 그 종목 보유 (이름 이어 쓰기) */
+function parseTrade(x: any, rates: FeeRates, today: string, held?: ManualPosition) {
   const ticker = normalizeTicker(String(x?.ticker ?? ""));
   if (!ticker) throw new Error("종목 코드를 넣으세요.");
-  const side = x?.side === "sell" ? "sell" : x?.side === "buy" ? "buy" : null;
+  const side: "buy" | "sell" | null = x?.side === "sell" ? "sell" : x?.side === "buy" ? "buy" : null;
   if (!side) throw new Error("매수인지 매도인지 고르세요.");
   const qty = num(x?.qty);
   if (!Number.isInteger(qty) || qty <= 0) throw new Error("체결 수량은 1 이상의 정수로 넣으세요.");
@@ -254,10 +251,20 @@ export function recordTrade(user: string, accountId: string, x: any, rates: FeeR
   if (!Number.isFinite(fee) || fee < 0) throw new Error("수수료·세금은 0 이상으로 넣으세요.");
   let date = String(x?.date ?? "").trim();
   if (!ISO.test(date) || date > today) date = today;
+  const name = String(x?.name ?? "").trim().slice(0, 60) || (held?.ticker === ticker ? held.name : undefined) || undefined;
+  return { ticker, ...(name ? { name } : {}), side, qty, price, fee, date };
+}
+
+/** 체결 기록 추가 → 계좌 반영. 돌려줌: 바뀐 계좌와 기록 */
+export function recordTrade(user: string, accountId: string, x: any, rates: FeeRates, today: string, e: Env = process.env): { account: ManualAccount; trade: ManualTrade } {
+  const list = loadAccounts(user, e);
+  const i = list.findIndex((a) => a.id === accountId);
+  if (i < 0) throw new Error("그 계좌를 찾지 못했습니다.");
   const a = list[i];
+  const ticker = normalizeTicker(String(x?.ticker ?? ""));
   const held = a.positions.find((p) => p.ticker === ticker);
-  const name = String(x?.name ?? "").trim().slice(0, 60) || held?.name || undefined;
-  const trade: ManualTrade = { id: randomBytes(4).toString("hex"), accountId, date, ticker, ...(name ? { name } : {}), side, qty, price, fee, prevAvg: held?.avgPrice ?? 0, at: new Date().toISOString() };
+  const v = parseTrade(x, rates, today, held);
+  const trade: ManualTrade = { id: randomBytes(4).toString("hex"), accountId, ...v, prevAvg: held?.avgPrice ?? 0, at: new Date().toISOString() };
   const next = applyTrade(a, trade);
   list[i] = next;
   saveAccounts(list, user, e);
@@ -265,22 +272,14 @@ export function recordTrade(user: string, accountId: string, x: any, rates: FeeR
   return { account: next, trade };
 }
 
-/** 그 계좌의 가장 최근 체결 기록 하나를 되돌림 (예수금·수량·평균단가 원래대로) */
-export function undoLastTrade(user: string, accountId: string, e: Env = process.env): ManualTrade {
-  const trades = loadTrades(user, e);
-  const k = trades.findIndex((t) => t.accountId === accountId);
-  if (k < 0) throw new Error("되돌릴 체결 기록이 없습니다.");
-  const t = trades[k];
-  const list = loadAccounts(user, e);
-  const i = list.findIndex((a) => a.id === accountId);
-  if (i < 0) throw new Error("그 계좌를 찾지 못했습니다.");
-  const a = list[i];
+/** 체결 하나를 계좌에서 빼기 (예수금·수량·평균단가를 그 체결 전으로) */
+export function unapplyTrade(a: ManualAccount, t: ManualTrade): ManualAccount {
   const positions = a.positions.map((p) => ({ ...p }));
   let pos = positions.find((p) => p.ticker === t.ticker);
   const amount = t.qty * t.price;
   let cash = a.cash;
   if (t.side === "buy") {
-    if (!pos || pos.qty < t.qty) throw new Error(`그 뒤로 ${t.name ?? t.ticker} 수량을 바꿔서 되돌릴 수 없습니다. 계좌 고치기에서 직접 맞춰 주세요.`);
+    if (!pos || pos.qty < t.qty) throw new Error(`계좌의 ${t.name ?? t.ticker} 수량이 체결 기록과 맞지 않아 바꿀 수 없습니다. 계좌 고치기에서 직접 맞춰 주세요.`);
     pos.qty -= t.qty;
     pos.avgPrice = pos.qty > 0 ? t.prevAvg : 0;
     cash += amount + t.fee;
@@ -290,10 +289,54 @@ export function undoLastTrade(user: string, accountId: string, e: Env = process.
     pos.avgPrice = t.prevAvg;
     cash -= amount - t.fee;
   }
-  list[i] = { ...a, cash: Math.round(cash), positions: positions.filter((p) => p.qty > 0), updatedAt: new Date().toISOString() };
+  return { ...a, cash: Math.round(cash), positions: positions.filter((p) => p.qty > 0), updatedAt: new Date().toISOString() };
+}
+
+/**
+ * 체결 기록 하나를 고치거나(x 있음) 지움(x 없음). 그 뒤에 넣은 기록을 잠시 빼고 → 그 기록을 빼고(고치면 새 값으로 넣고)
+ * → 뒤 기록을 순서대로 다시 넣어 예수금·보유 수량·평균단가를 다시 계산한다.
+ */
+export function rewriteTrade(user: string, accountId: string, tradeId: string, x: any | null, rates: FeeRates, today: string, e: Env = process.env): { account: ManualAccount; trade: ManualTrade | null } {
+  const all = loadTrades(user, e);
+  const mine = all.filter((t) => t.accountId === accountId); // 최근 것부터
+  const j = mine.findIndex((t) => t.id === tradeId);
+  if (j < 0) throw new Error("그 체결 기록을 찾지 못했습니다. 화면을 새로고침해 보세요.");
+  const list = loadAccounts(user, e);
+  const i = list.findIndex((a) => a.id === accountId);
+  if (i < 0) throw new Error("그 계좌를 찾지 못했습니다.");
+  const target = mine[j];
+  const later = mine.slice(0, j); // target 보다 뒤에 넣은 기록 (최근 것부터)
+  let a = list[i];
+  for (const t of later) a = unapplyTrade(a, t);
+  a = unapplyTrade(a, target);
+  let edited: ManualTrade | null = null;
+  if (x) {
+    const ticker = normalizeTicker(String(x?.ticker ?? ""));
+    const input = { ...x, name: String(x?.name ?? "").trim() || (ticker === target.ticker ? target.name : undefined) };
+    const v = parseTrade(input, rates, today, a.positions.find((p) => p.ticker === ticker));
+    edited = { id: target.id, accountId, ...v, prevAvg: a.positions.find((p) => p.ticker === v.ticker)?.avgPrice ?? 0, at: target.at };
+    try { a = applyTrade(a, edited); }
+    catch (err) { throw new Error(`이렇게 고치면 ${(err as Error).message.replace(/ 먼저 계좌의 보유 수량을 맞춰 주세요\.$/, "")}`); }
+  }
+  const replayed = new Map<string, ManualTrade>();
+  for (const t of [...later].reverse()) {
+    const r = { ...t, prevAvg: a.positions.find((p) => p.ticker === t.ticker)?.avgPrice ?? 0 };
+    try { a = applyTrade(a, r); }
+    catch { throw new Error(`이렇게 ${x ? "고치면" : "지우면"} 그 뒤 ${t.date} ${t.name ?? t.ticker} ${t.qty}주 매도를 할 보유가 모자랍니다. 그 매도 기록부터 고치거나 지우세요.`); }
+    replayed.set(r.id, r);
+  }
+  list[i] = a;
+  const next = all.flatMap((t) => (t.id === tradeId ? (edited ? [edited] : []) : [replayed.get(t.id) ?? t]));
   saveAccounts(list, user, e);
-  trades.splice(k, 1);
-  saveTrades(trades, user, e);
+  saveTrades(next, user, e);
+  return { account: a, trade: edited };
+}
+
+/** 그 계좌의 가장 최근 체결 기록 하나를 되돌림 (예수금·수량·평균단가 원래대로) */
+export function undoLastTrade(user: string, accountId: string, e: Env = process.env): ManualTrade {
+  const t = loadTrades(user, e).find((x) => x.accountId === accountId);
+  if (!t) throw new Error("되돌릴 체결 기록이 없습니다.");
+  rewriteTrade(user, accountId, t.id, null, { commission: 0, sellTax: 0, usCommission: 0, usFx: 0 }, "9999-12-31", e);
   return t;
 }
 

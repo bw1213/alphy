@@ -31,7 +31,7 @@ const formOf = (a: AccountView, today: string): Form => ({
   tickers: a.plan?.tickers.join(", ") ?? "", budget: a.plan ? String(a.plan.budget) : "", startDate: a.plan?.startDate ?? today, enabled: a.plan?.enabled ?? true, others: a.others ?? "sell",
 });
 
-interface TradeForm { ticker: string; name: string; side: "buy" | "sell"; qty: string; price: string; fee: string; date: string }
+interface TradeForm { /** 고치는 기록 id (새 기록이면 없음) */ id?: string; ticker: string; name: string; side: "buy" | "sell"; qty: string; price: string; fee: string; date: string }
 
 function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrder) => void; done: (o: AutoOrder) => boolean }) {
   if (r.status === "error") return <div className="error">계산하지 못했습니다: {r.error}</div>;
@@ -109,6 +109,8 @@ export default function ManualPage() {
   const [msg, setMsg] = useState("");
   const [sendTg, setSendTg] = useState(false);
   const [delAsk, setDelAsk] = useState(false);
+  /** 지우기를 한 번 누른 체결 기록 id (한 번 더 누르면 지움) */
+  const [tradeDel, setTradeDel] = useState("");
   const [open, setOpen] = useState(0);
   const [resetAsk, setResetAsk] = useState(false);
   const [brokerText, setBrokerText] = useState<string | null>(null);
@@ -181,6 +183,7 @@ export default function ManualPage() {
     setForm(null);
   }, "계좌를 저장했습니다.");
 
+  const editTrade = (t: ManualTrade) => { setTradeDel(""); setTrade({ id: t.id, ticker: t.ticker, name: t.name ?? "", side: t.side, qty: String(t.qty), price: String(t.price), fee: String(t.fee), date: t.date }); };
   const startTrade = (o?: AutoOrder) => setTrade(o
     ? { ticker: o.ticker, name: o.name, side: o.side, qty: String(o.qty), price: String(Math.round(o.price)), fee: "", date: st?.today ?? "" }
     : { ticker: "", name: "", side: "buy", qty: "", price: "", fee: "", date: st?.today ?? "" });
@@ -208,7 +211,7 @@ export default function ManualPage() {
                   const v = a.cash + a.positions.reduce((s, p) => s + p.qty * (price(p.ticker) ?? p.avgPrice), 0);
                   const todo = a.log.find((r) => r.status === "ok")?.orders.length ?? 0;
                   return (
-                    <button key={a.id} onClick={() => { setSel(a.id); setForm(null); setTrade(null); setOpen(0); }}
+                    <button key={a.id} onClick={() => { setSel(a.id); setForm(null); setTrade(null); setTradeDel(""); setOpen(0); }}
                       style={{ textAlign: "left", display: "grid", gap: 2, borderColor: a.id === sel ? "var(--accent)" : undefined }}>
                       <span><b>{a.name}</b> <span className="help">{a.broker}</span></span>
                       <span style={{ fontSize: 12, color: "var(--text-2)" }}>{won(v)} · {a.plan ? `${a.plan.label}${a.plan.enabled ? "" : " (꺼짐)"}` : "전략 없음"}{todo ? ` · 할 일 ${todo}건` : ""}</span>
@@ -407,6 +410,7 @@ export default function ManualPage() {
                 </h2>
                 {trade && (
                   <div style={{ display: "grid", gap: 8, marginBottom: 12, padding: 12, border: "1px solid var(--border)", borderRadius: 8 }}>
+                    {trade.id && <p style={{ margin: 0, fontSize: 13 }}><b>체결 기록 고치기</b></p>}
                     {!trade.ticker ? <StockSearch placeholder="체결한 종목 찾기" onPick={(s) => setTrade({ ...trade, ticker: s.code, name: s.name })} /> : (
                       <p style={{ margin: 0, fontSize: 13 }}><b>{trade.name || trade.ticker}</b> <span className="help">{trade.ticker}</span> <button style={{ marginLeft: 6 }} onClick={() => setTrade({ ...trade, ticker: "", name: "" })}>바꾸기</button></p>
                     )}
@@ -422,16 +426,22 @@ export default function ManualPage() {
                     <p className="help" style={{ margin: 0 }}>실제 체결 가격(미국은 원화)으로 넣으세요. 수수료는 비우면 어림합니다.</p>
                     <div className="btns">
                       <button className="primary" disabled={!!busy || !trade.ticker || !trade.qty || !trade.price}
-                        onClick={() => act("trade", () => post({ action: "trade", accountId: acc.id, ...trade }), "체결을 기록하고 계좌 잔고를 바꿨습니다.").then((ok) => { if (ok) setTrade(null); })}>{busy === "trade" ? "기록 중…" : "기록"}</button>
+                        onClick={() => act("trade", () => post({ action: trade.id ? "editTrade" : "trade", accountId: acc.id, ...trade }), trade.id ? "체결 기록을 고치고 잔고를 다시 계산했습니다." : "체결을 기록하고 계좌 잔고를 바꿨습니다.").then((ok) => { if (ok) setTrade(null); })}>{busy === "trade" ? "저장 중…" : trade.id ? "고친 내용 저장" : "기록"}</button>
                       <button onClick={() => setTrade(null)}>닫기</button>
                     </div>
                   </div>
                 )}
                 {!trades.length ? <p className="help">아직 체결 기록이 없습니다.</p> : (
                   <div className="tablewrap"><table>
-                    <thead><tr><th>체결일</th><th>구분</th><th>종목</th><th>수량</th><th>가격</th><th>금액</th><th>수수료·세금</th></tr></thead>
+                    <thead><tr><th>체결일</th><th>구분</th><th>종목</th><th>수량</th><th>가격</th><th>금액</th><th>수수료·세금</th><th></th></tr></thead>
                     <tbody>{trades.slice(0, 50).map((t) => (
-                      <tr key={t.id}><td>{t.date}</td><td style={{ color: t.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{t.side === "buy" ? "매수" : "매도"}</td><td>{t.name ?? t.ticker}</td><td>{t.qty.toLocaleString("ko-KR")}주</td><td>{won(t.price)}</td><td>{won(t.qty * t.price)}</td><td>{won(t.fee)}</td></tr>
+                      <tr key={t.id}><td>{t.date}</td><td style={{ color: t.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{t.side === "buy" ? "매수" : "매도"}</td><td>{t.name ?? t.ticker}</td><td>{t.qty.toLocaleString("ko-KR")}주</td><td>{won(t.price)}</td><td>{won(t.qty * t.price)}</td><td>{won(t.fee)}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>
+                          <button disabled={!!busy} style={{ fontWeight: 400, padding: "2px 8px" }} onClick={() => editTrade(t)}>고치기</button>{" "}
+                          {tradeDel !== t.id
+                            ? <button disabled={!!busy} style={{ fontWeight: 400, padding: "2px 8px" }} onClick={() => setTradeDel(t.id)}>지우기</button>
+                            : <button disabled={!!busy} style={{ padding: "2px 8px", background: "var(--bad)", borderColor: "var(--bad)", color: "#fff" }} onClick={() => act("tradeDel", () => post({ action: "deleteTrade", accountId: acc.id, id: t.id }), "체결 기록을 지우고 잔고를 다시 계산했습니다.").then(() => { setTradeDel(""); if (trade?.id === t.id) setTrade(null); })}>정말 지우기</button>}
+                        </td></tr>
                     ))}</tbody>
                   </table></div>
                 )}
