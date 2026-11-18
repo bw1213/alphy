@@ -5,6 +5,7 @@ import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import { StockSearch } from "@/components/StockSearch";
 import { STRATEGIES } from "@/lib/strategies";
 import type { SavedStrategy } from "@/lib/strategies/library";
+import { universeTickers } from "@/lib/strategies/universe";
 import type { EveningReport, AutoOrder } from "@/lib/auto/evening";
 import type { ManualPosition, ManualTrade, FeeRates } from "@/lib/manual/store";
 import type { PriceBook } from "@/lib/manual/value";
@@ -267,7 +268,11 @@ export default function ManualPage() {
 
               <h3>전략</h3>
               <label className="f">적용할 전략
-                <select value={form.strategy} onChange={(e) => setForm({ ...form, strategy: e.target.value })}>
+                <select value={form.strategy} onChange={(e) => {
+                  const v = e.target.value;
+                  const own = STRATEGIES.find((x) => `builtin:${x.id}` === v)?.tickers ?? universeTickers(lib.find((x) => `saved:${x.name}` === v)?.universe);
+                  setForm({ ...form, strategy: v, ...(own && !form.tickers.trim() ? { tickers: own } : {}) });
+                }}>
                   <option value="">없음 (계좌만 기록)</option>
                   {(() => {
                     // 지금 계좌가 쓰는 전략이 보관함에 없으면(지웠거나 이름을 바꿈) 그대로 고를 수 있게

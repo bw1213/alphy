@@ -7,6 +7,8 @@ import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { Rebalance } from "../engine/types";
 import { normalizeSpec, type BuilderSpec } from "./builder";
 import { normalizeCycleSpec, type CycleSpec } from "./cycle";
+import { cleanUniverse, type SavedUniverse } from "./universe";
+export type { SavedUniverse } from "./universe";
 
 export interface SavedStrategy {
   name: string;
@@ -22,6 +24,8 @@ export interface SavedStrategy {
   builder?: BuilderSpec;
   /** 적립·분할 매도 화면으로 만든 전략이면 그 값 */
   cycle?: CycleSpec;
+  /** 저장할 때 백테스트에 쓴 종목 (예전에 저장한 전략엔 없음) */
+  universe?: SavedUniverse;
   /** 저장 시각 (ISO) */
   updatedAt?: string;
 }
@@ -48,6 +52,7 @@ export function cleanStrategy(x: any): SavedStrategy {
   return { name, code, params, rebalance, stopLoss: pctStr(x?.stopLoss), takeProfit: pctStr(x?.takeProfit), warmup,
     ...(x?.builder && typeof x.builder === "object" ? { builder: normalizeSpec(x.builder) } : {}),
     ...(x?.cycle && typeof x.cycle === "object" ? { cycle: normalizeCycleSpec(x.cycle) } : {}),
+    ...((u) => (u ? { universe: u } : {}))(cleanUniverse(x?.universe)),
     updatedAt: typeof x?.updatedAt === "string" ? x.updatedAt.slice(0, 30) : undefined };
 }
 

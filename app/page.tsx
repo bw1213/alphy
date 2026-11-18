@@ -19,6 +19,7 @@ import { paramVariants, summarizeSensitivity, type SensitivityResult, type Sensi
 import { compileStrategy, CUSTOM_PARAMS, CUSTOM_TEMPLATE, STRATEGIES, type Params } from "@/lib/strategies";
 
 import type { SavedStrategy } from "@/lib/strategies/library";
+import { cleanUniverse, universeLabel } from "@/lib/strategies/universe";
 import type { LastState } from "@/lib/strategies/lastState";
 import FinderResults from "@/components/FinderResults";
 import { buildCandidates, maxWarmup, type Candidate } from "@/lib/finder/candidates";
@@ -130,6 +131,13 @@ export default function Page() {
         if (s.cycle) { setCycleSpec(normalizeCycleSpec(s.cycle)); setUniverseMode("list"); }
         setCode(s.code); setCustomParams(s.params); setCustomName(s.name); setRebalance(s.rebalance);
         setStopLoss(s.stopLoss); setTakeProfit(s.takeProfit); setCustomWarmup(s.warmup);
+        const u = s.universe;
+        if (u) {
+          setUniverseMode(u.mode); setUniverseSize(u.size); setPit(u.pit);
+          if (u.mode === "list") setTickers(u.tickers);
+          setBackfill(cleanBackfillState(u.backfill));
+        }
+        setStratMsg(u ? `저장된 종목도 불러왔습니다: ${universeLabel(u)}` : "");
       }
     }
   };
@@ -268,6 +276,9 @@ export default function Page() {
       : g
       ? { name, code: g.code, params: JSON.stringify(g.params), rebalance, stopLoss, takeProfit, warmup: g.warmup, builder: normalizeSpec(spec) }
       : { name, code, params: customParams, rebalance, stopLoss, takeProfit, warmup: customWarmup };
+    // 이 백테스트에 쓴 종목도 함께 저장
+    const universe = cleanUniverse({ mode: universeMode, size: universeSize, pit, tickers, backfill });
+    if (universe) item.universe = universe;
     setStratMsg("");
     const keepLocal = (why: string) => {
       const list = [...local.filter((s) => s.name !== item.name), item];
@@ -280,7 +291,7 @@ export default function Page() {
         setOnNas(j);
         const list = local.filter((s) => s.name !== item.name);
         setLocal(list); storeSaved(list);
-        setStratMsg("NAS에 저장했습니다. 다른 기기에서도 보입니다.");
+        setStratMsg(`NAS에 저장했습니다 (종목: ${universe ? universeLabel(universe) : "없음"}).`);
       } else if (r.status === 401 || r.status === 403) keepLocal("로그인하지 않아 이 브라우저에만 저장했습니다. 설정 화면에서 로그인한 뒤 다시 저장하면 NAS에 저장됩니다.");
       else { setStratMsg(j.error ?? `저장 실패 (HTTP ${r.status})`); return; }
     } catch { keepLocal("서버에 연결하지 못해 이 브라우저에만 저장했습니다."); }
@@ -585,7 +596,7 @@ export default function Page() {
                   {local.some((l) => isLocalOnly(l.name)) && <button onClick={moveLocalToNas}>이 브라우저의 전략을 NAS로 옮기기</button>}
                 </div>
                 {stratMsg && <p className="help">{stratMsg}</p>}
-                <p className="help">같은 이름으로 저장하면 덮어씁니다.</p>
+                <p className="help">지금 종목도 함께 저장됩니다. 같은 이름이면 덮어씁니다.</p>
               </>
             )}
             <h3>운용 규칙</h3>
