@@ -223,7 +223,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
             <>
               <p className="help">
                 <b>{res.signal.date}</b> 종가 기준, 오늘 새로 시작한다면의 종목과 비중입니다.
-                {res.signal.kept && " (이번엔 매매 안 함: 지금 보유 그대로)"}
+                {res.signal.kept ? " (이번엔 매매 안 함: 지금 보유 그대로)" : res.signal.due === false ? " (리밸런싱 주기상 오늘은 매매하는 날이 아님: 참고용)" : ""}
                 {res.signal.date >= new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10) && " 장중 가격이라 마감 후와 다를 수 있습니다."}
               </p>
               {res.signal.picks.length === 0 ? <p className="help"><b>전량 현금</b>: 조건에 맞는 종목이 없습니다.</p> : (

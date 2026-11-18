@@ -96,6 +96,17 @@ ctx.state.period = period;
 for (const t of ts) ctx.notes[t] = "정기 리밸런싱";
 return w;`;
 
+const fixedMixCode = `// 비중 고정: 종목마다 정한 비율(p["w_종목코드"], %)로 나눠 들고, p.months 개월마다(3 = 분기)
+// 새 기간의 첫 거래일 종가에 비율을 다시 맞춘다(체결은 다음 날 시가). 비율이 없는 종목은 사지 않음, 합이 100 미만이면 나머지는 현금
+const w = {};
+for (const t of ctx.tickers) if (p["w_" + t] > 0 && ctx.close(t) > 0) w[t] = p["w_" + t] / 100;
+const m = Number(ctx.date.slice(0, 4)) * 12 + Number(ctx.date.slice(5, 7)) - 1;
+const period = Math.floor(m / Math.max(1, p.months));
+if (ctx.state.period === period) return null;
+ctx.state.period = period;
+for (const t in w) ctx.notes[t] = "정기 리밸런싱";
+return w;`;
+
 /** 코드 문자열 → 함수. 브라우저(사용자 본인 PC)에서만 실행된다. 코드에서는 lib.cycle 같은 도우미도 쓸 수 있다. */
 export function compileStrategy(code: string): (ctx: StrategyContext, p: Params) => Weights | null | undefined {
   // eslint-disable-next-line @typescript-eslint/no-implied-eval
@@ -193,6 +204,22 @@ export const STRATEGIES: StrategyDef[] = [
     targetWeights: compileStrategy(levMixCode),
     code: levMixCode,
     tickers: "UPRO, TLT, GLD",
+  },
+  {
+    id: "cc_mix",
+    name: "커버드콜 분산 (한국30·미국50·금리20)",
+    description: "KODEX 200타겟위클리커버드콜 30%, TIGER 미국S&P500타겟데일리커버드콜 50%, PLUS KOFR금리 20%. 분기마다 비율을 다시 맞춤.",
+    params: [
+      { key: "w_498400", label: "498400 한국 커버드콜(%)", default: 30, min: 0, max: 100, step: 5 },
+      { key: "w_482730", label: "482730 미국 커버드콜(%)", default: 50, min: 0, max: 100, step: 5 },
+      { key: "w_453010", label: "453010 KOFR 금리(%)", default: 20, min: 0, max: 100, step: 5 },
+      { key: "months", label: "다시 맞추는 주기(개월)", default: 3, min: 1, max: 12 },
+    ],
+    rebalance: "D", stopLoss: null, takeProfit: null,
+    warmup: () => 2,
+    targetWeights: compileStrategy(fixedMixCode),
+    code: fixedMixCode,
+    tickers: "498400, 482730, 453010",
   },
 ];
 

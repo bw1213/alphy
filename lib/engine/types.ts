@@ -98,6 +98,11 @@ export interface Signal {
   picks: { ticker: string; weight: number; close: number }[];
   /** 전략이 '이번엔 매매 안 함(null)'을 돌려줘서 백테스트상 보유 종목을 그대로 보여주는 경우 */
   kept: boolean;
+  /**
+   * 리밸런싱 주기(주·월·분기 등)상 이날 신호대로 매매할 날인지. false 면 백테스트도 이날은 매매하지 않으므로
+   * 자동 매매·수동 안내는 보유를 그대로 둔다 (picks 는 '오늘 새로 시작한다면'의 참고용)
+   */
+  due?: boolean;
   /** 전략이 남긴 종목별 매매 이유 (예: 적립 매수) */
   notes?: Record<string, string>;
   /** 장중 매도 모드에서 다음 날 걸어 둘 매도 가격 (종목별, 높은 가격 먼저) */

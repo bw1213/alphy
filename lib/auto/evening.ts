@@ -234,7 +234,9 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   // 1) 내일 주문: 전략이 비중을 바꾸기로 한 종목만 (그대로 두는 종목은 건드리지 않음)
   const sig = res.signal;
   if (!sig) r.warnings.push(`준비 기간(${st.warmup}영업일)이 아직 안 끝나 오늘은 신호가 없습니다.`);
-  r.kept = !sig || sig.kept;
+  // 주·월·분기 전략은 백테스트처럼 주기상 매매할 날에만 비중을 맞춤 (그 밖의 날 매일 비중 맞춤 주문을 내지 않게)
+  const kept = !sig || sig.kept || sig.due === false;
+  r.kept = kept;
   const man = deps.manual && real ? deps.manual : null;
   const pxOf = (t: string) => { const c = close(t); return c > 0 ? c : acctPx.get(t)?.price ?? NaN; };
   // 수동 계좌: 전략 밖 보유 종목 (대상 종목을 정했으면 그 밖, 비웠으면 전략이 고르거나 들고 있지 않은 종목)
@@ -243,7 +245,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const outsideValue = outside.reduce((a, [t, q]) => a + q * (pxOf(t) || 0), 0);
   // 비중을 곱할 금액: 자동 매매는 백테스트 평가액, 수동 계좌는 지금 계좌 평가액 (전략 밖 종목을 둔다면 그만큼 뺌)
   const base = man && r.accountTotal != null ? Math.max(0, r.accountTotal - (man.others === "keep" ? outsideValue : 0)) : E;
-  if (sig && !sig.kept && !man) {
+  if (sig && !kept && !man) {
     const nowW = (t: string) => (E > 0 ? ((btQty.get(t) ?? 0) * close(t)) / E : 0);
     const target = new Map(sig.picks.map((x) => [x.ticker, x.weight]));
     for (const t of btQty.keys()) if (!target.has(t)) target.set(t, 0);
@@ -265,7 +267,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     // 수동 계좌: 매일 전략상 목표 보유를 만들고 지금 잔고와의 차이를 모두 안내 (오늘 신호가 없어도 맞춤)
     //   비중: 오늘 신호가 있으면 신호 뒤 비중, 없으면(유지) 전략 계산이 지금 들고 있는 비중
     const weights = new Map<string, number>(
-      !sig.kept ? sig.picks.map((x) => [x.ticker, x.weight] as [string, number])
+      !kept ? sig.picks.map((x) => [x.ticker, x.weight] as [string, number])
         : [...btQty.entries()].map(([t, q]) => [t, E > 0 ? (q * close(t)) / E : 0] as [string, number]));
     for (const t of btQty.keys()) if (!weights.has(t)) weights.set(t, 0);
     for (const [t, q] of real!) if (q > 0 && strategyTickers.has(t) && !weights.has(t)) weights.set(t, 0);

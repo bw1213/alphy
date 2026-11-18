@@ -62,7 +62,7 @@ describe("strategies", () => {
       const sum = summarize(res);
       expect(res.equity[0].date >= "2020-01-01").toBe(true);
       expect(Number.isFinite(sum.cagr)).toBe(true);
-      expect(res.trades.length).toBeGreaterThan(0);
+      if (!s.tickers || s.id === "lev_mix") expect(res.trades.length).toBeGreaterThan(0); // cc_mix 는 정한 종목 코드에만 씀
     });
   }
   it("사용자 코드 컴파일", () => {
