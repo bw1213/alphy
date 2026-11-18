@@ -163,6 +163,11 @@ async function cachedListings(date: string): Promise<KrxListing[]> {
 }
 
 /** data/csv/universe.csv: date,code[,name] → 날짜별 종목 목록 */
+/** 종목 목록(stocks.json·기본 목록)에서 이름 찾기. 모르면 코드 그대로 */
+function knownName(code: string): string {
+  try { return lookupCodes([code])[0]?.name ?? code; } catch { return code; }
+}
+
 export function parseUniverseCsv(text: string): { snapshots: UniverseSnapshot[]; names: Record<string, string> } {
   const by = new Map<string, string[]>();
   const names: Record<string, string> = {};
@@ -477,7 +482,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
       if (want && !want.has(code)) continue;
       if (code.toUpperCase() === "KOSPI" || code.toLowerCase() === "universe" || code.toLowerCase() === "dividends") continue;
       data[code] = clip(parseCsv(await fs.readFile(path.join(CSV_DIR, f), "utf8")), req.start, req.end);
-      names[code] = code;
+      names[code] = knownName(code);
     }
     let benchmark = null;
     try {
@@ -500,7 +505,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
   let list: StockInfo[];
   let universe: UniverseSnapshot[] | undefined;
   const isin = new Map<string, string>();
-  if (req.tickers?.length) list = req.tickers.map((code) => ({ code, name: code }));
+  if (req.tickers?.length) list = req.tickers.map((code) => ({ code, name: knownName(code) }));
   else if (req.pit) {
     try {
       const u = await buildPitUniverse(req.start, req.end, req.universeSize ?? 100, cachedListings);

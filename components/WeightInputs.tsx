@@ -1,4 +1,6 @@
 "use client";
+import { useNameOf } from "./StockSearch";
+import { withCode } from "@/lib/strategies/universe";
 /** 종목별 비중(%) 입력. 값은 { "w_종목코드": 비중 } 형태로 전략 파라미터에 들어감 */
 export function WeightInputs({ tickers, value, onChange, names }: {
   tickers: string[];
@@ -6,6 +8,7 @@ export function WeightInputs({ tickers, value, onChange, names }: {
   onChange: (next: Record<string, number | undefined>) => void;
   names?: Record<string, string>;
 }) {
+  const nameOf = useNameOf(tickers);
   if (!tickers.length) return <p className="help">종목을 직접 입력하면 종목별 비중을 정할 수 있습니다.</p>;
   const set = tickers.some((t) => value["w_" + t] !== undefined);
   const sum = tickers.reduce((a, t) => a + (Number(value["w_" + t]) || 0), 0);
@@ -15,7 +18,7 @@ export function WeightInputs({ tickers, value, onChange, names }: {
       <h3>종목별 비중 (%)</h3>
       <div className="row3">
         {tickers.map((t) => (
-          <label className="f" key={t}>{names?.[t] ? `${names[t]} (${t})` : t}
+          <label className="f" key={t}>{withCode(names?.[t] ?? nameOf(t), t)}
             <input type="number" min={0} max={100} step={5} placeholder={set ? "0" : String(equal)}
               value={value["w_" + t] ?? ""}
               onChange={(e) => {

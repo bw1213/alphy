@@ -21,6 +21,7 @@ import type { EveningReport } from "./evening";
 import { REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
 import { minusDays } from "./time";
 import { clockOf, US_SESSION, type Market } from "./session";
+import { withCode } from "../strategies/universe";
 
 type Env = Record<string, string | undefined>;
 
@@ -137,10 +138,10 @@ async function placeOne(it: MorningItem, b: Broker, d: MorningDay, now: number, 
     const res = await b.place({ code: it.ticker, side: it.side, qty: it.qty, type: "market" });
     if (b.env === "real") { try { lim.addUsage?.(amount); } catch { /* 합계 저장 실패는 주문에 영향 없음 */ } }
     Object.assign(it, { status: "placed", orderNo: res.orderNo, orgNo: res.orgNo, placedAt: new Date(now).toISOString() });
-    d.log.push(`${hhmm(now, d.market)} ${it.side === "buy" ? "매수" : "매도"} ${it.name} ${it.qty}주 ${d.market === "US" ? "지정가(현재가 ±1%)" : "시장가"} 주문 (주문번호 ${res.orderNo})`);
+    d.log.push(`${hhmm(now, d.market)} ${it.side === "buy" ? "매수" : "매도"} ${withCode(it.name, it.ticker)} ${it.qty}주 ${d.market === "US" ? "지정가(현재가 ±1%)" : "시장가"} 주문 (주문번호 ${res.orderNo})`);
   } catch (err) {
     Object.assign(it, { status: "failed", error: (err as Error).message });
-    d.log.push(`${hhmm(now, d.market)} ${it.name} 주문 실패: ${(err as Error).message}`);
+    d.log.push(`${hhmm(now, d.market)} ${withCode(it.name, it.ticker)} 주문 실패: ${(err as Error).message}`);
   }
 }
 
@@ -226,7 +227,7 @@ export async function morningFollow(d: MorningDay, b: Broker, now: number, cutof
       for (const it of waiting) {
         const unit = it.price * (1 + BUY_GAP);
         const q = Math.min(it.qty, Math.floor(cash / unit));
-        if (q <= 0) { it.status = "skipped"; it.error = `현금이 모자랍니다 (주문 가능 ${won(cash)}).`; d.log.push(`${hm} ${it.name} 매수 건너뜀: 현금 부족`); continue; }
+        if (q <= 0) { it.status = "skipped"; it.error = `현금이 모자랍니다 (주문 가능 ${won(cash)}).`; d.log.push(`${hm} ${withCode(it.name, it.ticker)} 매수 건너뜀: 현금 부족`); continue; }
         if (q < it.qty) it.note = `${it.note ? it.note + " · " : ""}현금 부족으로 ${it.qty}주 중 ${q}주`;
         it.qty = q;
         cash -= q * unit;
@@ -243,8 +244,8 @@ export async function morningFollow(d: MorningDay, b: Broker, now: number, cutof
         try {
           await b.cancel({ orderNo: it.orderNo, orgNo: it.orgNo ?? "" });
           it.status = it.filledQty > 0 ? "partial" : "cancelled";
-          d.log.push(`${hm} ${it.name} 미체결 ${it.qty - it.filledQty}주 취소`);
-        } catch (err) { d.log.push(`${hm} ${it.name} 취소 실패: ${(err as Error).message}`); }
+          d.log.push(`${hm} ${withCode(it.name, it.ticker)} 미체결 ${it.qty - it.filledQty}주 취소`);
+        } catch (err) { d.log.push(`${hm} ${withCode(it.name, it.ticker)} 취소 실패: ${(err as Error).message}`); }
       }
     }
     d.phase = "done";
@@ -259,8 +260,8 @@ export async function stopDay(d: MorningDay, b: Broker, now: number): Promise<Mo
   for (const it of d.items) {
     if (it.status === "waiting") { it.status = "skipped"; it.error = "긴급 정지"; continue; }
     if ((it.status === "placed" || it.status === "partial") && it.orderNo) {
-      try { await b.cancel({ orderNo: it.orderNo, orgNo: it.orgNo ?? "" }); it.status = it.filledQty > 0 ? "partial" : "cancelled"; d.log.push(`${hm} 긴급 정지: ${it.name} 취소`); }
-      catch (err) { d.log.push(`${hm} 긴급 정지: ${it.name} 취소 실패 ${(err as Error).message}`); }
+      try { await b.cancel({ orderNo: it.orderNo, orgNo: it.orgNo ?? "" }); it.status = it.filledQty > 0 ? "partial" : "cancelled"; d.log.push(`${hm} 긴급 정지: ${withCode(it.name, it.ticker)} 취소`); }
+      catch (err) { d.log.push(`${hm} 긴급 정지: ${withCode(it.name, it.ticker)} 취소 실패 ${(err as Error).message}`); }
     }
   }
   d.phase = "stopped";
@@ -279,7 +280,7 @@ export function formatDay(d: MorningDay, final: boolean): string {
   const lines = [head];
   for (const it of d.items) {
     const fill = it.filledQty > 0 ? ` · ${it.filledQty}주 체결 평균 ${d.market === "US" ? `$${it.avgPrice.toFixed(2)}` : won(it.avgPrice)}` : "";
-    lines.push(`- ${it.side === "buy" ? "매수" : "매도"} ${it.name} ${it.qty}주: ${ST[it.status]}${fill}${it.error ? ` (${it.error})` : ""}`);
+    lines.push(`- ${it.side === "buy" ? "매수" : "매도"} ${withCode(it.name, it.ticker)} ${it.qty}주: ${ST[it.status]}${fill}${it.error ? ` (${it.error})` : ""}`);
   }
   if (!final && d.phase === "buying") lines.push("매수는 매도 체결 뒤 남은 현금으로 합니다.");
   if (d.phase === "stopped") lines.push("긴급 정지로 남은 주문을 취소했습니다.");

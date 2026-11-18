@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
-import { StockSearch } from "@/components/StockSearch";
+import { StockChips, StockSearch, splitCodes, useNameOf } from "@/components/StockSearch";
 import { STRATEGIES } from "@/lib/strategies";
 import type { SavedStrategy } from "@/lib/strategies/library";
 import { universeLabel, universeTickers } from "@/lib/strategies/universe";
@@ -214,7 +214,7 @@ function Report({ r }: { r: EveningReport }) {
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>기준 가격</th>{r.intraday && <th>매도 수량</th>}<th>오늘 종가</th><th>차이</th><th>규칙</th></tr></thead>
             <tbody>{r.sellLevels.map((s, i) => (
-              <tr key={i}><td>{s.name}</td><td>{won(s.price)}{s.usd ? ` ($${s.usd.toFixed(2)})` : ""} {s.kind === "take_profit" ? "이상" : "이하"}</td>{r.intraday && <td>{s.qty ? `${s.qty.toLocaleString("ko-KR")}주` : "전부"}</td>}<td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
+              <tr key={i}><td>{s.name} <span className="help">{s.ticker}</span></td><td>{won(s.price)}{s.usd ? ` ($${s.usd.toFixed(2)})` : ""} {s.kind === "take_profit" ? "이상" : "이하"}</td>{r.intraday && <td>{s.qty ? `${s.qty.toLocaleString("ko-KR")}주` : "전부"}</td>}<td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
             ))}</tbody>
           </table></div>
           <p className="help">{r.intraday
@@ -270,6 +270,7 @@ export default function AutoPage() {
   };
 
   const picked = form.strategy.startsWith("saved:") ? lib.find((s) => `saved:${s.name}` === form.strategy) : null;
+  const nameOf = useNameOf(picked?.universe?.mode === "list" ? splitCodes(picked.universe.tickers) : []);
   const isCycle = !!picked?.cycle;
   const isCustom = !!picked && !picked.cycle && !picked.builder;
 
@@ -295,11 +296,12 @@ export default function AutoPage() {
             </label>
             {isCustom && !auth?.user?.owner && <p className="help">코드 전략은 관리자만 운용할 수 있습니다.</p>}
             {picked?.universe ? (
-              <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
+              <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe, nameOf)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
             ) : (<>
             <label className="f" style={{ marginTop: 10 }}>대상 종목 {isCycle ? "(필수)" : "(비우면 전략 기본: 시총 상위 종목)"}
               <input value={form.tickers} placeholder="예: 069500, 005930" onChange={(e) => setForm({ ...form, tickers: e.target.value })} />
             </label>
+            <StockChips value={form.tickers} onChange={(v) => setForm((f) => ({ ...f, tickers: v }))} />
             <div style={{ marginTop: 6 }}>
               <StockSearch placeholder="종목 이름으로 찾아 추가" onPick={(s) => setForm((f) => ({ ...f, tickers: [...new Set([...f.tickers.split(/[\s,]+/).filter(Boolean), s.code])].join(", ") }))} />
             </div>
@@ -513,7 +515,7 @@ export default function AutoPage() {
                   <div className="tablewrap" style={{ marginTop: 6 }}><table>
                     <thead><tr><th>시각</th><th>종목</th><th>닿은 가격</th><th>수량</th><th>상태</th><th>체결</th></tr></thead>
                     <tbody>{d.sells.map((s, i) => (
-                      <tr key={i}><td>{s.at}</td><td>{s.name}<div className="help">{s.label}</div></td><td>{money(d.market, s.level)} (현재가 {money(d.market, s.seen)})</td><td>{s.qty}주</td>
+                      <tr key={i}><td>{s.at}</td><td>{s.name} <span className="help">{s.ticker}</span><div className="help">{s.label}</div></td><td>{money(d.market, s.level)} (현재가 {money(d.market, s.seen)})</td><td>{s.qty}주</td>
                         <td>{ST[s.status]}{s.error ? <div className="help">{s.error}</div> : null}</td><td>{s.filledQty > 0 ? `${s.filledQty}주 · ${money(d.market, s.avgPrice)}` : ""}</td></tr>
                     ))}</tbody>
                   </table></div>

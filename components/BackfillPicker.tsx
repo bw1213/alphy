@@ -4,12 +4,15 @@ import { PROXIES, proxyCurrency, proxyName, suggestSpec } from "@/lib/data/backf
 import { AUTO_PICK as AUTO, type BackfillPick, type BackfillState } from "@/lib/data/backfillPick";
 import { isUsTicker } from "@/lib/data/market";
 import Info from "./Info";
+import { useNameOf } from "./StockSearch";
+import { withCode } from "@/lib/strategies/universe";
 
 const groups = [...new Set(PROXIES.map((p) => p.group))];
 const levText = (lev: number) => (lev === 1 ? "" : ` ×${lev}`);
 
 export default function BackfillPicker({ tickers, value, onChange }: { tickers: string[]; value: BackfillState; onChange: (v: BackfillState) => void }) {
   const set = (t: string, p: Partial<BackfillPick>) => onChange({ ...value, picks: { ...value.picks, [t]: { ...(value.picks[t] ?? AUTO), ...p } } });
+  const nameOf = useNameOf(tickers);
   return (
     <div style={{ marginTop: 10 }}>
       <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
@@ -26,7 +29,7 @@ export default function BackfillPicker({ tickers, value, onChange }: { tickers: 
             const canHedge = !isUsTicker(t) && p.proxy !== "auto" && p.proxy !== "none" && proxyCurrency(p.proxy) === "USD";
             return (
               <div key={t} className="row" style={{ marginTop: 6, alignItems: "flex-end" }}>
-                <label className="f" style={{ flex: "2 1 220px" }}>{t}
+                <label className="f" style={{ flex: "2 1 220px" }}>{withCode(nameOf(t), t)}
                   <select value={p.proxy} onChange={(e) => {
                     const v = e.target.value;
                     // 직접 고를 땐 이 종목의 기본 배수·보수를 먼저 채워 둠

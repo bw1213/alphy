@@ -34,6 +34,7 @@ import { loadAccounts } from "../manual/store";
 import { KIS_ID, kisViewOf, loadHistory, refreshHistory, saveHistory, type KisView } from "../manual/value";
 import { hasKisAccount, kisReader } from "../manual/kis";
 import { clockOf, krSession, planMarket, US_SESSION, type Market, type Session } from "./session";
+import { withCode } from "../strategies/universe";
 
 type Env = Record<string, string | undefined>;
 
@@ -124,7 +125,7 @@ export function fillMessages(d: MorningDay, before: Map<number, number>): string
     const prev = before.get(i) ?? 0;
     if (it.filledQty <= prev) return;
     const px = d.market === "US" ? `$${it.avgPrice.toFixed(2)}` : `${Math.round(it.avgPrice).toLocaleString("ko-KR")}원`;
-    lines.push(`- ${it.side === "buy" ? "매수" : "매도"} ${it.name} ${it.filledQty - prev}주 체결 (누적 ${it.filledQty}/${it.qty}주, 평균 ${px})`);
+    lines.push(`- ${it.side === "buy" ? "매수" : "매도"} ${withCode(it.name, it.ticker)} ${it.filledQty - prev}주 체결 (누적 ${it.filledQty}/${it.qty}주, 평균 ${px})`);
   });
   return lines.length ? [`[알피] ${d.date} 체결 · ${d.label} (${d.env === "real" ? "실전" : "모의투자"})`, ...lines].join("\n") : "";
 }

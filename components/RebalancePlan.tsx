@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Balance, OrderResult } from "@/lib/kis/trading";
 import { isUsTicker } from "@/lib/data/market";
+import { withCode } from "@/lib/strategies/universe";
 import { buildPlan, SIGNAL_KEY, type Plan, type SavedSignal } from "@/lib/trade/plan";
 import { userKey } from "@/lib/client/userStorage";
 
@@ -91,10 +92,10 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
         <>
           <p className="help" style={{ marginTop: -6 }}>
             <b>{signal.label}</b> · {signal.date} 종가 기준 · {signal.picks.length ? `${signal.picks.length}종목` : "전량 현금"}
-            {signal.picks.length > 0 && <> ({signal.picks.slice(0, 5).map((p) => p.name || p.ticker).join(", ")}{signal.picks.length > 5 ? " 외" : ""})</>}
+            {signal.picks.length > 0 && <> ({signal.picks.slice(0, 5).map((p) => withCode(p.name, p.ticker)).join(", ")}{signal.picks.length > 5 ? " 외" : ""})</>}
           </p>
           {signal.picks.some((p) => isUsTicker(p.ticker)) && (
-            <p className="help">미국 종목({signal.picks.filter((p) => isUsTicker(p.ticker)).map((p) => p.ticker).join(", ")})은 주문에서 빠지고 현금으로 남습니다.</p>
+            <p className="help">미국 종목({signal.picks.filter((p) => isUsTicker(p.ticker)).map((p) => withCode(p.name, p.ticker)).join(", ")})은 주문에서 빠지고 현금으로 남습니다.</p>
           )}
           {ageDays > 4 && <div className="error" style={{ margin: "8px 0" }}>{ageDays}일 전 신호입니다. 백테스트를 다시 실행해 최신 추천으로 바꾸세요.</div>}
           <div className="row" style={{ marginTop: 8 }}>
