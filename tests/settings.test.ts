@@ -223,7 +223,7 @@ describe("내 전략 보관함", () => {
 });
 
 describe("기본 전략", () => {
-  it("5개 모두 가짜 데이터에서 오류 없이 돌고 추천을 낸다", () => {
+  it("기본 전략 모두 가짜 데이터에서 오류 없이 돌고 추천을 낸다", () => {
     const d = syntheticData(30, "2021-01-01", "2023-12-29");
     for (const st of STRATEGIES) {
       const p = Object.fromEntries(st.params.map((x) => [x.key, x.default]));
@@ -234,6 +234,6 @@ describe("기본 전략", () => {
       expect(res.equity.length, st.id).toBeGreaterThan(100);
       expect(Number.isFinite(res.equity.at(-1)!.equity), st.id).toBe(true);
     }
-    expect(STRATEGIES.map((s) => s.id)).toEqual(["momentum", "ma_cross", "rsi_reversal", "breakout", "low_vol"]);
+    expect(STRATEGIES.map((s) => s.id)).toEqual(["momentum", "ma_cross", "rsi_reversal", "breakout", "low_vol", "lev_mix"]);
   });
 });
