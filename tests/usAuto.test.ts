@@ -17,12 +17,11 @@ describe("미국 시장 시계", () => {
     // 한국 토요일 새벽 = 뉴욕 금요일 오후
     expect(nyClock(Date.parse("2026-11-21T05:00:00+09:00"))).toMatchObject({ date: "2026-11-20", hm: "15:00", dow: 5 });
   });
-  it("대상 종목이 모두 미국이면 미국 운용, 섞으면 저장 못 함", () => {
+  it("대상 종목이 모두 미국이면 미국 운용", () => {
     expect(planMarket({ tickers: ["AAPL", "BRK.B"] })).toBe("US");
     expect(planMarket({ tickers: ["069500"] })).toBe("KR");
     expect(planMarket({ tickers: [] })).toBe("KR");
     const lib = [{ name: "적립", code: "return lib.cycle(ctx, p)", params: "{}", rebalance: "D" as const, stopLoss: "", takeProfit: "", warmup: 1, cycle: defaultCycleSpec() }];
-    expect(() => cleanPlan({ strategy: "saved:적립", tickers: "AAPL, 069500", budget: 1_000_000 }, "owner", "2026-11-17", lib)).toThrow(/섞을 수 없습니다/);
     expect(cleanPlan({ strategy: "saved:적립", tickers: "AAPL, SPY", budget: 1_000_000 }, "owner", "2026-11-17", lib).tickers).toEqual(["AAPL", "SPY"]);
   });
 });

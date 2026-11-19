@@ -8,11 +8,11 @@ import { loadPerf, perfFor, rebase, resetBase, savePerf, summarize } from "@/lib
 import { loadNotify } from "@/lib/auto/telegram";
 import { checkPassword, clientIp, loginBlockedFor, recordFail } from "@/lib/settings/auth";
 import { tradeCredentialsFor } from "@/lib/kis/access";
-import { accountSnapshot, eveningFor, eveningTime, loadState, morningTimes } from "@/lib/auto/scheduler";
+import { accountSnapshot, eveningFor, eveningTime, loadState, MIX_TIME, morningTimes } from "@/lib/auto/scheduler";
 import { formatDay, loadDay, loadDays, saveDay, stopDay } from "@/lib/auto/morning";
 import { brokerFor } from "@/lib/auto/broker";
 import { loadIntradayDays } from "@/lib/auto/intraday";
-import { clockOf, planMarket } from "@/lib/auto/session";
+import { clockOf, planMarket, planMarkets } from "@/lib/auto/session";
 import { notify } from "@/lib/auto/telegram";
 import { cleanHm, kst } from "@/lib/auto/time";
 import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
@@ -27,24 +27,26 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-/** "지금 계산해 보기"는 시세를 새로 받느라 오래 걸릴 수 있어 작업으로 돌림 (프록시 60초 제한) */
+// 시세를 새로 받느라 오래 걸릴 수 있어 작업으로 돌림 (프록시 60초 제한)
 const runJobs = namedJobs<EveningReport>("auto-run");
 
-/** 내 운용 전략·최근 계산 기록·예약 시각. ?job=<id> 는 "지금 계산해 보기" 결과 물어보기 */
 export async function GET(req: Request) {
   const { user, denied } = requireUser(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   const job = new URL(req.url).searchParams.get("job");
   if (job) return pollJob(runJobs, user.id, job);
   if (new URL(req.url).searchParams.get("orders")) {
-    // 오늘 증권사에 들어간 주문·체결 (운용하는 시장의 계좌, 조회만)
     const p = loadPlan(user.id);
-    const market = p ? planMarket(p) : "KR";
+    const markets = p ? planMarkets(p) : ["KR" as const];
     try {
-      const b = brokerFor(user, process.env, market);
-      const date = clockOf(market).date;
-      const orders = await b.orders(date);
-      return NextResponse.json({ env: b.env, market, date, at: new Date().toISOString(), orders }, { headers: { "Cache-Control": "no-store" } });
+      let env: "real" | "mock" = "mock";
+      const orders = [];
+      for (const m of markets) {
+        const b = brokerFor(user, process.env, m);
+        env = b.env;
+        orders.push(...(await b.orders(clockOf(m).date)).map((o) => ({ ...o, market: m })));
+      }
+      return NextResponse.json({ env, market: markets[0], markets, date: clockOf(markets[0]).date, at: new Date().toISOString(), orders }, { headers: { "Cache-Control": "no-store" } });
     } catch (e) {
       return NextResponse.json({ error: `주문 내역을 읽지 못했습니다: ${(e as Error).message}` }, { status: 500 });
     }
@@ -60,7 +62,6 @@ export async function GET(req: Request) {
     real: {
       confirmedAt: plan?.realConfirmedAt ?? null,
       lock,
-      /** 모의투자로 실제 체결까지 된 날 수 */
       mockDays: Object.values(days).filter((d) => d.env === "mock" && d.items.some((x) => x.filledQty > 0)).length,
       telegram: !!loadNotify(user.id).chatId,
     },
@@ -68,27 +69,21 @@ export async function GET(req: Request) {
     log: loadLog(user.id).slice(0, 30),
     eveningTime: eveningTime(),
     lastEvening: loadState().evening ?? null,
+    lastMix: loadState().mix ?? null,
+    mixTime: MIX_TIME,
     limit: autoLimitFor(user.id),
     times: morningTimes(),
     days: Object.values(days).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
     intradayDays: Object.values(loadIntradayDays(user.id)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
     account,
     market: plan ? planMarket(plan) : "KR",
+    markets: plan ? planMarkets(plan) : ["KR"],
     owner: user.id === OWNER_ID,
     today: kst().date,
-    // 지금 계좌: 대시보드가 마지막으로 읽은 한국투자증권 잔고 (새로 읽기는 POST /api/dashboard refresh)
     ...(hasKisAccount(user) ? { accountView: loadHistory(user.id).kis ?? null } : {}),
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
-/**
- * { action: "save", strategy: "saved:이름" | "builtin:id", tickers, budget, startDate, enabled, intraday }
- * { action: "delete" }
- * { action: "run", notify?: boolean }   지금 저녁 계산 해 보기
- * { action: "time", eveningTime: "18:00" } (owner)
- * { action: "times", morningTime: "08:40", cutoffTime: "10:00" } (owner)
- * { action: "stop" }   긴급 정지: 운용 끄기 + 오늘 남은 자동 주문 취소
- */
 export async function POST(req: Request) {
   const { user, denied } = requireUser(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
@@ -130,7 +125,6 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       }
       case "real": {
-        // 실전 전환 확인 / 취소. 확인은 비밀번호를 다시 넣어야 함
         const plan = loadPlan(user.id);
         if (!plan) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
         if (body.on !== true) {
@@ -141,28 +135,25 @@ export async function POST(req: Request) {
         if (loginBlockedFor(ip, Date.now(), user.id) > 0) return NextResponse.json({ error: "여러 번 틀려서 잠겼습니다. 잠시 뒤에 다시 하세요." }, { status: 429 });
         if (!checkPassword(String(body.password ?? ""), process.env, user.id)) { recordFail(ip, Date.now(), user.id); return NextResponse.json({ error: "비밀번호가 틀렸습니다." }, { status: 401 }); }
         if (tradeEnv(kisEnvFor(user)) !== "real") return NextResponse.json({ error: "주문 계좌가 모의투자입니다. 먼저 설정에서 주문 대상을 실전으로 바꾸세요." }, { status: 400 });
-        tradeCredentialsFor(user); // 실전 잠금이 걸려 있으면 여기서 이유와 함께 오류
+        tradeCredentialsFor(user); // 실전 잠금이 걸려 있으면 이유와 함께 오류
         const cap = autoLimitFor(user.id).realBudget;
         if (cap > 0 && plan.budget > cap) return NextResponse.json({ error: `운용 금액이 실전 운용 금액 상한(${cap.toLocaleString("ko-KR")}원)을 넘습니다.` }, { status: 400 });
         const at = new Date().toISOString();
-        // updatedAt 은 그대로: 어제 저녁 계산을 내일 아침에 그대로 씀
+        // updatedAt 은 그대로 두어 이미 한 계산을 다음 주문에 그대로 씀
         savePlan({ ...plan, realConfirmedAt: at }, user.id);
         await notify(user.id, `[알피] 실전 전환을 확인했습니다. 다음 거래일 아침부터 실전 계좌로 자동 주문합니다 (${plan.label}, 운용 금액 ${plan.budget.toLocaleString("ko-KR")}원).`).catch(() => false);
         return NextResponse.json({ ok: true, confirmedAt: at });
       }
       case "clear": {
-        // 지난 기록 지우기: 지금 운용 전략을 저장하기 전 기록과 끝난 주문·감시 기록
         const plan = loadPlan(user.id);
         const before = plan?.updatedAt || new Date().toISOString();
         const n = clearOldRecords(before, user.id);
         return NextResponse.json({ ok: true, ...n });
       }
       case "rebase": {
-        // 입금·출금 뒤: 손익은 그대로 두고 성과 기준을 지금 계좌 평가액에 맞춤
         const plan = loadPlan(user.id);
         if (!plan) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
-        // 저녁 계산과 같은 계좌 평가액(국내+미국, 예수금 포함)으로
-        const snap = await accountSnapshot(user, planMarket(plan));
+        const snap = await accountSnapshot(user, planMarkets(plan));
         if (snap.total == null) return NextResponse.json({ error: `계좌 평가액을 정확히 읽지 못했습니다. ${snap.note ?? ""}`.trim() }, { status: 400 });
         const perf = perfFor(loadPerf(user.id), plan, snap.env);
         savePerf(body.reset ? resetBase(perf, snap.total, kst().date) : rebase(perf, snap.total, kst().date), user.id);
@@ -171,16 +162,17 @@ export async function POST(req: Request) {
       case "stop": {
         const plan = loadPlan(user.id);
         if (plan?.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, user.id);
-        const market = plan ? planMarket(plan) : "KR";
-        const today = clockOf(market).date;
-        let d = loadDay(today, user.id, process.env, market);
-        if (d && ["placed", "buying"].includes(d.phase)) {
-          d = await stopDay(d, brokerFor(user, process.env, d.market ?? "KR"), Date.now());
+        let cancelled = false;
+        for (const market of plan ? planMarkets(plan) : ["KR" as const]) {
+          let d = loadDay(clockOf(market).date, user.id, process.env, market);
+          if (!d || !["placed", "buying"].includes(d.phase)) continue;
+          d = await stopDay(d, brokerFor(user, process.env, market), Date.now());
           d.notified = true;
           saveDay(d, user.id);
+          cancelled = true;
           await notify(user.id, formatDay(d, true)).catch(() => false);
         }
-        return NextResponse.json({ ok: true, cancelled: d?.phase === "stopped" });
+        return NextResponse.json({ ok: true, cancelled });
       }
       default:
         return NextResponse.json({ error: "알 수 없는 요청" }, { status: 400 });
