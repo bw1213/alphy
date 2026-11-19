@@ -31,6 +31,8 @@ import type { BackfillNote } from "@/lib/data/backfillApply";
 import BackfillPicker from "@/components/BackfillPicker";
 import { backfillRequest, cleanBackfillState, DEFAULT_BACKFILL, type BackfillState } from "@/lib/data/backfillPick";
 import Info from "@/components/Info";
+import CompareResults from "@/components/CompareResults";
+import { buildCompare, MAX_COMPARE, mergeIndices, prepareCompare, savedId, type CompareReport, type CompareRun, type CompareStrategy } from "@/lib/compare/compare";
 // 브라우저 저장 이름은 사람마다 다름 (같은 기기를 여럿이 써도 섞이지 않게)
 const lsKey = () => userKey("kbt.custom-strategies");
 const lastKey = () => userKey("alphy.last-state");
@@ -71,6 +73,8 @@ export default function Page() {
     fetch("/api/strategies", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])).then((l) => Array.isArray(l) && setOnNas(l)).catch(() => { /* 서버 목록 없이 계속 */ });
   }, []);
   const [target, setTarget] = useState({ cagr: 15, mdd: 25 });
+  // 전략 비교: 고른 전략 (기본 전략 id, "saved:이름")
+  const [compareIds, setCompareIds] = useState<string[]>([]);
 
   // 운용 규칙
   const [rebalance, setRebalance] = useState<Rebalance>(STRATEGIES[0].rebalance);
@@ -202,6 +206,7 @@ export default function Page() {
     if (s.usCommission) setUsCommission(s.usCommission);
     if (s.usFx) setUsFx(s.usFx);
     setUseDiv(s.dividends !== false); setDivTax(s.divTax ?? "15.4");
+    setCompareIds(Array.isArray(s.compare) ? s.compare.slice(0, MAX_COMPARE) : []);
     setLastMsg(s.savedAt ? `마지막 설정을 불러왔습니다 (${new Date(s.savedAt).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })} 저장).` : "마지막 설정을 불러왔습니다.");
   };
 
@@ -209,9 +214,9 @@ export default function Page() {
   const snapshot = useMemo<LastState>(() => ({
     version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
     rebalance, stopLoss, takeProfit, intraday, source, start, end: end === today() ? "" : end,
-    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax, usCommission, usFx, backfill,
+    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax, usCommission, usFx, backfill, compare: compareIds,
   }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit, intraday,
-    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax, usCommission, usFx, backfill]);
+    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax, usCommission, usFx, backfill, compareIds]);
   const snapRef = useRef(snapshot);
   snapRef.current = snapshot;
   const saveNow = (keepalive = false) => {
@@ -339,11 +344,11 @@ export default function Page() {
   const isCustom = !builtin;
 
   /** 시세 받기 (같은 조건이면 이 화면에서 받아 둔 것을 다시 씀) */
-  async function loadData(warmup: number, list: string[] | undefined): Promise<DataResponse> {
+  async function loadData(warmup: number, list: string[] | undefined, u?: { size: number; pit: boolean; backfill?: BackfillState }): Promise<DataResponse> {
     const loadStart = minusDays(start, Math.max(400, Math.ceil(warmup * 1.5) + 30));
-    const usePit = pit && !list && (source === "naver" || source === "kis");
-    const bf = list && (source === "naver" || source === "kis") ? backfillRequest(backfill, list) : undefined;
-    const req = { source, start: loadStart, end, tickers: list, universeSize, pit: usePit, dividends: useDiv, ...(bf ? { backfill: bf } : {}) };
+    const usePit = (u ? u.pit : pit) && !list && (source === "naver" || source === "kis");
+    const bf = list && (source === "naver" || source === "kis") ? backfillRequest(u ? u.backfill ?? DEFAULT_BACKFILL : backfill, list) : undefined;
+    const req = { source, start: loadStart, end, tickers: list, universeSize: u ? u.size : universeSize, pit: usePit, dividends: useDiv, ...(bf ? { backfill: bf } : {}) };
     const key = JSON.stringify(req);
     let data = dataCache.current.get(key);
     if (!data) {
@@ -352,7 +357,6 @@ export default function Page() {
       data = await fetchData(req, (p) => setBusy(`${label} (${p.done}/${p.total}종목, 처음 한 번은 몇 분 걸릴 수 있어요)`));
       dataCache.current.set(key, data);
     }
-    setWarnings([...data.warnings, ...staleWarnings(data, end)]);
     return data;
   }
 
@@ -371,6 +375,7 @@ export default function Page() {
 
   async function run() {
     setError(null); setWarnings([]);
+    setCmpFirst(false);
     if (restored) saveNow();
     try {
       // 1) 전략 준비
@@ -392,6 +397,7 @@ export default function Page() {
       const list = universeMode === "list" ? parseTickers(tickers) : undefined;
       if (list && !list.length) throw new Error("종목코드를 넣어 주세요. 한국은 6자리(005930), 미국은 티커(AAPL, SPY)입니다.");
       const data = await loadData(warmup, list);
+      setWarnings([...data.warnings, ...staleWarnings(data, end)]);
       const { costs, div } = runCosts(data);
       // 3) 백테스트
       setBusy("백테스트 계산 중");
@@ -446,6 +452,77 @@ export default function Page() {
     return summarizeSensitivity({ label: "지금 설정", cagr: out.s.cagr, mdd: out.s.mdd }, rows, out.s.target);
   };
 
+  // ---------- 전략 비교 ----------
+  const [cmp, setCmp] = useState<CompareReport | null>(null);
+  /** 비교한 직후엔 비교 결과를 위에, 전략을 열어 백테스트를 돌린 뒤엔 아래에 */
+  const [cmpFirst, setCmpFirst] = useState(true);
+  const compareOptions = useMemo(() => [
+    ...saved.map((x) => ({ id: savedId(x.name), name: x.name, mine: true })),
+    ...STRATEGIES.map((b) => ({ id: b.id, name: b.name, mine: false })),
+  ], [saved]);
+  /** 지워진 전략은 빼고 */
+  const picked = compareIds.filter((id) => compareOptions.some((o) => o.id === id));
+  const togglePick = (id: string) => setCompareIds((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length >= MAX_COMPARE ? cur : [...cur, id]));
+
+  async function runCompare() {
+    setError(null); setWarnings([]);
+    if (restored) saveNow();
+    try {
+      if (picked.length < 2) throw new Error("비교할 전략을 2개 이상 고르세요.");
+      const runs: CompareRun[] = [];
+      const ixs: DataResponse["indices"][] = [];
+      const warns = new Set<string>();
+      for (const [k, id] of picked.entries()) {
+        let st: CompareStrategy | null = null;
+        let uLabel = "";
+        try {
+          st = prepareCompare(id, saved, params);
+          // 내 전략은 저장된 종목, 기본 전략(또는 종목 없이 저장된 전략)은 지금 화면의 종목
+          const u = st.universe ?? cleanUniverse({ mode: universeMode, size: universeSize, pit, tickers, backfill });
+          if (!u) throw new Error("종목코드를 넣어 주세요 ('기간 · 종목'의 종목 직접 입력이 비어 있음).");
+          const list = u.mode === "list" ? parseTickers(u.tickers) : undefined;
+          if (st.needsList && !list) throw new Error("적립·분할 매도 전략은 종목을 직접 입력해야 합니다.");
+          uLabel = universeLabel(u, cachedStockName);
+          const tag = `전략 비교 ${k + 1}/${picked.length} · ${st.name}`;
+          setBusy(`${tag}: 시세 준비 중`);
+          const data = await loadData(st.warmup, list, { size: u.size, pit: u.pit, backfill: u.backfill });
+          for (const w of [...data.warnings, ...staleWarnings(data, end)]) warns.add(w);
+          ixs.push(data.indices);
+          const { costs, div } = runCosts(data);
+          setBusy(`${tag}: 계산 중`);
+          await new Promise((r) => setTimeout(r, 30));
+          const s0 = st;
+          const res = runBacktest({
+            data: data.data, benchmark: data.benchmark, names: data.names, universe: data.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
+            settings: { rebalance: s0.rebalance, stopLoss: s0.stopLoss, takeProfit: s0.takeProfit, rebalanceBand: 0.02, warmup: s0.warmup, intraday: id.startsWith("saved:") ? s0.intraday : intraday },
+            costs,
+            strategy: (ctx) => {
+              try { return s0.fn(ctx, s0.p); }
+              catch (e) { throw new Error(`${ctx.date} 전략 실행 오류: ${(e as Error).message}`); }
+            },
+          });
+          runs.push({ id, name: st.name, universe: uLabel, res });
+        } catch (e) {
+          runs.push({ id, name: st?.name ?? id.replace(/^saved:/, ""), universe: uLabel, error: (e as Error).message });
+        }
+      }
+      const report = buildCompare(runs, mergeIndices(ixs));
+      if (!report || !report.rows.length) throw new Error(`비교하지 못했습니다. ${runs.filter((r) => r.error).map((r) => `${r.name}: ${r.error}`).join(" / ")}`);
+      setWarnings([...warns]);
+      setCmp(report);
+      setCmpFirst(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+  const openFromCompare = (id: string) => {
+    selectStrategy(id);
+    setCmpFirst(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   // ---------- 전략 찾기 (종목 1~3개) ----------
   const [objective, setObjective] = useState<Objective>("cagr");
   const [testRatio, setTestRatio] = useState(0.3);
@@ -464,6 +541,7 @@ export default function Page() {
       if (!finderReady) throw new Error("전략 찾기는 '기간 · 종목'에서 '종목 직접 입력'으로 종목을 1~3개 넣어야 합니다.");
       const list = finderList;
       const data = await loadData(maxWarmup(buildCandidates(list)), list);
+      setWarnings([...data.warnings, ...staleWarnings(data, end)]);
       const all = buildCandidates(list, data.names);
       const missing = list.filter((t) => !data.data[t]?.length);
       if (missing.length) throw new Error(`시세를 받지 못한 종목이 있습니다: ${missing.map((t) => withCode(cachedStockName(t), t)).join(", ")}`);
@@ -727,6 +805,37 @@ export default function Page() {
           </button>
 
           <div className="card">
+            <h2>전략 비교</h2>
+            <p className="desc">고른 전략을 지금 기간·자금·비용으로 함께 돌려 나란히 봅니다 (최대 {MAX_COMPARE}개).<Info>내 전략은 저장된 종목으로, 기본 전략은 지금 화면의 종목·파라미터로 돌립니다. S&amp;P 500·KOSPI도 함께 표시합니다.</Info></p>
+            <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", marginTop: 8 }}>
+              {[true, false].map((mine) => {
+                const opts = compareOptions.filter((o) => o.mine === mine);
+                if (!opts.length) return null;
+                return (
+                  <div key={String(mine)}>
+                    <div className="help" style={{ margin: "4px 0" }}>{mine ? "내 전략" : "기본 제공"}</div>
+                    {opts.map((o) => {
+                      const on = picked.includes(o.id);
+                      return (
+                        <label key={o.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, padding: "3px 0", opacity: !on && picked.length >= MAX_COMPARE ? 0.5 : 1 }}>
+                          <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={on} disabled={!on && picked.length >= MAX_COMPARE} onChange={() => togglePick(o.id)} />
+                          {o.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="btns" style={{ marginTop: 10 }}>
+              <button className="primary" onClick={runCompare} disabled={!!busy || picked.length < 2}>
+                {busy ? <><span className="spin" />실행 중</> : picked.length < 2 ? "전략을 2개 이상 고르세요" : `${picked.length}개 전략 비교`}
+              </button>
+              {picked.length > 0 && <button onClick={() => setCompareIds([])} disabled={!!busy}>선택 지우기</button>}
+            </div>
+          </div>
+
+          <div className="card">
             <h2>전략 찾기 (종목 1~3개)</h2>
             <p className="desc">직접 입력한 종목 1~3개로 전략 6가지·설정 약 100개를 시험해 가장 좋은 것을 찾습니다.</p>
             <label className="f" style={{ marginTop: 10 }}>무엇을 기준으로 고를까요
@@ -754,13 +863,15 @@ export default function Page() {
             <div className="notice"><b>참고</b><ul>{warnings.slice(0, 8).map((w, k) => <li key={k}>{w}</li>)}</ul>
               {warnings.length > 8 && <span>외 {warnings.length - 8}건</span>}</div>
           )}
+          {cmp && cmpFirst && <CompareResults report={cmp} onOpen={openFromCompare} onClose={() => setCmp(null)} />}
           {finder && finderFirst && <FinderResults report={finder.report} holdName={finder.holdName} onApply={applyCandidate} onClose={() => setFinder(null)} />}
-          {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && !finder && (
+          {out ? <Results {...out} onSensitivity={sensitivity} /> : !busy && !finder && !cmp && (
             <div className="card empty">
               <p><b>전략과 기간을 정하고 ‘백테스트 실행’을 누르세요.</b></p>
             </div>
           )}
           {finder && !finderFirst && <FinderResults report={finder.report} holdName={finder.holdName} onApply={applyCandidate} onClose={() => setFinder(null)} />}
+          {cmp && !cmpFirst && <CompareResults report={cmp} onOpen={openFromCompare} onClose={() => setCmp(null)} />}
         </section>
       </main>
     </>
