@@ -190,7 +190,7 @@ function Report({ r }: { r: EveningReport }) {
       <div className="kpis">
         {r.accountTotal != null && <div className="kpi"><div className="k">계좌 평가액 (계산 때)</div><div className="v">{won(r.accountTotal)}</div><div className="s">예수금 {won(r.accountCash ?? 0)} · 주식 {won(r.accountStock ?? 0)}</div></div>}
         <div className="kpi"><div className="k">전략 계산 평가액 (가상)</div><div className="v">{won(r.equity ?? 0)}</div><div className="s">운용 금액에서 출발한 백테스트 · 시세 {r.dataDate}</div></div>
-        <div className="kpi"><div className="k">{(r.markets?.length ?? 0) > 1 ? "다음 주문" : "내일 주문"}</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? "전략 신호 없음 (보유 유지)" : "전략이 사고팔기로 한 종목"}</div></div>
+        <div className="kpi"><div className="k">{(r.markets?.length ?? 0) > 1 ? "다음 주문" : "내일 주문"}</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? "목표 보유와 같음 (보유 유지)" : "목표 보유에 맞추려고 사고팔 종목"}</div></div>
       </div>
       {r.orders.length > 0 && (
         <div className="tablewrap"><table>
@@ -203,6 +203,26 @@ function Report({ r }: { r: EveningReport }) {
             </tr>
           ))}</tbody>
         </table></div>
+      )}
+      {r.targets && r.targets.length > 0 && (
+        <>
+          <b style={{ fontSize: 13 }}>전략상 목표 보유</b>
+          <div className="tablewrap"><table>
+            <thead><tr><th>종목</th><th>지금</th><th>목표</th><th>차이</th><th>목표 비중</th><th>오늘 종가</th></tr></thead>
+            <tbody>{r.targets.map((t) => {
+              const d = t.targetQty - t.curQty;
+              return (
+                <tr key={t.ticker}>
+                  <td>{t.name} <span className="help">{t.ticker}</span></td>
+                  <td>{t.curQty.toLocaleString("ko-KR")}주</td><td><b>{t.targetQty.toLocaleString("ko-KR")}주</b></td>
+                  <td style={{ color: d > 0 ? "var(--bad)" : d < 0 ? "var(--accent)" : undefined }}>{d > 0 ? `+${d}` : d}주</td>
+                  <td>{(t.weight * 100).toFixed(1)}%</td><td>{won(t.price)}</td>
+                </tr>
+              );
+            })}</tbody>
+          </table></div>
+          <p className="help">목표 수량 = 전략 계산 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 차이만큼 사고팔고, 차이가 1%보다 작으면 건너뜁니다. 전략에 없는 종목은 건드리지 않습니다.</p>
+        </>
       )}
       {r.sellLevels.length > 0 && (
         <>

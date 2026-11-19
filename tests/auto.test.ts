@@ -95,6 +95,33 @@ describe("운용 전략 저장", () => {
   });
 });
 
+describe("저녁 계산: 목표 보유에 맞춰 매매", () => {
+  const today = "2026-11-18";
+  const monthly: SavedStrategy = { name: "월 전부", code: "return { '069500': 1 };", params: "{}", rebalance: "M", stopLoss: "", takeProfit: "", warmup: 1 };
+  const plan = (start: string): AutoPlan => ({ strategy: monthly, label: "월 전부", tickers: ["069500"], budget: 1_000_000, startDate: start, enabled: true, updatedAt: "", intraday: false });
+  const data = { "069500": bars(today, 300, () => 40_000) };
+  const held = (qty: number) => async () => ({ env: "mock" as const, holdings: qty ? [{ code: "069500", name: "KODEX 200", qty, avgPrice: 40_000, price: 40_000, value: qty * 40_000, pnl: 0, pnlRate: 0 }] : [] });
+
+  it("월 전략도 운용 첫날 바로 비중대로 매수 (다음 달까지 현금으로 기다리지 않음)", async () => {
+    const r = await runEvening(plan(today), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(0) });
+    expect(r.orders[0]).toMatchObject({ ticker: "069500", side: "buy", curQty: 0 });
+    expect(r.orders[0].qty).toBeGreaterThan(20);
+  });
+
+  it("매매할 날이 아니어도 실제 보유가 목표보다 적으면 모자란 만큼, 많으면 넘치는 만큼", async () => {
+    const r = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(10) });
+    const tq = r.targets!.find((t) => t.ticker === "069500")!.targetQty;
+    expect(tq).toBeGreaterThan(20);
+    expect(r.orders).toEqual([expect.objectContaining({ ticker: "069500", side: "buy", qty: tq - 10, curQty: 10, targetQty: tq })]);
+    const over = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq + 5) });
+    expect(over.orders).toEqual([expect.objectContaining({ side: "sell", qty: 5 })]);
+    // 1% 미만 차이는 건너뜀
+    const near = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq - 0) });
+    expect(near.orders).toHaveLength(0);
+    expect(near.kept).toBe(true);
+  });
+});
+
 describe("저녁 계산", () => {
   const today = "2026-11-16";
   const plan = (start: string): AutoPlan => ({ strategy: cycleStrategy, label: "적립", tickers: ["069500"], budget: 1_000_000, startDate: start, enabled: true, updatedAt: "" });

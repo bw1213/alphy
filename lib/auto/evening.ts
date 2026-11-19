@@ -109,7 +109,6 @@ export interface EveningDeps {
 
 export interface Unfinished { ticker: string; side: "buy" | "sell"; qty: number; retry: number }
 
-export const MAX_RETRY = 2;
 
 type Bars = DataResponse["data"];
 
@@ -189,7 +188,8 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate, initialCash: plan.budget, monthlyDeposit: 0,
     dividends: d.dividends, dividendTax: dividendTaxFn(KR_DIVIDEND_TAX),
     settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup, intraday: intradayOn(plan),
-      rebalanceAtStart: !!deps.manual },
+      // 운용 시작일에 바로 전략 비중대로 (월 전략이 다음 달까지 현금으로 기다리지 않게)
+      rebalanceAtStart: true },
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
     strategy: (ctx) => st.fn(ctx, st.p),
   });
@@ -244,38 +244,37 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const outside = man ? [...real!.entries()].filter(([t, q]) => q > 0 && !strategyTickers.has(t)) : [];
   const outsideValue = outside.reduce((a, [t, q]) => a + q * (pxOf(t) || 0), 0);
   const base = man && r.accountTotal != null ? Math.max(0, r.accountTotal - (man.others === "keep" ? outsideValue : 0)) : E;
-  if (sig && !kept && !man) {
-    const nowW = (t: string) => (E > 0 ? ((btQty.get(t) ?? 0) * close(t)) / E : 0);
-    const target = new Map(sig.picks.map((x) => [x.ticker, x.weight]));
-    for (const t of btQty.keys()) if (!target.has(t)) target.set(t, 0);
+  if (sig && !man) {
+    // 자동 매매: 매일 전략상 목표 보유(전략 계산 평가액 × 비중 ÷ 종가)와 실제 계좌 수량의 차이를 주문
+    //   비중: 오늘 신호가 있으면 신호 뒤 비중, 없으면(유지) 전략 계산이 지금 들고 있는 비중
+    //   못 산 주문·체결 차이·빠뜨린 날도 다음 계산에서 저절로 맞춰짐. 전략 밖 종목은 건드리지 않음
+    const weights = new Map<string, number>(
+      !kept ? sig.picks.map((x) => [x.ticker, x.weight] as [string, number])
+        : [...btQty.entries()].map(([t, q]) => [t, E > 0 ? (q * close(t)) / E : 0] as [string, number]));
+    for (const t of btQty.keys()) if (!weights.has(t)) weights.set(t, 0);
+    if (real) for (const [t, q] of real) if (q > 0 && plan.tickers.includes(t) && !weights.has(t)) weights.set(t, 0);
     const notes = sig.notes ?? {};
-    for (const [t, w] of target) {
-      if (Math.abs(w - nowW(t)) < 0.002) continue;
+    // 너무 작은 차이(전략 평가액의 1% 미만)는 매일 조금씩 사고팔지 않게 건너뜀 (다 파는 건 작아도 함)
+    const minAmount = base * 0.01;
+    r.targets = [];
+    for (const [t, w] of weights) {
       const px = close(t);
       if (!(px > 0)) { r.warnings.push(`${name(t)}(${t}) 가격을 몰라 주문 목록에서 뺐습니다.`); continue; }
       const cur = curQty(t);
       const tq = Math.max(0, Math.floor((base * w) / px));
+      if (tq > 0 || cur > 0) r.targets.push({ ticker: t, name: name(t), targetQty: tq, curQty: cur, price: px, weight: w });
       const diff = tq - cur;
-      if (!diff) continue;
-      // 실제 계좌 수량이 전략과 달라도 사라는 신호가 매도 주문이 되지 않게 (반대도)
-      if ((w > nowW(t)) !== (diff > 0)) continue;
-      r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq, note: notes[t] });
+      if (!diff || (Math.abs(diff) * px < minAmount && tq > 0)) continue;
+      r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq,
+        note: notes[t] ?? (diff > 0 ? "목표 보유보다 적어 매수" : "목표 보유보다 많아 매도") });
     }
+    r.kept = !r.orders.length;
   }
   if (!man && deps.unfinished?.length) {
-    const want = sig && !kept ? new Map(sig.picks.map((x) => [x.ticker, x.weight])) : null;
-    const weightOf = (t: string) => (want ? want.get(t) ?? 0 : E > 0 ? ((btQty.get(t) ?? 0) * close(t)) / E : 0);
+    // 지난번에 못 한 주문: 목표 보유와의 차이로 이미 다시 주문됨 → 몇 번째인지만 적어 둠 (목표에 닿을 때까지 매번 다시)
     for (const u of deps.unfinished) {
-      if (r.orders.some((o) => o.ticker === u.ticker)) continue;
-      if (u.retry >= MAX_RETRY) continue;
-      const px = close(u.ticker);
-      if (!(px > 0)) continue;
-      const cur = curQty(u.ticker);
-      const tq = Math.max(0, Math.floor((E * weightOf(u.ticker)) / px));
-      const qty = Math.min(u.qty, u.side === "buy" ? tq - cur : cur - tq);
-      if (qty <= 0) continue;
-      r.orders.push({ ticker: u.ticker, name: name(u.ticker), side: u.side, qty, price: px, amount: qty * px, curQty: cur, targetQty: u.side === "buy" ? cur + qty : cur - qty,
-        note: `지난번에 못 한 주문 다시 (${u.retry + 1}/${MAX_RETRY})`, retry: u.retry + 1 });
+      const o = r.orders.find((x) => x.ticker === u.ticker && x.side === u.side);
+      if (o) { o.retry = u.retry + 1; o.note = `${o.note ? `${o.note} · ` : ""}지난번에 못 한 주문 다시 (${u.retry + 1}번째)`; }
     }
   }
   if (man && sig) {

@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import path from "path";
 import type { DataRequest, DataResponse } from "@/lib/data/server";
 import type { Bar } from "@/lib/engine/types";
-import { formatReport, MAX_RETRY, padTrailing, runEvening, type EveningReport } from "@/lib/auto/evening";
+import { formatReport, padTrailing, runEvening, type EveningReport } from "@/lib/auto/evening";
 import { morningStart, unfinishedItems, type Broker, type MorningDay } from "@/lib/auto/morning";
 import { intradayStart } from "@/lib/auto/intraday";
 import { cleanPlan, type AutoPlan } from "@/lib/auto/store";
@@ -98,7 +98,7 @@ describe("섞은 운용 계산", () => {
     expect(out.C).toBe(data.C);
   });
 
-  it("지난번에 못 한 주문을 목표 수량 안에서 다시, 정해진 횟수까지만", async () => {
+  it("지난번에 못 한 주문은 목표 보유와의 차이로 다시, 목표에 닿을 때까지", async () => {
     const data = { "069500": bars("2026-11-16", 300, 40_000), SPY: bars("2026-11-16", 300, 700_000) };
     const plan = mixPlan({ startDate: "2026-10-27", strategy: { ...half, rebalance: "M" } });
     const holdings = async () => ({ env: "mock" as const, holdings: [{ code: "SPY", name: "SPY", qty: 7, avgPrice: 0, price: 0, value: 0, pnl: 0, pnlRate: 0 }] });
@@ -109,9 +109,9 @@ describe("섞은 운용 계산", () => {
     expect(kr.qty).toBe(124);
     expect(kr.note).toContain("지난번에 못 한 주문 다시");
     expect(r.orders.find((o) => o.ticker === "SPY")).toBeUndefined();
-    const stop = await runEvening(plan, "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env, holdings,
-      unfinished: [{ ticker: "069500", side: "buy", qty: 50, retry: MAX_RETRY }] });
-    expect(stop.orders).toHaveLength(0);
+    const again = await runEvening(plan, "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env, holdings,
+      unfinished: [{ ticker: "069500", side: "buy", qty: 50, retry: 5 }] });
+    expect(again.orders.find((o) => o.ticker === "069500")).toMatchObject({ side: "buy", qty: 124, retry: 6 });
   });
 });
 
