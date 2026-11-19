@@ -1,15 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { rollingReturn, weakPeriods } from "@/lib/engine/weak";
+import { rebase, useDragZoom, ZoomBar } from "./ChartZoom";
 import { bestOf, type CompareReport, type CompareRow } from "@/lib/compare/compare";
 import { lossLen, num, pct, Tip, useColors } from "./Results";
 import Info from "./Info";
 
-/** 전략 비교 결과: 수익 곡선 겹쳐 보기, 지표 표, 연도별 수익률 (S&P 500·KOSPI 함께) */
 export default function CompareResults({ report, onOpen, onClose }: {
   report: CompareReport;
-  /** 전략 이름을 누르면 그 전략을 위 화면에 불러옴 */
   onOpen?: (id: string) => void;
   onClose?: () => void;
 }) {
@@ -20,12 +20,30 @@ export default function CompareResults({ report, onOpen, onClose }: {
   const { rows, indices: ix } = report;
   const best = useMemo(() => bestOf(rows), [rows]);
 
-  const series = useMemo(() => report.dates.map((d, k) => ({
-    date: d,
-    ...Object.fromEntries(rows.map((r, i) => [`s${i}`, r.values[k]])),
-    ...Object.fromEntries(ix.map((r) => [r.id, r.values[k]])),
-    ...Object.fromEntries(rows.map((r, i) => [`d${i}`, r.dd[k]])),
-  })), [report, rows, ix]);
+  const [view, setView] = useState<"cum" | "roll">("cum");
+  const series = useMemo(() => {
+    const p100 = (v: number | null) => (v == null ? null : v * 100);
+    const rr = rows.map((r) => rollingReturn(report.dates, r.values));
+    const ir = ix.map((r) => rollingReturn(report.dates, r.values));
+    return report.dates.map((d, k) => ({
+      date: d,
+      ...Object.fromEntries(rows.map((r, i) => [`s${i}`, r.values[k]])),
+      ...Object.fromEntries(ix.map((r) => [r.id, r.values[k]])),
+      ...Object.fromEntries(rows.map((r, i) => [`d${i}`, r.dd[k]])),
+      ...Object.fromEntries(rows.map((r, i) => [`r${i}`, p100(rr[i][k])])),
+      ...Object.fromEntries(ix.map((r, i) => [`r_${r.id}`, p100(ir[i][k])])),
+    }));
+  }, [report, rows, ix]);
+  const zm = useDragZoom(report.dates);
+  const shown = useMemo(() => {
+    const part = zm.slice(series);
+    return zm.zoom ? rebase(part, [...rows.map((_, i) => `s${i}`), ...ix.map((r) => r.id)]) : part;
+  }, [series, zm.zoom, rows, ix]);
+  const worst = useMemo(() => rows.map((r) => weakPeriods(report.dates, r.values.map((v) => v ?? NaN), 1, 0)[0] ?? null), [rows, report]);
+  const worstYear = useMemo(() => rows.map((r) => {
+    const rr = rollingReturn(report.dates, r.values).filter((v): v is number => v != null);
+    return rr.length ? Math.min(...rr) : null;
+  }), [rows, report]);
 
   const Dot = ({ col, dash }: { col: string; dash?: boolean }) => (
     <i style={{ display: "inline-block", width: 14, height: 0, borderTop: `${dash ? "2px dashed" : "2px solid"} ${col}`, verticalAlign: "middle", marginRight: 6 }} />
@@ -51,7 +69,7 @@ export default function CompareResults({ report, onOpen, onClose }: {
 
       <div className="tablewrap" style={{ marginTop: 10 }}>
         <table>
-          <thead><tr><th className="l">전략</th><th>연평균</th><th>MDD</th><th>최장 손실</th><th>누적</th><th>샤프</th></tr></thead>
+          <thead><tr><th className="l">전략</th><th>연평균</th><th>MDD</th><th className="l">가장 크게 떨어진 구간</th><th>최장 손실</th><th title="아무 날에 시작해 1년 보유했을 때 가장 나빴던 수익률">최악의 1년</th><th>누적</th><th>샤프</th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={r.id}>
@@ -62,7 +80,9 @@ export default function CompareResults({ report, onOpen, onClose }: {
                 </td>
                 <td><B on={best.cagr === r.id}>{pct(r.stats.cagr)}</B></td>
                 <td><B on={best.mdd === r.id}>{pct(r.stats.mdd)}</B></td>
+                <td className="l">{worst[i] ? <button className="link" title="이 구간 확대" onClick={() => zm.focus(worst[i]!.i0, worst[i]!.i1)}>{worst[i]!.peak.slice(0, 7)} → {worst[i]!.trough.slice(0, 7)}{!worst[i]!.recovered && " (미회복)"}</button> : "–"}</td>
                 <td><B on={best.lossDays === r.id}>{lossLen(r.stats.lossDays)}</B></td>
+                <td style={{ color: worstYear[i] != null && worstYear[i]! < 0 ? "var(--bad)" : undefined }}>{pct(worstYear[i])}</td>
                 <td><B on={best.totalReturn === r.id}>{pct(r.stats.totalReturn, 0)}</B></td>
                 <td><B on={best.sharpe === r.id}>{num(r.stats.sharpe)}</B></td>
               </tr>
@@ -70,47 +90,61 @@ export default function CompareResults({ report, onOpen, onClose }: {
             {ix.map((r) => (
               <tr key={r.id} style={{ color: "var(--text-3)" }}>
                 <td className="l"><Dot col={color(r, 0)} dash />{r.name}{r.ownStart && r.ownStart > report.start && <span className="help"> ({r.ownStart}~)</span>}</td>
-                <td>{pct(r.stats.cagr)}</td><td>{pct(r.stats.mdd)}</td><td>{lossLen(r.stats.lossDays)}</td>
+                <td>{pct(r.stats.cagr)}</td><td>{pct(r.stats.mdd)}</td><td></td><td>{lossLen(r.stats.lossDays)}</td><td></td>
                 <td>{pct(r.stats.totalReturn, 0)}</td><td>{num(r.stats.sharpe)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="help">굵은 글씨가 항목별 1등입니다. 이름을 누르면 그 전략을 엽니다.</p>
+      <p className="help">굵은 글씨가 항목별 1등입니다. 이름을 누르면 그 전략을 열고, 떨어진 구간을 누르면 그래프를 확대합니다.</p>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
-        <h3 style={{ margin: 0 }}>자산 추이 (시작 = 100)</h3>
-        <div className="seg" style={{ width: 140 }}>
-          <button className={log ? "on" : ""} onClick={() => setLog(true)}>로그</button>
-          <button className={!log ? "on" : ""} onClick={() => setLog(false)}>선형</button>
+        <h3 style={{ margin: 0 }}>{view === "cum" ? "자산 추이 (시작 = 100)" : "1년 수익률 (%)"}</h3>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div className="seg" style={{ width: 160 }}>
+            <button className={view === "cum" ? "on" : ""} onClick={() => setView("cum")}>누적</button>
+            <button className={view === "roll" ? "on" : ""} onClick={() => setView("roll")}>1년 수익률</button>
+          </div>
+          {view === "cum" && (
+            <div className="seg" style={{ width: 110 }}>
+              <button className={log ? "on" : ""} onClick={() => setLog(true)}>로그</button>
+              <button className={!log ? "on" : ""} onClick={() => setLog(false)}>선형</button>
+            </div>
+          )}
         </div>
       </div>
       <div className="legend" style={{ marginTop: 8 }}>
         {rows.map((r, i) => <span key={r.id}><Dot col={color(r, i)} />{r.name}</span>)}
         {ix.map((r) => <span key={r.id}><Dot col={color(r, 0)} dash />{r.name}</span>)}
       </div>
-      <div style={{ height: 340 }}>
+      {view === "roll" && <p className="help" style={{ margin: "4px 0 0" }}>날마다 그날까지 1년 수익률입니다. 0 아래(빨간 바탕)가 1년 손실 구간입니다.</p>}
+      <ZoomBar dates={report.dates} zoom={zm.zoom} onReset={() => zm.setZoom(null)} />
+      <div style={{ height: 340, userSelect: "none" }}>
         <ResponsiveContainer>
-          <LineChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+          <LineChart data={shown} margin={{ top: 8, right: 12, bottom: 0, left: 0 }} {...zm.handlers}>
             <CartesianGrid stroke={c.grid} vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} minTickGap={50} tickFormatter={(d: string) => d.slice(0, 7)} />
-            <YAxis scale={log ? "log" : "linear"} domain={["auto", "auto"]} tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} width={52} allowDataOverflow tickFormatter={(v: number) => v.toFixed(0)} />
-            <Tooltip content={<Tip fmt={(v: number) => v.toFixed(1)} />} />
-            {ix.map((r) => <Line key={r.id} dataKey={r.id} name={r.name} stroke={color(r, 0)} strokeDasharray="5 3" dot={false} strokeWidth={1.3} isAnimationActive={false} />)}
-            {rows.map((r, i) => <Line key={r.id} dataKey={`s${i}`} name={r.name} stroke={color(r, i)} dot={false} strokeWidth={2} isAnimationActive={false} />)}
+            <XAxis dataKey="date" tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} minTickGap={50} tickFormatter={(d: string) => (zm.zoom ? d.slice(2) : d.slice(0, 7))} />
+            <YAxis scale={view === "cum" && log ? "log" : "linear"} domain={["auto", "auto"]} tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} width={52} allowDataOverflow tickFormatter={(v: number) => v.toFixed(0)} />
+            <Tooltip content={<Tip fmt={(v: number) => (view === "roll" ? `${v.toFixed(1)}%` : v.toFixed(1))} />} />
+            {zm.sel && <ReferenceArea x1={zm.sel[0]} x2={zm.sel[1]} fill={c.s1} fillOpacity={0.12} stroke="none" />}
+            {view === "roll" && <ReferenceArea y1={-1000} y2={0} fill={c.bad} fillOpacity={0.06} stroke="none" ifOverflow="hidden" />}
+            {view === "roll" && <ReferenceLine y={0} stroke={c.t3} />}
+            {ix.map((r) => <Line key={r.id} dataKey={view === "cum" ? r.id : `r_${r.id}`} name={r.name} stroke={color(r, 0)} strokeDasharray="5 3" dot={false} strokeWidth={1.3} isAnimationActive={false} />)}
+            {rows.map((r, i) => <Line key={r.id} dataKey={view === "cum" ? `s${i}` : `r${i}`} name={r.name} stroke={color(r, i)} dot={false} strokeWidth={2} isAnimationActive={false} />)}
           </LineChart>
         </ResponsiveContainer>
       </div>
 
       <h3>낙폭 (%)</h3>
-      <div style={{ height: 150 }}>
+      <div style={{ height: 150, userSelect: "none" }}>
         <ResponsiveContainer>
-          <LineChart data={series} margin={{ top: 0, right: 12, bottom: 0, left: 0 }}>
+          <LineChart data={shown} margin={{ top: 0, right: 12, bottom: 0, left: 0 }} {...zm.handlers}>
             <CartesianGrid stroke={c.grid} vertical={false} />
             <XAxis dataKey="date" hide />
             <YAxis tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} width={52} tickFormatter={(v: number) => v.toFixed(0)} />
             <Tooltip content={<Tip fmt={(v: number) => `${v.toFixed(1)}%`} />} />
+            {zm.sel && <ReferenceArea x1={zm.sel[0]} x2={zm.sel[1]} fill={c.s1} fillOpacity={0.12} stroke="none" />}
             {rows.map((r, i) => <Line key={r.id} dataKey={`d${i}`} name={r.name} stroke={color(r, i)} dot={false} strokeWidth={1.3} isAnimationActive={false} />)}
           </LineChart>
         </ResponsiveContainer>
