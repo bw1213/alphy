@@ -135,7 +135,8 @@ export function compareIndices(dates: string[], indices: IndexBars[]): IndexComp
   return out;
 }
 
-function annual(dates: string[], values: number[]): Map<number, number> {
+/** 연도별 수익률 (해마다 마지막 값 기준) */
+export function annual(dates: string[], values: number[]): Map<number, number> {
   const out = new Map<number, number>();
   let prev = values[0];
   for (let k = 0; k < dates.length; k++) {

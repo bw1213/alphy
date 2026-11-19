@@ -50,6 +50,8 @@ export interface LastState {
   divTax?: string;
   /** 상장 전 기간 지수로 채우기 */
   backfill?: BackfillState;
+  /** 전략 비교에서 고른 전략 (기본 전략 id, "saved:이름") */
+  compare?: string[];
   savedAt?: string;
 }
 
@@ -111,6 +113,7 @@ export function cleanLastState(x: any): LastState {
     dividends: x.dividends !== false,
     divTax: str(x.divTax, 20, "15.4"),
     backfill: cleanBackfillState(x.backfill),
+    compare: Array.isArray(x.compare) ? [...new Set(x.compare.filter((v: unknown) => typeof v === "string" && v.trim()).map((v: string) => v.slice(0, 80)))].slice(0, 20) as string[] : [],
     savedAt: typeof x.savedAt === "string" ? x.savedAt.slice(0, 30) : undefined,
   };
 }

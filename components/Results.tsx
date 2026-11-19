@@ -24,20 +24,20 @@ import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
 import { userKey } from "@/lib/client/userStorage";
 import CycleStatusCard from "./CycleStatusCard";
 
-const pct = (x: number | null | undefined, d = 1) =>
+export const pct = (x: number | null | undefined, d = 1) =>
   x == null || !Number.isFinite(x) ? "–" : `${(x * 100).toFixed(d)}%`;
 const won = (x: number) => `${Math.round(x).toLocaleString("ko-KR")}원`;
-const num = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "–");
+export const num = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "–");
 /** 최장 손실 구간 (일수) → "없음" · "45일" · "14.2개월" */
-const lossLen = (d: number | null | undefined) =>
+export const lossLen = (d: number | null | undefined) =>
   d == null || !Number.isFinite(d) ? "–" : d <= 0 ? "없음" : d < 60 ? `${d}일` : `${(d / 30.44).toFixed(1)}개월`;
 
-function useColors() {
+export function useColors() {
   const read = () => {
-    if (typeof window === "undefined") return { s1: "#2a78d6", s2: "#eb6834", s3: "#1f9e89", s4: "#eda100", grid: "#ecebe7", t2: "#52514e", t3: "#8a8984", bad: "#c62828" };
+    if (typeof window === "undefined") return { s1: "#2a78d6", s2: "#eb6834", s3: "#1f9e89", s4: "#eda100", s5: "#e87ba4", s6: "#008300", s7: "#6250d6", s8: "#e34948", grid: "#ecebe7", t2: "#52514e", t3: "#8a8984", bad: "#c62828" };
     const cs = getComputedStyle(document.documentElement);
     const g = (k: string) => cs.getPropertyValue(k).trim();
-    return { s1: g("--series-1"), s2: g("--series-2"), s3: g("--series-3"), s4: g("--series-4"), grid: g("--grid"), t2: g("--text-2"), t3: g("--text-3"), bad: g("--bad") };
+    return { s1: g("--series-1"), s2: g("--series-2"), s3: g("--series-3"), s4: g("--series-4"), s5: g("--series-5"), s6: g("--series-6"), s7: g("--series-7"), s8: g("--series-8"), grid: g("--grid"), t2: g("--text-2"), t3: g("--text-3"), bad: g("--bad") };
   };
   const [c, setC] = useState(read);
   useEffect(() => {
@@ -50,7 +50,7 @@ function useColors() {
   return c;
 }
 
-function Tip({ active, payload, label, fmt }: any) {
+export function Tip({ active, payload, label, fmt }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="chart-tip">
