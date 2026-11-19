@@ -1,26 +1,13 @@
-/**
- * 아침 자동 주문 (서버 전용).
- *
- * 순서 (한국 시간, 시각은 관리자가 운용 화면에서 바꿈)
- *   1) 주문 시각(기본 08:40, 장 시작 동시호가): 어제 저녁 계산의 주문 목록대로
- *        - 매도: 실제 보유 수량 안에서 시장가 → 09:00 시가에 체결
- *        - 매수: 지금 현금으로 다 살 수 있으면 같이 시장가, 모자라면 매도가 체결된 뒤(09:01~) 남은 현금만큼 시장가
- *   2) 09:00 이후 몇 분마다 체결 확인
- *   3) 마감 시각(기본 10:00)까지 체결 안 된 주문은 취소하고 결과를 알림
- *
- * 같은 날 두 번 주문하지 않도록 사람마다 users/<사용자>/auto-orders.json 에 그날 한 일을 적어 둡니다.
- * 앱이 중간에 다시 켜져도 이 기록을 보고 이어서 합니다.
- */
 import fs from "fs";
 import type { Balance, OrderRequest, OrderResult } from "../kis/trading";
 import type { DayOrder } from "../kis/orders";
 import type { OrderLimit } from "../settings/store";
 import { checkOrderLimit } from "../kis/limits";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
-import type { EveningReport } from "./evening";
+import type { EveningReport, Unfinished } from "./evening";
 import { REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
 import { minusDays } from "./time";
-import { clockOf, US_SESSION, type Market } from "./session";
+import { clockOf, isMixed, marketOf, reportMarkets, US_SESSION, type Market } from "./session";
 import { withCode } from "../strategies/universe";
 
 type Env = Record<string, string | undefined>;
@@ -31,41 +18,35 @@ export interface MorningItem {
   ticker: string;
   name: string;
   side: "buy" | "sell";
-  /** 저녁 계산이 정한 수량 */
   planned: number;
-  /** 실제로 낸 수량 */
   qty: number;
   status: ItemStatus;
   orderNo?: string;
   orgNo?: string;
   filledQty: number;
   avgPrice: number;
-  /** 어제 종가 (금액 어림) */
   price: number;
   note?: string;
   error?: string;
   placedAt?: string;
+  retry?: number;
 }
 
 export interface MorningDay {
   date: string;
-  /** 어느 저녁 계산을 따랐는지 */
   reportDate?: string;
+  reportData?: string;
   label: string;
   env?: "real" | "mock";
-  /** 미국이면 date 와 시각이 뉴욕 기준 (없으면 한국) */
   market?: Market;
   phase: "placed" | "buying" | "done" | "skipped" | "stopped";
   items: MorningItem[];
-  /** 시각과 한 일 */
   log: string[];
   lastCheck?: number;
-  /** 마지막 결과 알림을 보냈는지 */
   notified?: boolean;
   reason?: string;
 }
 
-/** 증권사와 주고받는 부분 (시험할 때 가짜로 바꿈) */
 export interface Broker {
   env: "real" | "mock";
   balance(): Promise<Balance>;
@@ -74,37 +55,31 @@ export interface Broker {
   orders(date: string): Promise<DayOrder[]>;
   cancel(o: { orderNo: string; orgNo: string }): Promise<string>;
   openDay(date: string): Promise<boolean | null>;
-  /** 현재가 (장중 실시간 매도용) */
   quote?(code: string): Promise<number>;
 }
 
 export interface MorningLimits {
-  /** 실전 운용 금액 상한 (설정의 자동 매매 한도). 0 = 없음 */
   realCap?: number;
-  /** 실전 주문 금액 상한 (모의는 무시) */
   orderLimit?: OrderLimit;
   usedToday?: () => number;
   addUsage?: (amount: number) => void;
 }
 
-/** 시장가 매수 금액 어림: 어제 종가보다 시가가 이만큼 높을 수도 있다고 봄 */
+// 시장가 매수 금액 어림: 시가가 어제 종가보다 이만큼 높을 수 있음
 export const BUY_GAP = 0.03;
 const MAX_DAYS = 30;
 const FINAL: ItemStatus[] = ["filled", "cancelled", "failed", "skipped"];
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 const hhmm = (now: number, m: Market = "KR") => clockOf(m, now).hm;
 
-// ---------------- 저장 ----------------
 type OrdersFile = Record<string, MorningDay>;
 
 export function loadDays(user: string = OWNER_ID, e: Env = process.env): OrdersFile {
   try { const j = JSON.parse(fs.readFileSync(userFile("auto-orders.json", user, e), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; }
 }
-/** 저장 이름: 한국은 날짜, 미국은 "날짜:US" (같은 날짜에 한국 아침 기록과 미국 기록이 겹치지 않게) */
 export const dayKey = (date: string, market: Market = "KR") => (market === "US" ? `${date}:US` : date);
 export function loadDay(date: string, user: string = OWNER_ID, e: Env = process.env, market: Market = "KR"): MorningDay | null {
   const all = loadDays(user, e);
-  // 예전 기록은 미국도 날짜만으로 저장했음
   const d = all[dayKey(date, market)] ?? (market === "US" && all[date]?.market === "US" ? all[date] : null);
   return d && (d.market ?? "KR") === market ? d : null;
 }
@@ -114,13 +89,7 @@ export function saveDay(d: MorningDay, user: string = OWNER_ID, e: Env = process
   writeUserFile("auto-orders.json", JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
 }
 
-// ---------------- 어느 저녁 계산을 따를지 ----------------
-/**
- * 오늘 아침 주문에 쓸 저녁 계산: 오늘보다 앞선 날의 가장 최근 정상 계산(4일 이내).
- * 운용 전략을 그 뒤에 바꿨으면 쓰지 않음 (바뀐 전략의 주문이 아니므로).
- */
 export function pickReport(log: EveningReport[], plan: AutoPlan, today: string, sameDay = false): { report: EveningReport | null; reason?: string } {
-  // 미국(sameDay): 한국 저녁에 계산하고 같은 날짜(뉴욕 기준)의 장 시작에 주문하므로 오늘 계산도 씀
   const ok = log.filter((r) => r.status === "ok" && (sameDay ? r.runDate <= today : r.runDate < today) && r.runDate >= minusDays(today, 4))
     .sort((a, b) => (a.runDate === b.runDate ? b.ranAt.localeCompare(a.ranAt) : b.runDate.localeCompare(a.runDate)));
   const r = ok[0];
@@ -130,13 +99,12 @@ export function pickReport(log: EveningReport[], plan: AutoPlan, today: string, 
   return { report: r };
 }
 
-// ---------------- 주문 ----------------
 async function placeOne(it: MorningItem, b: Broker, d: MorningDay, now: number, lim: MorningLimits) {
   try {
     const amount = it.qty * it.price * (it.side === "buy" ? 1 + BUY_GAP : 1);
     if (b.env === "real" && lim.orderLimit) checkOrderLimit(amount, lim.orderLimit, lim.usedToday?.() ?? 0);
     const res = await b.place({ code: it.ticker, side: it.side, qty: it.qty, type: "market" });
-    if (b.env === "real") { try { lim.addUsage?.(amount); } catch { /* 합계 저장 실패는 주문에 영향 없음 */ } }
+    if (b.env === "real") { try { lim.addUsage?.(amount); } catch { } }
     Object.assign(it, { status: "placed", orderNo: res.orderNo, orgNo: res.orgNo, placedAt: new Date(now).toISOString() });
     d.log.push(`${hhmm(now, d.market)} ${it.side === "buy" ? "매수" : "매도"} ${withCode(it.name, it.ticker)} ${it.qty}주 ${d.market === "US" ? "지정가(현재가 ±1%)" : "시장가"} 주문 (주문번호 ${res.orderNo})`);
   } catch (err) {
@@ -145,27 +113,35 @@ async function placeOne(it: MorningItem, b: Broker, d: MorningDay, now: number, 
   }
 }
 
-/** 주문 시각: 그날 첫 실행 */
-export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Broker, now: number, lim: MorningLimits = {}, market: Market = "KR"): Promise<MorningDay> {
+const usedReport = (x: MorningDay, r: EveningReport, label: string) =>
+  x.label === label && (x.reportData ? x.reportData === r.dataDate : x.reportDate === r.runDate) && x.items.some((it) => it.orderNo);
+
+export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Broker, now: number, lim: MorningLimits = {}, market: Market = "KR", days: MorningDay[] = []): Promise<MorningDay> {
   const today = clockOf(market, now).date;
   const d: MorningDay = { date: today, label: plan.label, env: b.env, ...(market === "US" ? { market } : {}), phase: "placed", items: [], log: [] };
   const skip = (reason: string): MorningDay => ({ ...d, phase: "skipped", reason, log: [`${hhmm(now, d.market)} ${reason}`] });
   if (!plan.enabled) return skip("운용이 꺼져 있습니다.");
   if (b.env === "real" && !plan.realConfirmedAt) return skip(REAL_NOT_CONFIRMED);
   if (b.env === "real" && lim.realCap && plan.budget > lim.realCap) return skip(`운용 금액 ${won(plan.budget)}이 실전 운용 금액 상한 ${won(lim.realCap)}을 넘습니다. 설정에서 상한을 올리거나 운용 금액을 줄이세요.`);
-  const { report, reason } = pickReport(log, plan, today, market === "US");
+  const { report, reason } = pickReport(log, plan, today, market === "US" || isMixed(plan));
   if (!report) return skip(reason!);
-  if ((report.market ?? "KR") !== market) return skip("저녁 계산과 운용 종목의 시장이 달라 오늘은 주문하지 않습니다.");
+  if (!reportMarkets(report).includes(market)) return skip("계산 결과와 운용 종목의 시장이 달라 오늘은 주문하지 않습니다.");
+  // 계산이 실패한 다음 날 예전 계산을 다시 집어 같은 주문을 두 번 내지 않게
+  if (days.some((x) => x.date < today && (x.market ?? "KR") === market && usedReport(x, report, plan.label))) {
+    return skip(`${report.dataDate ?? report.runDate} 시세 계산으로는 이미 주문했습니다. 새 계산이 없어 오늘은 주문하지 않습니다.`);
+  }
   d.reportDate = report.runDate;
+  d.reportData = report.dataDate;
+  const orders = report.orders.filter((o) => reportMarkets(report).length < 2 || marketOf(o.ticker) === market);
   let open: boolean | null = null;
-  try { open = await b.openDay(today); } catch { /* 모르면 진행 */ }
+  try { open = await b.openDay(today); } catch { }
   if (open === false) return skip("오늘은 휴장일입니다.");
-  if (!report.orders.length) return { ...d, phase: "done", reason: "주문 없음", log: [`${hhmm(now, d.market)} 오늘은 주문할 것이 없습니다 (${report.runDate} 저녁 계산).`] };
+  if (!orders.length) return { ...d, phase: "done", reason: "주문 없음", log: [`${hhmm(now, d.market)} 오늘은 주문할 것이 없습니다 (${report.runDate} 계산).`] };
 
   const bal = await b.balance();
   const held = new Map(bal.holdings.map((h) => [h.code, h.qty]));
-  for (const o of report.orders) {
-    const it: MorningItem = { ticker: o.ticker, name: o.name, side: o.side, planned: o.qty, qty: o.qty, status: "waiting", filledQty: 0, avgPrice: 0, price: o.price, note: o.note };
+  for (const o of orders) {
+    const it: MorningItem = { ticker: o.ticker, name: o.name, side: o.side, planned: o.qty, qty: o.qty, status: "waiting", filledQty: 0, avgPrice: 0, price: o.price, note: o.note, ...(o.retry ? { retry: o.retry } : {}) };
     if (o.side === "sell") {
       const have = held.get(o.ticker) ?? 0;
       it.qty = Math.min(o.qty, have);
@@ -174,9 +150,7 @@ export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Brok
     }
     d.items.push(it);
   }
-  // 1) 매도 먼저
   for (const it of d.items) if (it.side === "sell" && it.status === "waiting") await placeOne(it, b, d, now, lim);
-  // 2) 매수: 지금 현금으로 다 되면 바로, 아니면 매도 체결 뒤
   const buys = d.items.filter((x) => x.side === "buy" && x.status === "waiting");
   if (buys.length) {
     const need = buys.reduce((a, x) => a + x.qty * x.price * (1 + BUY_GAP), 0);
@@ -192,7 +166,6 @@ export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Brok
   return d;
 }
 
-/** 체결 결과를 반영 (아침 주문·장중 매도 같이 씀) */
 export function applyFills(d: { items: Pick<MorningItem, "orderNo" | "orgNo" | "status" | "qty" | "filledQty" | "avgPrice">[] }, orders: DayOrder[]) {
   const by = new Map(orders.map((o) => [o.orderNo.replace(/^0+/, ""), o]));
   for (const it of d.items) {
@@ -208,7 +181,6 @@ export function applyFills(d: { items: Pick<MorningItem, "orderNo" | "orgNo" | "
   }
 }
 
-/** 09:00 이후 몇 분마다: 체결 확인, 기다리던 매수, 마감 시각이면 취소 */
 export async function morningFollow(d: MorningDay, b: Broker, now: number, cutoff: string, lim: MorningLimits = {}): Promise<MorningDay> {
   if (!["placed", "buying"].includes(d.phase)) return d;
   const hm = hhmm(now, d.market);
@@ -216,7 +188,6 @@ export async function morningFollow(d: MorningDay, b: Broker, now: number, cutof
   if (d.items.some((x) => x.orderNo)) {
     try { applyFills(d, await b.orders(d.date)); } catch (err) { d.log.push(`${hm} 체결 조회 실패: ${(err as Error).message}`); }
   }
-  // 기다리던 매수: 매도가 다 끝났거나 09:10 이 지나면 남은 현금 안에서
   const buyFrom = d.market === "US" ? US_SESSION.buyFrom : "09:01", buyBy = d.market === "US" ? US_SESSION.buyBy : "09:10";
   if (d.phase === "buying" && hm >= buyFrom) {
     const sellsOpen = d.items.some((x) => x.side === "sell" && (x.status === "placed" || x.status === "partial"));
@@ -236,7 +207,6 @@ export async function morningFollow(d: MorningDay, b: Broker, now: number, cutof
       d.phase = "placed";
     }
   }
-  // 마감: 남은 주문 취소
   if (hm >= cutoff) {
     for (const it of d.items) {
       if (it.status === "waiting") { it.status = "skipped"; it.error = "마감 시각까지 주문하지 못했습니다."; continue; }
@@ -254,7 +224,6 @@ export async function morningFollow(d: MorningDay, b: Broker, now: number, cutof
   return d;
 }
 
-/** 긴급 정지: 그날 남은 주문 모두 취소 */
 export async function stopDay(d: MorningDay, b: Broker, now: number): Promise<MorningDay> {
   const hm = hhmm(now, d.market);
   for (const it of d.items) {
@@ -268,10 +237,18 @@ export async function stopDay(d: MorningDay, b: Broker, now: number): Promise<Mo
   return d;
 }
 
+export function unfinishedItems(days: MorningDay[], label: string, market: Market, today: string): Unfinished[] {
+  const last = days.filter((x) => (x.market ?? "KR") === market && x.label === label && x.items.length)
+    .sort((a, b) => b.date.localeCompare(a.date))[0];
+  if (!last || last.phase === "stopped" || last.phase === "placed" || last.phase === "buying") return [];
+  if (last.date < minusDays(today, 7)) return [];
+  return last.items.filter((it) => it.status !== "filled" && it.filledQty < it.planned && !/팔 주식이 없습니다/.test(it.error ?? ""))
+    .map((it) => ({ ticker: it.ticker, side: it.side, qty: it.planned - it.filledQty, retry: it.retry ?? 0 }));
+}
+
 const ST: Record<ItemStatus, string> = { waiting: "대기", placed: "주문됨", partial: "일부 체결", filled: "체결", cancelled: "취소", failed: "실패", skipped: "건너뜀" };
 export const statusLabel = (s: ItemStatus) => ST[s];
 
-/** 텔레그램 글 */
 export function formatDay(d: MorningDay, final: boolean): string {
   const env = d.env === "real" ? "실전" : "모의투자";
   const head = `[알피] ${d.date} ${d.market === "US" ? "미국 장 시작" : "아침"} ${final ? "매매 결과" : "주문"} · ${d.label} (${env})`;

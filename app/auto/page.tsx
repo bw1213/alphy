@@ -13,6 +13,7 @@ import { fetchJob } from "@/lib/client/fetchData";
 import type { PerfPoint, PerfSummary } from "@/lib/auto/perf";
 import type { KisView } from "@/lib/manual/value";
 import type { DayOrder } from "@/lib/kis/orders";
+import { marketOf, planMarkets } from "@/lib/auto/session";
 
 interface PlanView {
   label: string; kind: "builtin" | "cycle" | "builder" | "custom"; strategyName: string | null; builtin: string | null;
@@ -21,11 +22,11 @@ interface PlanView {
 interface AutoState {
   plan: PlanView | null; log: EveningReport[]; eveningTime: string; owner: boolean; today: string;
   lastEvening: { date: string; attempts: number; done: boolean } | null;
+  lastMix?: { date: string; attempts: number; done: boolean } | null;
   limit: { realBudget: number; maxLoss: number }; account: "real" | "mock";
-  times: { morning: string; cutoff: string }; days: MorningDay[]; intradayDays?: IntradayDay[]; market?: "KR" | "US";
+  times: { morning: string; cutoff: string }; days: MorningDay[]; intradayDays?: IntradayDay[]; market?: "KR" | "US"; markets?: ("KR" | "US")[]; mixTime?: string;
   perf: { base: { date: string; total: number } | null; budget: number; env: "real" | "mock"; points: PerfPoint[]; summary: PerfSummary | null } | null;
   real: { confirmedAt: string | null; lock: string | null; mockDays: number; telegram: boolean };
-  /** 마지막으로 읽은 실제 계좌 (대시보드와 같은 값). 계좌가 설정되지 않았으면 undefined */
   accountView?: KisView | null;
 }
 const ST = { waiting: "대기", placed: "주문됨", partial: "일부 체결", filled: "체결", cancelled: "취소", failed: "실패", skipped: "건너뜀" } as const;
@@ -34,16 +35,13 @@ interface TgState { botSet: boolean; bot: string | null; owner: boolean; linked:
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 
 async function post(url: string, body: unknown) {
-  // 오래 걸리는 요청(지금 계산해 보기)은 서버가 작업 id 를 주고, 끝날 때까지 이어서 물어봄
   return fetchJob(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
-/** 미국 기록은 달러 */
 const money = (m: "KR" | "US" | undefined, n: number) => (m === "US" ? `$${n.toFixed(2)}` : won(n));
 const signed = (n: number) => `${n >= 0 ? "+" : "-"}${won(Math.abs(n))}`;
 const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 
-/** 계좌 손익과 전략 손익(운용 금액 대비 %)을 한 그림에 */
 function PerfChart({ points, budget }: { points: PerfPoint[]; budget: number }) {
   if (points.length < 2) return null;
   const W = 640, H = 180, L = 44, R = 8, T = 8, B = 20;
@@ -77,7 +75,6 @@ function PerfChart({ points, budget }: { points: PerfPoint[]; budget: number }) 
 
 const kstTime = (iso: string) => new Date(iso).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-/** 지금 실제 계좌 (한국투자증권 잔고 그대로, 국내+미국·예수금 포함) */
 function AccountCard({ v, busy, onRefresh }: { v: KisView | null; busy: boolean; onRefresh: () => void }) {
   const stock = v ? v.positions.reduce((a, p) => a + p.value, 0) : 0;
   return (
@@ -110,10 +107,9 @@ function AccountCard({ v, busy, onRefresh }: { v: KisView | null; busy: boolean;
   );
 }
 
-interface OrdersView { env: "real" | "mock"; market: "KR" | "US"; date: string; at: string; orders: DayOrder[] }
+interface OrdersView { env: "real" | "mock"; market: "KR" | "US"; date: string; at: string; orders: (DayOrder & { market?: "KR" | "US" })[] }
 const hhmm = (t: string) => (t.length >= 4 ? `${t.slice(0, 2)}:${t.slice(2, 4)}` : t);
 
-/** 주문 현황: 오늘 증권사에 들어간 주문(대기·체결)과 알피가 지켜보는 장중 매도 가격 */
 function OrdersCard({ st }: { st: AutoState }) {
   const [v, setV] = useState<OrdersView | null>(null);
   const [busy, setBusy] = useState(false);
@@ -129,13 +125,13 @@ function OrdersCard({ st }: { st: AutoState }) {
   }, []);
   useEffect(() => {
     load();
-    // 화면을 보고 있는 동안 1분마다 다시 읽음
     const t = setInterval(() => { if (document.visibilityState === "visible") load(); }, 60_000);
     return () => clearInterval(t);
   }, [load]);
   const m = v?.market ?? st.market;
-  const today = st.intradayDays?.find((d) => d.date === st.today);
-  const watching = today && !today.done ? today.levels : null;
+  const todays = (st.intradayDays ?? []).filter((d) => d.date === st.today && !d.done);
+  const watching = todays.length ? todays.flatMap((d) => d.levels) : null;
+  const lastSeen = (t: string) => todays.find((d) => d.last?.[t])?.last?.[t];
   const lastOk = st.log.find((r) => r.status === "ok");
   const next = !watching && lastOk?.intraday ? lastOk.sellLevels : [];
   const open = v?.orders.filter((o) => o.openQty > 0 && !o.cancelled).length ?? 0;
@@ -158,8 +154,8 @@ function OrdersCard({ st }: { st: AutoState }) {
                   <td>{hhmm(o.time)}</td>
                   <td style={{ color: o.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{o.side === "buy" ? "매수" : "매도"}</td>
                   <td>{o.name || o.code} <span className="help">{o.code}</span></td>
-                  <td>{o.qty.toLocaleString("ko-KR")}주 · {o.price > 0 ? money(m, o.price) : "시장가"}</td>
-                  <td>{o.filledQty > 0 ? `${o.filledQty.toLocaleString("ko-KR")}주 · 평균 ${money(m, o.avgPrice)}` : "-"}</td>
+                  <td>{o.qty.toLocaleString("ko-KR")}주 · {o.price > 0 ? money(o.market ?? m, o.price) : "시장가"}</td>
+                  <td>{o.filledQty > 0 ? `${o.filledQty.toLocaleString("ko-KR")}주 · 평균 ${money(o.market ?? m, o.avgPrice)}` : "-"}</td>
                   <td>{o.openQty > 0 && !o.cancelled ? `${o.openQty.toLocaleString("ko-KR")}주` : "-"}</td>
                   <td>{state}</td>
                 </tr>
@@ -175,8 +171,8 @@ function OrdersCard({ st }: { st: AutoState }) {
           <div className="tablewrap" style={{ marginTop: 6 }}><table>
             <thead><tr><th>종목</th><th>매도 가격</th><th>수량</th><th>지금 가격</th><th>규칙</th></tr></thead>
             <tbody>{(watching ?? next).map((l, i) => (
-              <tr key={i}><td>{l.name}</td><td>{m === "US" && l.usd ? money("US", l.usd) : won(l.price)} {l.kind === "take_profit" ? "이상" : "이하"}</td><td>{l.qty ? `${l.qty.toLocaleString("ko-KR")}주` : "전부"}</td>
-                <td>{watching && today?.last?.[l.ticker] ? `${money(m, today.last[l.ticker].price)} (${today.last[l.ticker].at})` : `${won(l.close)} (종가)`}</td><td>{l.label}</td></tr>
+              <tr key={i}><td>{l.name}</td><td>{l.usd ? money("US", l.usd) : won(l.price)} {l.kind === "take_profit" ? "이상" : "이하"}</td><td>{l.qty ? `${l.qty.toLocaleString("ko-KR")}주` : "전부"}</td>
+                <td>{watching && lastSeen(l.ticker) ? `${money(marketOf(l.ticker), lastSeen(l.ticker)!.price)} (${lastSeen(l.ticker)!.at})` : `${won(l.close)} (종가)`}</td><td>{l.label}</td></tr>
             ))}</tbody>
           </table></div>
           <p className="help">이 가격들은 증권사에 미리 걸어 둔 주문이 아닙니다. 알피가 장중에 현재가를 지켜보다가 닿으면 그때 시장가로 팔고, 그 주문이 위 &quot;오늘 증권사 주문&quot;에 나타납니다.</p>
@@ -194,7 +190,7 @@ function Report({ r }: { r: EveningReport }) {
       <div className="kpis">
         {r.accountTotal != null && <div className="kpi"><div className="k">계좌 평가액 (계산 때)</div><div className="v">{won(r.accountTotal)}</div><div className="s">예수금 {won(r.accountCash ?? 0)} · 주식 {won(r.accountStock ?? 0)}</div></div>}
         <div className="kpi"><div className="k">전략 계산 평가액 (가상)</div><div className="v">{won(r.equity ?? 0)}</div><div className="s">운용 금액에서 출발한 백테스트 · 시세 {r.dataDate}</div></div>
-        <div className="kpi"><div className="k">내일 주문</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? "전략 신호 없음 (보유 유지)" : "전략이 사고팔기로 한 종목"}</div></div>
+        <div className="kpi"><div className="k">{(r.markets?.length ?? 0) > 1 ? "다음 주문" : "내일 주문"}</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? "전략 신호 없음 (보유 유지)" : "전략이 사고팔기로 한 종목"}</div></div>
       </div>
       {r.orders.length > 0 && (
         <div className="tablewrap"><table>
@@ -202,7 +198,7 @@ function Report({ r }: { r: EveningReport }) {
           <tbody>{r.orders.map((o) => (
             <tr key={o.ticker + o.side}>
               <td style={{ color: o.side === "buy" ? "var(--bad)" : "var(--accent)" }}>{o.side === "buy" ? "매수" : "매도"}</td>
-              <td>{o.name} <span className="help">{o.ticker}</span></td>
+              <td>{o.name} <span className="help">{o.ticker}</span>{(r.markets?.length ?? 0) > 1 ? <span className="help"> · {marketOf(o.ticker) === "US" ? "미국 장" : "한국 장"}</span> : null}</td>
               <td>{o.qty.toLocaleString("ko-KR")}주</td><td>{o.curQty} → {o.targetQty}</td><td>{won(o.amount)}</td><td>{o.note ?? ""}</td>
             </tr>
           ))}</tbody>
@@ -219,7 +215,7 @@ function Report({ r }: { r: EveningReport }) {
           </table></div>
           <p className="help">{r.intraday
             ? "장중에 이 가격에 닿으면 바로 시장가로 팝니다."
-            : "알림용 가격입니다. 종가로 확인해 다음 날 아침에 팝니다."} 주문 목록은 다음 거래일 아침에 냅니다.</p>
+            : "알림용 가격입니다. 종가로 확인해 다음 날 아침에 팝니다."} {(r.markets?.length ?? 0) > 1 ? "주문은 종목마다 다음 한국 장 또는 미국 장에 냅니다." : "주문 목록은 다음 거래일 아침에 냅니다."}</p>
         </>
       )}
       <p className="help">보유 수량 기준: {r.holdingsFrom === "account" ? `실제 계좌 (${r.account === "real" ? "실전" : "모의투자"})` : "전략상 보유 (계좌를 읽지 못함)"}</p>
@@ -306,6 +302,9 @@ export default function AutoPage() {
               <StockSearch placeholder="종목 이름으로 찾아 추가" onPick={(s) => setForm((f) => ({ ...f, tickers: [...new Set([...f.tickers.split(/[\s,]+/).filter(Boolean), s.code])].join(", ") }))} />
             </div>
             </>)}
+            {planMarkets({ tickers: picked?.universe?.mode === "list" ? splitCodes(picked.universe.tickers) : splitCodes(form.tickers) }).length > 1 && (
+              <p className="help" style={{ marginTop: 10 }}>한국·미국 종목을 섞은 운용입니다. 미국 장이 끝난 뒤 한국 시간 아침 {st?.mixTime ?? "07:00"}에 계산하고, 한국 종목은 한국 장에, 미국 종목은 그날 밤 미국 장에 주문합니다. 한국 주식을 판 돈으로 미국 주식을 바로 사려면 한국투자증권 통합증거금 신청이 필요합니다 (안 하면 그 매수는 다음 장으로 미뤄짐).</p>
+            )}
             <div className="row" style={{ marginTop: 10 }}>
               <label className="f">운용 금액(원)<input type="number" min={100000} step={100000} value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></label>
               <label className="f">운용 시작일<input type="date" value={form.startDate} max={st?.today} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
@@ -386,14 +385,16 @@ export default function AutoPage() {
           {st?.plan && <OrdersCard st={st} />}
           {st?.accountView !== undefined && <AccountCard v={st.accountView} busy={busy === "account"} onRefresh={() => act("account", () => post("/api/dashboard", { action: "refresh" }))} />}
           <div className="card">
-            <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>저녁 계산 결과
+            <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>{(st?.markets?.length ?? 0) > 1 ? "계산 결과" : "저녁 계산 결과"}
               <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", fontSize: 12, fontWeight: 400 }}>
                 {tg?.linked && <label style={{ display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" style={{ width: "auto", flex: "none" }} checked={sendTg} onChange={(e) => setSendTg(e.target.checked)} />텔레그램으로도</label>}
                 <button disabled={!!busy || !st?.plan} onClick={() => act("run", () => post("/api/auto", { action: "run", notify: sendTg })).then(() => setOpen(0))}>{busy === "run" ? "계산 중…" : "지금 계산해 보기"}</button>
                 <button disabled={!!busy || !st?.plan} title="지금 운용 전략을 저장하기 전의 저녁 계산 기록과 끝난 아침 주문·장중 감시 기록을 지웁니다 (진행 중인 주문은 남김)" onClick={() => { if (confirm("지금 운용 전략을 저장하기 전의 기록과 끝난 주문·감시 기록을 지울까요? 되돌릴 수 없습니다.")) act("clear", () => post("/api/auto", { action: "clear" }), "지난 기록을 지웠습니다."); }}>{busy === "clear" ? "지우는 중…" : "지난 기록 지우기"}</button>
               </span>
             </h2>
-            {st?.lastEvening && <p className="help" style={{ marginTop: 0 }}>마지막 자동 계산: {st.lastEvening.date} ({st.lastEvening.done ? "완료" : `시도 ${st.lastEvening.attempts}번`})</p>}
+            {(st?.markets?.length ?? 0) > 1
+              ? <p className="help" style={{ marginTop: 0 }}>섞은 운용은 한국 시간 아침 {st?.mixTime ?? "07:00"}에 계산합니다.{st?.lastMix ? ` 마지막 자동 계산: ${st.lastMix.date} (${st.lastMix.done ? "완료" : `시도 ${st.lastMix.attempts}번`})` : ""}</p>
+              : st?.lastEvening && <p className="help" style={{ marginTop: 0 }}>마지막 자동 계산: {st.lastEvening.date} ({st.lastEvening.done ? "완료" : `시도 ${st.lastEvening.attempts}번`})</p>}
             {!st?.log.length ? <p className="help">아직 계산 기록이 없습니다.</p> : (
               <div style={{ display: "grid", gap: 8 }}>
                 {st.log.map((r, i) => (
@@ -409,7 +410,7 @@ export default function AutoPage() {
             )}
           </div>
           <div className="card">
-            <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>아침 자동 주문
+            <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>{(st?.markets?.length ?? 0) > 1 ? "자동 주문" : "아침 자동 주문"}
               <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                 {!stopAsk ? <button disabled={!!busy || (!st?.plan?.enabled && !st?.days.some((d) => d.date === st.today && ["placed", "buying"].includes(d.phase)))} onClick={() => setStopAsk(true)}>긴급 정지</button> : (
                   <>
@@ -419,11 +420,11 @@ export default function AutoPage() {
                 )}
               </span>
             </h2>
-            {st?.market === "US" && <p className="help" style={{ marginTop: 0 }}>미국 장 시작(뉴욕 09:32)에 현재가 ±1% 지정가로 내고 10:30에 미체결을 취소합니다. 시각·가격은 뉴욕·달러 기준.</p>}
-            <p className="help" style={{ marginTop: 0, display: st?.market === "US" ? "none" : undefined }}>평일 {st?.times.morning ?? "08:40"} {st?.account === "real" ? "실전" : "모의투자"} 계좌로 주문, {st?.times.cutoff ?? "10:00"}에 미체결 취소.</p>
-            {!st?.days.length ? <p className="help">아직 아침 주문 기록이 없습니다.</p> : st.days.slice(0, 5).map((d) => (
-              <details key={d.date} open={d.date === st.today} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
-                <summary style={{ cursor: "pointer", fontSize: 13 }}><b>{d.date}</b> · {d.env === "real" ? "실전" : "모의"} · {({ placed: "진행 중", buying: "매도 체결 기다림", done: "끝남", skipped: "주문 안 함", stopped: "긴급 정지" } as const)[d.phase]}{d.reason ? ` · ${d.reason}` : ""}</summary>
+            {(st?.markets ?? [st?.market ?? "KR"]).includes("KR") && <p className="help" style={{ marginTop: 0 }}>{(st?.markets?.length ?? 0) > 1 ? "한국 종목: " : ""}평일 {st?.times.morning ?? "08:40"} {st?.account === "real" ? "실전" : "모의투자"} 계좌로 주문, {st?.times.cutoff ?? "10:00"}에 미체결 취소.</p>}
+            {(st?.markets ?? [st?.market ?? "KR"]).includes("US") && <p className="help" style={{ marginTop: 0 }}>{(st?.markets?.length ?? 0) > 1 ? "미국 종목: " : ""}미국 장 시작(뉴욕 09:32)에 현재가 ±1% 지정가로 내고 10:30에 미체결을 취소합니다. 시각·가격은 뉴욕·달러 기준.</p>}
+            {!st?.days.length ? <p className="help">아직 주문 기록이 없습니다.</p> : st.days.slice(0, 6).map((d) => (
+              <details key={d.date + (d.market ?? "")} open={d.date === st.today} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
+                <summary style={{ cursor: "pointer", fontSize: 13 }}><b>{d.date}</b>{d.market === "US" ? " 미국" : ""} · {d.env === "real" ? "실전" : "모의"} · {({ placed: "진행 중", buying: "매도 체결 기다림", done: "끝남", skipped: "주문 안 함", stopped: "긴급 정지" } as const)[d.phase]}{d.reason ? ` · ${d.reason}` : ""}</summary>
                 {d.items.length > 0 && (
                   <div className="tablewrap" style={{ marginTop: 6 }}><table>
                     <thead><tr><th>구분</th><th>종목</th><th>수량</th><th>상태</th><th>체결</th></tr></thead>
@@ -498,10 +499,10 @@ export default function AutoPage() {
           </div>
           <div className="card">
             <h2>장중 실시간 매도</h2>
-            <p className="help" style={{ marginTop: 0 }}>{st?.market === "US" ? "뉴욕 09:35~15:50" : "평일 09:00~15:20"} 동안 매도 가격에 닿으면 바로 팝니다.</p>
-            {!st?.intradayDays?.length ? <p className="help">아직 장중 감시 기록이 없습니다.</p> : st.intradayDays.slice(0, 5).map((d) => (
-              <details key={d.date} open={d.date === st.today} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
-                <summary style={{ cursor: "pointer", fontSize: 13 }}><b>{d.date}</b> · {d.env === "real" ? "실전" : "모의"} · {d.done ? (d.reason ?? "끝남") : `감시 중 (가격 ${d.levels.length}개, 매도 ${d.sells.length}건)`}</summary>
+            <p className="help" style={{ marginTop: 0 }}>{(st?.markets?.length ?? 0) > 1 ? "한국 평일 09:00~15:20, 미국 뉴욕 09:35~15:50" : st?.market === "US" ? "뉴욕 09:35~15:50" : "평일 09:00~15:20"} 동안 매도 가격에 닿으면 바로 팝니다.</p>
+            {!st?.intradayDays?.length ? <p className="help">아직 장중 감시 기록이 없습니다.</p> : st.intradayDays.slice(0, 6).map((d) => (
+              <details key={d.date + (d.market ?? "")} open={d.date === st.today} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
+                <summary style={{ cursor: "pointer", fontSize: 13 }}><b>{d.date}</b>{d.market === "US" ? " 미국" : ""} · {d.env === "real" ? "실전" : "모의"} · {d.done ? (d.reason ?? "끝남") : `감시 중 (가격 ${d.levels.length}개, 매도 ${d.sells.length}건)`}</summary>
                 {d.levels.length > 0 && (
                   <div className="tablewrap" style={{ marginTop: 6 }}><table>
                     <thead><tr><th>종목</th><th>매도 가격</th><th>수량</th><th>마지막 현재가</th><th>규칙</th></tr></thead>
