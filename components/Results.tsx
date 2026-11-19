@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -11,7 +11,6 @@ import type { BackfillNote } from "@/lib/data/backfillApply";
 import { proxyName } from "@/lib/data/backfill";
 import { withCode } from "@/lib/strategies/universe";
 
-/** 비교용 매수 후 보유 결과 (같은 자금·기간·비용, 같은 종목을 똑같이 나눠 사기만 함) */
 export interface HoldCompare {
   res: BacktestResult;
   s: Summary;
@@ -23,12 +22,13 @@ import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine
 import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
 import { userKey } from "@/lib/client/userStorage";
 import CycleStatusCard from "./CycleStatusCard";
+import { periodReturn, relative, rollingReturn, weakPeriods } from "@/lib/engine/weak";
+import { rebase, useDragZoom, ZoomBar } from "./ChartZoom";
 
 export const pct = (x: number | null | undefined, d = 1) =>
   x == null || !Number.isFinite(x) ? "–" : `${(x * 100).toFixed(d)}%`;
 const won = (x: number) => `${Math.round(x).toLocaleString("ko-KR")}원`;
 export const num = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "–");
-/** 최장 손실 구간 (일수) → "없음" · "45일" · "14.2개월" */
 export const lossLen = (d: number | null | undefined) =>
   d == null || !Number.isFinite(d) ? "–" : d <= 0 ? "없음" : d < 60 ? `${d}일` : `${(d / 30.44).toFixed(1)}개월`;
 
@@ -66,12 +66,9 @@ export function Tip({ active, payload, label, fmt }: any) {
 }
 
 export default function Results({ res, s, names, label, title, hold, onSensitivity, benchName = "KOSPI", backfilled, indices }: {
-  /** 항상 같이 보여 주는 비교 지수 (S&P 500·KOSPI). 없으면 benchmark 하나만 */
   indices?: IndexBars[];
-  /** 상장 전 기간을 지수로 채운 종목 */
   backfilled?: BackfillNote[];
   res: BacktestResult; s: Summary; names: Record<string, string>; label: string; title?: string; hold?: HoldCompare | null;
-  /** 비교 지수 이름 (KOSPI, 미국 종목만이면 S&P 500) */
   benchName?: string;
   onSensitivity?: (onProgress: (done: number, total: number) => void) => Promise<SensitivityResult>;
 }) {
@@ -95,17 +92,41 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
     const h0 = hold?.res.equity[0];
     const hByDate = new Map((hold?.res.equity ?? []).map((h) => [h.date, h0 ? (perf(h) / perf(h0)) * 100 : null]));
     const hdd = hold ? new Map(drawdown(hold.res.equity.map(perf)).map((v, k) => [hold.res.equity[k].date, v * 100])) : null;
+    const dates = res.equity.map((e) => e.date);
+    const strat = res.equity.map((e) => (perf(e) / perf(e0)) * 100);
+    const holdV = dates.map((d) => hByDate.get(d) ?? null);
+    const roll = rollingReturn(dates, strat);
+    const holdRoll = hold ? rollingReturn(dates, holdV) : null;
+    const ixRoll = idx.map((x) => rollingReturn(dates, x.values));
+    const rel = idx.map((x) => relative(strat, x.values));
+    const holdRel = hold ? relative(strat, holdV) : null;
+    const p100 = (v: number | null | undefined) => (v == null ? null : v * 100);
     return res.equity.map((e, k) => ({
       ...Object.fromEntries(idx.map((x) => [`ix_${x.key}`, x.values[k]])),
+      ...Object.fromEntries(idx.map((x, i) => [`ixr_${x.key}`, p100(ixRoll[i][k])])),
+      ...Object.fromEntries(idx.map((x, i) => [`rel_${x.key}`, rel[i][k]])),
       date: e.date,
-      strategy: (perf(e) / perf(e0)) * 100,
-      hold: hByDate.get(e.date) ?? null,
+      strategy: strat[k],
+      hold: holdV[k],
       holdDd: hdd?.get(e.date) ?? null,
       target: 100 * (1 + TARGET_CAGR) ** ((Date.parse(e.date) - t0) / (365.25 * 864e5)),
       dd: dd[k] * 100,
+      roll: p100(roll[k]),
+      holdRoll: p100(holdRoll?.[k]),
+      relHold: holdRel?.[k] ?? null,
     }));
   }, [res, hold, idx]);
-  // 평가 구간 안에서 지수로 채운 부분 (차트에 회색으로)
+  const [view, setView] = useState<"cum" | "roll" | "rel">("cum");
+  const dates = useMemo(() => series.map((p) => p.date), [series]);
+  const zm = useDragZoom(dates);
+  const weak = useMemo(() => weakPeriods(dates, series.map((p) => p.strategy), 5), [dates, series]);
+  const shown = useMemo(() => {
+    const part = zm.slice(series);
+    return zm.zoom ? rebase(part, ["strategy", "hold", "target", ...idx.flatMap((x) => [`ix_${x.key}`, `rel_${x.key}`]), "relHold"]) : part;
+  }, [series, zm.zoom, idx]);
+  const d0 = shown[0]?.date ?? "", d1 = shown.at(-1)?.date ?? "";
+  const weakShown = weak.map((w, n) => ({ ...w, n: n + 1, x1: w.peak < d0 ? d0 : w.peak, x2: (w.recovered ?? dates.at(-1)!) > d1 ? d1 : (w.recovered ?? dates.at(-1)!) }))
+    .filter((w) => w.x1 < w.x2);
   const fills = (backfilled ?? []).filter((n) => series.length && n.until > series[0].date);
   const fillEnd = useMemo(() => {
     if (!fills.length) return null;
@@ -193,50 +214,122 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-          <h2>자산 추이 (시작 = 100)</h2>
-          <div className="seg" style={{ width: 140 }}>
-            <button className={log ? "on" : ""} onClick={() => setLog(true)}>로그</button>
-            <button className={!log ? "on" : ""} onClick={() => setLog(false)}>선형</button>
+          <h2>{view === "cum" ? "자산 추이 (시작 = 100)" : view === "roll" ? "1년 수익률 (%)" : "지수 대비 (시작 = 100)"}</h2>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="seg" style={{ width: 230 }}>
+              <button className={view === "cum" ? "on" : ""} onClick={() => setView("cum")}>누적</button>
+              <button className={view === "roll" ? "on" : ""} onClick={() => setView("roll")}>1년 수익률</button>
+              <button className={view === "rel" ? "on" : ""} onClick={() => setView("rel")}>지수 대비</button>
+            </div>
+            {view === "cum" && (
+              <div className="seg" style={{ width: 110 }}>
+                <button className={log ? "on" : ""} onClick={() => setLog(true)}>로그</button>
+                <button className={!log ? "on" : ""} onClick={() => setLog(false)}>선형</button>
+              </div>
+            )}
           </div>
         </div>
         <div className="legend">
-          <span><i style={{ background: c.s1 }} />전략</span>
-          {hold && <span><i style={{ background: c.s3 }} />매수 후 보유 ({holdName})</span>}
-          {idx.map((x) => <span key={x.key}><i style={{ background: ixColor(x.key) }} />{x.name}</span>)}
-          <span><i className="dash" />연 {T} 목표</span>
-          {fillEnd && <span><i style={{ background: c.t3, opacity: 0.25 }} />지수로 채운 구간</span>}
+          {view === "rel" ? (
+            <>
+              {idx.map((x) => <span key={x.key}><i style={{ background: ixColor(x.key) }} />전략 ÷ {x.name}</span>)}
+              {hold && <span><i style={{ background: c.s3 }} />전략 ÷ 매수 후 보유</span>}
+            </>
+          ) : (
+            <>
+              <span><i style={{ background: c.s1 }} />전략</span>
+              {hold && <span><i style={{ background: c.s3 }} />매수 후 보유{view === "cum" ? ` (${holdName})` : ""}</span>}
+              {idx.map((x) => <span key={x.key}><i style={{ background: ixColor(x.key) }} />{x.name}</span>)}
+              <span><i className="dash" />{view === "cum" ? `연 ${T} 목표` : `${T} 목표`}</span>
+            </>
+          )}
+          {weakShown.length > 0 && <span><i style={{ background: c.bad, opacity: 0.25 }} />큰 낙폭 구간 (번호 = 아래 표)</span>}
+          {fillEnd && view === "cum" && <span><i style={{ background: c.t3, opacity: 0.25 }} />지수로 채운 구간</span>}
         </div>
-        <div style={{ height: 320 }}>
+        <p className="help" style={{ margin: "4px 0 0" }}>
+          {view === "roll" && "날마다 그날까지 1년 수익률입니다. 0 아래(빨간 바탕)가 1년 손실 구간입니다."}
+          {view === "rel" && "내려가는 구간이 지수(또는 매수 후 보유)보다 못했던 때입니다. 100 아래면 시작부터 누적으로 뒤처진 상태입니다."}
+        </p>
+        <ZoomBar dates={dates} zoom={zm.zoom} onReset={() => zm.setZoom(null)} />
+        <div style={{ height: 320, userSelect: "none" }}>
           <ResponsiveContainer>
-            <LineChart data={series} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+            <LineChart data={shown} margin={{ top: 8, right: 12, bottom: 0, left: 0 }} {...zm.handlers}>
               <CartesianGrid stroke={c.grid} vertical={false} />
               <XAxis dataKey="date" tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} minTickGap={50}
-                tickFormatter={(d: string) => d.slice(0, 7)} />
-              <YAxis scale={log ? "log" : "linear"} domain={["auto", "auto"]} tick={{ fill: c.t2, fontSize: 11 }}
+                tickFormatter={(d: string) => (zm.zoom ? d.slice(2) : d.slice(0, 7))} />
+              <YAxis scale={view === "cum" && log ? "log" : "linear"} domain={["auto", "auto"]} tick={{ fill: c.t2, fontSize: 11 }}
                 stroke={c.grid} width={48} allowDataOverflow tickFormatter={(v: number) => v.toFixed(0)} />
-              <Tooltip content={<Tip fmt={(v: number) => v.toFixed(1)} />} />
-              {fillEnd && <ReferenceArea x1={series[0].date} x2={fillEnd} fill={c.t3} fillOpacity={0.12} stroke="none" ifOverflow="hidden" />}
-              <Line dataKey="target" name={`연 ${T} 목표`} stroke={c.t3} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
-              {idx.map((x) => <Line key={x.key} dataKey={`ix_${x.key}`} name={x.name} stroke={ixColor(x.key)} dot={false} strokeWidth={1.5} isAnimationActive={false} />)}
-              {hold && <Line dataKey="hold" name="매수 후 보유" stroke={c.s3} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
-              <Line dataKey="strategy" name="전략" stroke={c.s1} dot={false} strokeWidth={2} isAnimationActive={false} />
+              <Tooltip content={<Tip fmt={(v: number) => (view === "roll" ? `${v.toFixed(1)}%` : v.toFixed(1))} />} />
+              {weakShown.map((w) => <ReferenceArea key={w.peak} x1={w.x1} x2={w.x2} fill={c.bad} fillOpacity={0.07} stroke="none" ifOverflow="hidden"
+                label={{ value: String(w.n), position: "insideTopLeft", fill: c.bad, fontSize: 11 }} />)}
+              {zm.sel && <ReferenceArea x1={zm.sel[0]} x2={zm.sel[1]} fill={c.s1} fillOpacity={0.12} stroke="none" />}
+              {view === "cum" && <>
+                {fillEnd && fillEnd >= d0 && <ReferenceArea x1={d0} x2={fillEnd > d1 ? d1 : fillEnd} fill={c.t3} fillOpacity={0.12} stroke="none" ifOverflow="hidden" />}
+                <Line dataKey="target" name={`연 ${T} 목표`} stroke={c.t3} strokeDasharray="4 3" dot={false} strokeWidth={1.5} isAnimationActive={false} />
+                {idx.map((x) => <Line key={x.key} dataKey={`ix_${x.key}`} name={x.name} stroke={ixColor(x.key)} dot={false} strokeWidth={1.5} isAnimationActive={false} />)}
+                {hold && <Line dataKey="hold" name="매수 후 보유" stroke={c.s3} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
+                <Line dataKey="strategy" name="전략" stroke={c.s1} dot={false} strokeWidth={2} isAnimationActive={false} />
+              </>}
+              {view === "roll" && <>
+                <ReferenceArea y1={-1000} y2={0} fill={c.bad} fillOpacity={0.06} stroke="none" ifOverflow="hidden" />
+                <ReferenceLine y={0} stroke={c.t3} />
+                <ReferenceLine y={s.target * 100} stroke={c.t3} strokeDasharray="4 3" />
+                {idx.map((x) => <Line key={x.key} dataKey={`ixr_${x.key}`} name={x.name} stroke={ixColor(x.key)} dot={false} strokeWidth={1.2} isAnimationActive={false} />)}
+                {hold && <Line dataKey="holdRoll" name="매수 후 보유" stroke={c.s3} dot={false} strokeWidth={1.2} isAnimationActive={false} />}
+                <Line dataKey="roll" name="전략" stroke={c.s1} dot={false} strokeWidth={2} isAnimationActive={false} />
+              </>}
+              {view === "rel" && <>
+                <ReferenceLine y={100} stroke={c.t3} />
+                {hold && <Line dataKey="relHold" name="전략 ÷ 매수 후 보유" stroke={c.s3} dot={false} strokeWidth={1.5} isAnimationActive={false} />}
+                {idx.map((x) => <Line key={x.key} dataKey={`rel_${x.key}`} name={`전략 ÷ ${x.name}`} stroke={ixColor(x.key)} dot={false} strokeWidth={1.8} isAnimationActive={false} />)}
+              </>}
             </LineChart>
           </ResponsiveContainer>
         </div>
         {fills.length > 0 && <p className="help">상장 전 채움: {fills.map((n) => `${withCode(names[n.ticker], n.ticker)} ${n.until} 전은 ${n.chain.map(proxyName).join(" → ")}${n.lev !== 1 ? ` ×${n.lev}` : ""}`).join(" · ")}</p>}
         <h3>낙폭 (%)</h3>
-        <div style={{ height: 120 }}>
+        <div style={{ height: 120, userSelect: "none" }}>
           <ResponsiveContainer>
-            <AreaChart data={series} margin={{ top: 0, right: 12, bottom: 0, left: 0 }}>
+            <AreaChart data={shown} margin={{ top: 0, right: 12, bottom: 0, left: 0 }} {...zm.handlers}>
               <CartesianGrid stroke={c.grid} vertical={false} />
               <XAxis dataKey="date" hide />
               <YAxis tick={{ fill: c.t2, fontSize: 11 }} stroke={c.grid} width={48} tickFormatter={(v: number) => v.toFixed(0)} />
               <Tooltip content={<Tip fmt={(v: number) => `${v.toFixed(1)}%`} />} />
+              {zm.sel && <ReferenceArea x1={zm.sel[0]} x2={zm.sel[1]} fill={c.s1} fillOpacity={0.12} stroke="none" />}
               <Area dataKey="dd" name="전략 낙폭" stroke={c.bad} fill={c.bad} fillOpacity={0.25} strokeWidth={1.5} isAnimationActive={false} />
               {hold && <Area dataKey="holdDd" name="매수 후 보유 낙폭" stroke={c.s3} fill="none" strokeWidth={1.2} isAnimationActive={false} />}
             </AreaChart>
           </ResponsiveContainer>
         </div>
+        {weak.length > 0 && (
+          <>
+            <h3>크게 떨어졌던 구간</h3>
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>#</th><th className="l">고점 → 바닥</th><th className="l">회복</th><th>낙폭</th><th>기간</th>
+                  {hold && <th>매수 후 보유</th>}{idx.map((x) => <th key={x.key}>{x.name}</th>)}</tr></thead>
+                <tbody>
+                  {weak.map((w, n) => {
+                    const on = zm.zoom && zm.zoom[0] <= w.i0 && zm.zoom[1] >= w.i1 && zm.zoom[1] - zm.zoom[0] < (w.i1 - w.i0) * 2;
+                    const cmp = (v: number | null) => <td style={{ color: v != null && v < 0 ? "var(--bad)" : undefined }}>{pct(v)}</td>;
+                    return (
+                      <tr key={w.peak} style={{ cursor: "pointer", background: on ? "var(--grid)" : undefined }} onClick={() => zm.focus(w.i0, w.i1)} title="이 구간 확대">
+                        <td>{n + 1}</td>
+                        <td className="l">{w.peak} → {w.trough}</td>
+                        <td className="l">{w.recovered ?? <span style={{ color: "var(--bad)" }}>아직 못 함</span>}</td>
+                        <td style={{ color: "var(--bad)" }}>{pct(w.depth)}</td>
+                        <td>{lossLen(w.days)}</td>
+                        {hold && cmp(periodReturn(series.map((p) => p.hold), w.i0, w.iTrough))}
+                        {idx.map((x) => <Fragment key={x.key}>{cmp(periodReturn(x.values, w.i0, w.iTrough))}</Fragment>)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <p className="help">비교 열은 같은 고점 → 바닥 기간의 수익률입니다. 줄을 누르면 그 구간을 확대합니다.</p>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -487,7 +580,6 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
   );
 }
 
-/** 전략·매수 후 보유 vs S&P 500·KOSPI 지수 */
 function IndexCard({ s, hold, idx, start }: { s: Summary; hold?: HoldCompare | null; idx: IndexCompare[]; start?: string }) {
   const cols: { name: string; x: Summary | IndexCompare["stats"] }[] = [
     { name: "전략", x: s },
@@ -522,7 +614,6 @@ function IndexCard({ s, hold, idx, start }: { s: Summary; hold?: HoldCompare | n
   );
 }
 
-/** 전략 vs 같은 종목을 사기만 하고 보유 */
 function HoldCard({ s, hold, names }: { s: Summary; hold: HoldCompare; names: Record<string, string> }) {
   const h = hold.s;
   const diff = (a: number, b: number) => (Number.isFinite(a) && Number.isFinite(b) ? `${a - b >= 0 ? "+" : ""}${((a - b) * 100).toFixed(1)}%p` : "–");
