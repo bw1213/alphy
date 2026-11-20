@@ -5,7 +5,7 @@
 import { stats, compareIndices, type IndexBars } from "../engine/metrics";
 import { sellTax as krSellTax, DEFAULT_COSTS } from "../engine/costs";
 import type { MinuteBar } from "../kis/minute";
-import type { MinuteDay } from "./data";
+import { settled, type MinuteDay } from "./data";
 import { krTick, prepareDays, run, type Costs, type Day, type Trade } from "./engine";
 import { INTRADAY_STRATEGIES } from "./strategies";
 
@@ -159,8 +159,8 @@ function indexSpans(indices: IndexBars[], all: string[], split: number): Intrada
   return indices.map((ix) => ({ name: ix.name, pick: one(pickDates, ix), check: one(checkDates, ix), all: one(all, ix) }));
 }
 
-export async function runStudy(raw: IntradayRequest, deps: StudyDeps, onProgress?: (done: number, total: number) => void): Promise<IntradayReport> {
-  const req = normalizeRequest(raw);
+export async function runStudy(raw: IntradayRequest, deps: StudyDeps, onProgress?: (done: number, total: number) => void, now = Date.now()): Promise<IntradayReport> {
+  const req = normalizeRequest(raw, now);
   if (!req.tickers.length) throw new Error("국내 종목코드(6자리)를 1~6개 넣어 주세요.");
   const daily = await deps.daily(req.tickers, req.start, req.end);
   const warnings = [...daily.warnings];
@@ -168,7 +168,7 @@ export async function runStudy(raw: IntradayRequest, deps: StudyDeps, onProgress
   let before = 0;
   const loaded: { code: string; days: Day[] }[] = [];
   for (const code of req.tickers) {
-    const dates = (daily.dates[code] ?? []).filter((d) => d >= req.start && d <= req.end);
+    const dates = (daily.dates[code] ?? []).filter((d) => d >= req.start && d <= req.end && settled(d, now));
     if (!dates.length) { warnings.push(`${code}: 일봉이 없어 뺐습니다.`); continue; }
     const md = await deps.minute(code, dates, (d) => onProgress?.(before + d, total));
     before += dates.length;
