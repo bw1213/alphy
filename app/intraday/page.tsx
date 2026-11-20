@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Login, { fetchAuth, type AuthState } from "@/components/Login";
 import Info from "@/components/Info";
+import DayTradePanel from "@/components/DayTradePanel";
 import { StockChips, StockSearch, appendCode } from "@/components/StockSearch";
 import { fetchJob, type Progress } from "@/lib/client/fetchData";
 import type { IntradayReport, Span, StrategyResult, Summary, TickerResult } from "@/lib/intraday/study";
@@ -82,6 +83,7 @@ export default function IntradayPage() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState("");
   const [rep, setRep] = useState<IntradayReport | null>(null);
+  const [tab, setTab] = useState<"pick" | "fixed">("pick");
 
   useEffect(() => {
     fetchAuth().then(setAuth).catch(() => setError("로그인 상태를 읽지 못했습니다"));
@@ -106,11 +108,15 @@ export default function IntradayPage() {
       <header className="top">
         <h1>단타 전략 찾기</h1>
         <p>하루 안에 사고파는 전략을 1분봉으로 시험합니다.</p>
+        <div className="seg" style={{ marginLeft: 16 }}>
+          <button className={tab === "pick" ? "on" : ""} onClick={() => setTab("pick")}>날마다 종목 고르기</button>
+          <button className={tab === "fixed" ? "on" : ""} onClick={() => setTab("fixed")}>종목 정해서</button>
+        </div>
         <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/">백테스트</a><a href="/auto">자동 매매</a><a href="/trade">주문·잔고</a><a href="/settings">설정</a></span>
       </header>
-      <main className="app">
+      {auth && !auth.loggedIn && <div style={{ padding: 16 }}><Login auth={auth} onDone={() => fetchAuth().then(setAuth)} /></div>}
+      {tab === "pick" ? <main className="app"><DayTradePanel /></main> : <main className="app">
         <section className="stack">
-          {auth && !auth.loggedIn && <Login auth={auth} onDone={() => fetchAuth().then(setAuth)} />}
           <div className="card">
             <h2>조건</h2>
             <label className="f">종목 (국내, 6개까지)
@@ -152,7 +158,7 @@ export default function IntradayPage() {
           {rep?.tickers.map((t) => <TickerCard key={t.code} t={t} rep={rep} />)}
           {!rep && !error && <div className="card empty">종목을 고르고 실행하세요.</div>}
         </section>
-      </main>
+      </main>}
     </>
   );
 }
