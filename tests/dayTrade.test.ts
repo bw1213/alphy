@@ -157,4 +157,16 @@ describe("단타 전략 찾기", () => {
     expect(rep.indices[0].name).toBe("KOSPI");
     expect(rep.indices[0].all!.totalReturn).toBeGreaterThan(0);
   });
+
+  it("장 마감 처리 전인 오늘은 빼고 계산", async () => {
+    const dates = Array.from({ length: 60 }, (_, i) => new Date(Date.UTC(2026, 8, 22) + i * 864e5).toISOString().slice(0, 10));
+    const seen: string[][] = [];
+    const rep = await runStudy({ tickers: ["069500"] }, {
+      daily: async () => ({ dates: { "069500": dates }, names: {}, indices: [], warnings: [] }),
+      minute: async (_c, ds) => { seen.push(ds); return ds.map((d) => day(d, () => 100)); },
+      info: () => ({ etf: true }),
+    }, undefined, Date.parse("2026-11-20T03:00:00Z"));
+    expect(seen[0].at(-1)).toBe("2026-11-19");
+    expect(rep.tickers[0].to).toBe("2026-11-19");
+  });
 });
