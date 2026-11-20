@@ -20,7 +20,7 @@ export const OWNER_ID = "owner";
 /** 사용자별로 저장하는 파일 (예전에는 설정 폴더 바로 아래에 있었음) */
 export const USER_FILES = ["strategies.json", "last-state.json", "order-usage.json"] as const;
 /** 새로 생긴 사용자 파일 (예전 위치가 없어 옮길 필요 없음) */
-export const NEW_USER_FILES = ["auto.json", "auto-log.json", "notify.json", "auto-orders.json", "auto-intraday.json", "auto-perf.json", "manual.json", "manual-log.json", "manual-trades.json", "manual-history.json"] as const;
+export const NEW_USER_FILES = ["auto.json", "auto-log.json", "notify.json", "auto-orders.json", "auto-intraday.json", "auto-perf.json", "manual.json", "manual-log.json", "manual-trades.json", "manual-history.json", "daytrade.json"] as const;
 export type UserFileName = (typeof USER_FILES)[number] | (typeof NEW_USER_FILES)[number];
 export type UserFile = (typeof USER_FILES)[number];
 

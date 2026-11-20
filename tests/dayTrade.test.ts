@@ -170,3 +170,68 @@ describe("단타 전략 찾기", () => {
     expect(rep.tickers[0].to).toBe("2026-11-19");
   });
 });
+
+import { regularSession } from "@/lib/intraday/engine";
+import { DEFAULT_DAYTRADE, normalizeDayTrade, screenDays, stockCosts, tradeDay } from "@/lib/intraday/screen";
+import { runDayTrade } from "@/lib/intraday/daytrade";
+import { loadDayTrades, saveDayTrade } from "@/lib/intraday/store";
+
+const dBar = (date: string, o: number, c: number, v = 1e6) => ({ date, open: o, high: Math.max(o, c), low: Math.min(o, c), close: c, volume: v });
+const dates40 = Array.from({ length: 40 }, (_, i) => new Date(Date.UTC(2026, 5, 1) + i * 864e5).toISOString().slice(0, 10));
+
+/** 30일 10000원 → 이틀 동안 8000원까지 하락 → 마지막 날 갭 하락 시가 */
+function fallingStock(lastOpen: number) {
+  return dates40.map((d, i) => (i < 37 ? dBar(d, 10000, 10000) : i < 39 ? dBar(d, 9000, i === 37 ? 9000 : 8000) : dBar(d, lastOpen, lastOpen)));
+}
+
+describe("날마다 종목 고르는 단타", () => {
+  it("과매도 + 갭 하락 종목만, 갭이 큰 순으로 고름", () => {
+    const daily = new Map([["A00000", fallingStock(7400)], ["B00000", fallingStock(7000)], ["C00000", fallingStock(7900)]]);
+    const picks = screenDays(daily, { ...DEFAULT_DAYTRADE, minValue: 0, maxPicks: 1 }, dates40[39], dates40[39]);
+    expect(picks.get(dates40[39])!.map((p) => p.code)).toEqual(["B00000"]);
+    const all = screenDays(daily, { ...DEFAULT_DAYTRADE, minValue: 0 }, dates40[39], dates40[39]);
+    expect(all.get(dates40[39])!.map((p) => p.code)).toEqual(["B00000", "A00000"]);
+  });
+
+  it("09시에 연 날은 15:30 봉에서 자름 (뒤에 붙는 시간외 봉 무시)", () => {
+    const bars: MinuteBar[] = [[900, 1, 1, 1, 1, 1], [1519, 1, 1, 1, 1, 1], [1530, 2, 2, 2, 2, 1], [1600, 3, 3, 3, 3, 1]];
+    expect(regularSession(bars).at(-1)![0]).toBe(1530);
+    const late: MinuteBar[] = [[1000, 1, 1, 1, 1, 1], [1630, 2, 2, 2, 2, 1]];
+    expect(regularSession(late)).toHaveLength(2);
+  });
+
+  it("시가 매수 → 익절가를 넘으면 그 가격에, 손절이 먼저면 손절", () => {
+    const free = stockCosts(0, 0, () => 0);
+    const up = day("2026-11-18", (i) => (i < 30 ? 100 : 104), 100).bars;
+    const t = tradeDay({ code: "A", date: "2026-11-18", gap: -0.06, prevClose: 106, open: 100 }, up, DEFAULT_DAYTRADE, { ...free, tick: () => 0 }, 2026)!;
+    expect(t).toMatchObject({ exit: "익절", sell: 103 });
+    expect(t.net).toBeCloseTo(0.03, 10);
+    const down = day("2026-11-18", (i) => (i < 30 ? 100 : 96), 100).bars;
+    expect(tradeDay({ code: "A", date: "2026-11-18", gap: -0.06, prevClose: 106, open: 100 }, down, DEFAULT_DAYTRADE, { ...free, tick: () => 0 }, 2026)!.exit).toBe("손절");
+  });
+
+  it("백테스트: 고른 날만 종목당 비율로 자산에 반영하고 지수와 함께", async () => {
+    const cal = Array.from({ length: 30 }, (_, i) => new Date(Date.UTC(2026, 9, 1) + i * 864e5).toISOString().slice(0, 10));
+    const rep = await runDayTrade({ spec: { minValue: 0, weight: 50 }, start: cal[0], end: cal.at(-1) }, {
+      stocks: () => [{ code: "A00000", name: "에이" }],
+      daily: async () => [...dates40.slice(0, 37).map((d) => dBar(d, 10000, 10000)), dBar("2026-07-08", 9000, 9000), dBar("2026-07-09", 8000, 8000), dBar(cal[5], 7000, 7300)],
+      calendar: async () => ({ dates: cal, indices: [{ key: "kospi", name: "KOSPI", bars: cal.map((d, i) => ({ date: d, close: 100 + i })) }] }),
+      minute: async (_c, d) => day(d, (i) => (i < 30 ? 7000 : 7300), 7000).bars,
+    }, undefined, Date.parse("2026-11-20T03:00:00Z"));
+    expect(rep.result.trades).toBe(1);
+    expect(rep.trades[0]).toMatchObject({ code: "A00000", name: "에이", exit: "익절" });
+    expect(rep.result.totalReturn).toBeCloseTo(0.5 * rep.trades[0].net, 10);
+    expect(rep.indices[0].name).toBe("KOSPI");
+  });
+
+  it("내 단타 전략 저장·덮어쓰기", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "dt-"));
+    const e = { ALPHY_CONFIG_DIR: dir };
+    saveDayTrade({ name: "[Claude] 테스트", spec: { gap: 7 } }, {}, e);
+    expect(() => saveDayTrade({ name: "[Claude] 테스트", spec: {} }, {}, e)).toThrow();
+    saveDayTrade({ name: "[Claude] 테스트", spec: { gap: 6 } }, { overwrite: true }, e);
+    const list = loadDayTrades(undefined, e);
+    expect(list).toHaveLength(1);
+    expect(list[0].spec).toEqual(normalizeDayTrade({ gap: 6 }));
+  });
+});

@@ -85,6 +85,13 @@ export function aggregate(bars: MinuteBar[], n: number): MinuteBar[] {
   return out;
 }
 
+/** 09:00 에 연 날은 15:30 봉까지만 (2026-09 쯤부터 시간외 봉이 이어서 옴). 늦게 연 날(수능)은 마지막 봉까지 */
+export function regularSession(bars: MinuteBar[]): MinuteBar[] {
+  if (!bars.length || bars[0][0] >= 1000) return bars;
+  const k = bars.findIndex((b) => b[0] >= 1530);
+  return k >= 0 ? bars.slice(0, k + 1) : bars;
+}
+
 /**
  * 날짜별 봉 → 엔진용. 마지막 봉은 종가(장 마감 동시호가) 자리로 보고, 그 10분 전까지가 장중.
  * 수능날처럼 늦게 열고 늦게 닫는 날도 봉 시각으로 맞춰짐
@@ -93,7 +100,7 @@ export function prepareDays(days: MinuteDay[], barMinutes = 1): Day[] {
   const out: Day[] = [];
   let prev: number | null = null;
   for (const d of days) {
-    const raw = d.bars.filter((b) => b[4] > 0);
+    const raw = regularSession(d.bars.filter((b) => b[4] > 0));
     if (raw.length < 30) { if (raw.length) prev = raw[raw.length - 1][4]; continue; }
     const closeAt = toMin(raw[raw.length - 1][0]);
     const cont = raw.slice(0, -1).filter((b) => toMin(b[0]) < closeAt - 10);
