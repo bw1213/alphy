@@ -64,6 +64,8 @@ export interface AutoSettings {
   telegramBot?: string;
   /** 증권사·규칙표에 없는 임시 휴장일 (시장별 YYYY-MM-DD) */
   extraClosed?: { KR?: string[]; US?: string[] };
+  /** 한국 장이 10:00 에 열고 16:30 에 닫는 날 (수능일 등) */
+  lateOpen?: string[];
 }
 
 export const DEFAULT_AUTO: AutoSettings = { eveningTime: "18:00", morningTime: "08:40", cutoffTime: "10:00" };

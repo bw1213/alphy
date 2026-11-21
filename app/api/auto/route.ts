@@ -22,7 +22,7 @@ import type { EveningReport } from "@/lib/auto/evening";
 import { clearOldRecords } from "@/lib/auto/clear";
 import { hasKisAccount } from "@/lib/manual/kis";
 import { loadHistory } from "@/lib/manual/value";
-import { cleanDates, extraClosed, loadCalendar, refreshKrCalendar, tradingDay, upcomingClosed } from "@/lib/market/holidays";
+import { cleanDates, extraClosed, lateOpenDays, loadCalendar, refreshKrCalendar, tradingDay, upcomingClosed } from "@/lib/market/holidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,6 +93,7 @@ function calendarView() {
     krFetchedAt: c.krFetchedAt ?? null,
     krError: c.krError ?? null,
     extra: extraClosed(),
+    late: lateOpenDays(),
   };
 }
 
@@ -138,8 +139,8 @@ export async function POST(req: Request) {
       }
       case "holidays": {
         if (user.id !== OWNER_ID) return NextResponse.json({ error: "휴장일은 관리자만 바꿀 수 있습니다." }, { status: 403 });
-        const KR = cleanDates(body.KR), US = cleanDates(body.US);
-        updateSettings((s) => { s.auto.extraClosed = { KR, US }; });
+        const KR = cleanDates(body.KR), US = cleanDates(body.US), late = cleanDates(body.late);
+        updateSettings((s) => { s.auto.extraClosed = { KR, US }; s.auto.lateOpen = late; });
         return NextResponse.json({ ok: true, calendar: calendarView() });
       }
       case "holidaysRefresh": {

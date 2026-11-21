@@ -187,24 +187,24 @@ function OrdersCard({ st }: { st: AutoState }) {
 
 interface CalendarView {
   markets: { market: "KR" | "US"; today: DayInfo; upcoming: DayInfo[] }[];
-  krFetchedAt: string | null; krError: string | null; extra: { KR: string[]; US: string[] };
+  krFetchedAt: string | null; krError: string | null; extra: { KR: string[]; US: string[] }; late: string[];
 }
 
 const MK = { KR: "한국", US: "미국" } as const;
 const DOWS = "일월화수목금토";
 const dayLabel = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}(${DOWS[new Date(`${d}T00:00:00Z`).getUTCDay()]})`;
-const dayNote = (t: DayInfo) => (t.closeAt ? `${t.closeAt} 조기 마감` : t.openAt ? `${t.openAt} 개장` : t.name ?? "휴장");
+const dayNote = (t: DayInfo) => (t.openAt ? `${t.openAt} 개장${t.closeAt ? `·${t.closeAt} 마감` : ""}` : t.closeAt ? `${t.closeAt} 조기 마감` : t.name ?? "휴장");
 
 function HolidayCard({ cal, markets, owner, busy, onSave, onRefresh }: {
   cal: CalendarView; markets: ("KR" | "US")[]; owner: boolean; busy: boolean;
-  onSave: (v: { KR: string; US: string }) => void; onRefresh: () => void;
+  onSave: (v: { KR: string; US: string; late: string }) => void; onRefresh: () => void;
 }) {
-  const [extra, setExtra] = useState({ KR: cal.extra.KR.join(", "), US: cal.extra.US.join(", ") });
+  const [extra, setExtra] = useState({ KR: cal.extra.KR.join(", "), US: cal.extra.US.join(", "), late: cal.late.join(", ") });
   const shown = cal.markets.filter((m) => markets.includes(m.market));
   return (
     <div className="card">
       <h2 style={{ display: "flex", alignItems: "center", gap: 6 }}>휴장일
-        <Info>휴장일에는 아침 주문·장중 매도를 하지 않습니다. 한국은 한국투자증권 휴장일 조회(실전 앱키)를 하루 한 번 받고, 못 받으면 공휴일 규칙으로 판단합니다. 미국은 NYSE 휴장·조기 마감 규칙을 씁니다. 갑작스러운 임시 휴장은 아래에 직접 넣으세요.</Info>
+        <Info>휴장일에는 아침 주문·장중 매도를 하지 않습니다. 한국은 한국투자증권 휴장일 조회(실전 앱키)를 하루 한 번 받고, 못 받으면 공휴일 규칙으로 판단합니다. 미국은 NYSE 휴장·조기 마감 규칙을 씁니다. 갑작스러운 임시 휴장은 아래에 직접 넣으세요. 한국 장이 09:01 에도 거래가 없으면(수능일·전산 장애) 그날은 10:00 개장·16:30 마감으로 보고 체결 확인·취소·감시를 늦춥니다. 미리 아는 날은 "늦게 여는 날"에 넣으세요.</Info>
       </h2>
       {shown.map((m) => (
         <div key={m.market} style={{ marginBottom: 8 }}>
@@ -219,6 +219,7 @@ function HolidayCard({ cal, markets, owner, busy, onSave, onRefresh }: {
             <label className="f">한국 임시 휴장일<input value={extra.KR} placeholder="2026-12-30" onChange={(e) => setExtra({ ...extra, KR: e.target.value })} /></label>
             <label className="f">미국 임시 휴장일<input value={extra.US} placeholder="2026-12-24" onChange={(e) => setExtra({ ...extra, US: e.target.value })} /></label>
           </div>
+          <label className="f" style={{ marginTop: 8 }}>한국 늦게 여는 날 (10:00~16:30)<input value={extra.late} placeholder="2027-11-18" onChange={(e) => setExtra({ ...extra, late: e.target.value })} /></label>
           <div className="row" style={{ marginTop: 8, gap: 8 }}>
             <button disabled={busy} onClick={() => onSave(extra)}>저장</button>
             <button disabled={busy} onClick={onRefresh}>한국 휴장일 다시 받기</button>
@@ -430,7 +431,7 @@ export default function AutoPage() {
 
           {st?.calendar && (
             <HolidayCard cal={st.calendar} markets={st.markets?.length ? st.markets : ["KR"]} owner={!!st.owner} busy={!!busy}
-              onSave={(v) => act("holidays", () => post("/api/auto", { action: "holidays", ...v }), "임시 휴장일을 저장했습니다.")}
+              onSave={(v) => act("holidays", () => post("/api/auto", { action: "holidays", ...v }), "휴장일 설정을 저장했습니다.")}
               onRefresh={() => act("holidaysRefresh", () => post("/api/auto", { action: "holidaysRefresh" }), "한국 휴장일을 새로 받았습니다.")} />
           )}
           {st?.owner && (

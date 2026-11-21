@@ -2,14 +2,14 @@ import { describe, expect, it, beforeEach } from "vitest";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { fetchKrDays, prevTradingDay, refreshKrCalendar, resetCalendarRetry, tradingDay, upcomingClosed } from "@/lib/market/holidays";
+import { detectLateOpen, fetchKrDays, krTradingStarted, prevTradingDay, refreshKrCalendar, resetCalendarRetry, resetProbe, tradingDay, upcomingClosed } from "@/lib/market/holidays";
 import { sessionOn } from "@/lib/auto/calendar";
 import { krSession, US_SESSION } from "@/lib/auto/session";
 import { pickReport } from "@/lib/auto/morning";
 import { updateSettings } from "@/lib/settings/store";
 
 let env: Record<string, string>;
-beforeEach(() => { env = { ALPHY_CONFIG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "alphy-cal-")) }; resetCalendarRetry(); });
+beforeEach(() => { env = { ALPHY_CONFIG_DIR: fs.mkdtempSync(path.join(os.tmpdir(), "alphy-cal-")) }; resetCalendarRetry(); resetProbe(); });
 
 const closed = (m: "KR" | "US", year: number) => {
   const out: string[] = [];
@@ -105,5 +105,40 @@ describe("긴 연휴 뒤 아침 주문", () => {
     const r: any = { status: "ok", label: "L", runDate: "2026-09-23", ranAt: "2026-09-23T09:00:00Z", orders: [] };
     expect(pickReport([r], plan, "2026-09-28").report?.runDate).toBe("2026-09-23");
     expect(pickReport([{ ...r, runDate: "2026-09-18" }], plan, "2026-09-28").report).toBeNull();
+  });
+});
+
+describe("늦은 개장 (수능일 등)", () => {
+  const quote = (vol: number) => { const calls: string[] = []; return { calls, client: { env: "real", call: async (o: any) => { calls.push(o.trId); return { body: { output: { stck_prpr: "1000", acml_vol: String(vol) } }, trCont: "" }; } } as any }; };
+  const at = (hm: string) => Date.parse(`2026-11-19T${hm}:00+09:00`);
+
+  it("09:01 에 거래가 없으면 그날은 10:00 개장·16:30 마감", async () => {
+    const q = quote(0);
+    expect(await detectLateOpen(env, { now: at("09:00"), client: q.client })).toBeNull();
+    expect(await detectLateOpen(env, { now: at("09:01"), client: q.client })).toBe(true);
+    expect(await detectLateOpen(env, { now: at("09:02"), client: q.client })).toBeNull();
+    expect(q.calls.length).toBe(1);
+    expect(tradingDay("KR", "2026-11-19", env)).toMatchObject({ open: true, openAt: "10:00", closeAt: "16:30" });
+    const s = sessionOn(krSession({ morning: "08:40", cutoff: "10:00" }), "2026-11-19", env);
+    expect([s.followFrom, s.buyBy, s.cutoff, s.watchFrom, s.watchUntil, s.close]).toEqual(["10:00", "10:10", "11:00", "10:00", "16:20", "16:30"]);
+  });
+  it("거래가 있으면 평소대로", async () => {
+    expect(await detectLateOpen(env, { now: at("09:01"), client: quote(1200).client })).toBe(false);
+    expect(tradingDay("KR", "2026-11-19", env).openAt).toBeUndefined();
+  });
+  it("직접 넣은 늦은 개장일, 휴장일 다시 받아도 유지", async () => {
+    updateSettings((s) => { s.auto.lateOpen = ["2027-11-18"]; }, env);
+    expect(tradingDay("KR", "2027-11-18", env)).toMatchObject({ openAt: "10:00", source: "manual" });
+    await detectLateOpen(env, { now: at("09:01"), client: quote(0).client });
+    const fake: any = { env: "real", call: async () => ({ body: { output: [{ bass_dt: "20261119", opnd_yn: "Y" }] }, trCont: "" }) };
+    await refreshKrCalendar(env, { now: at("09:05"), client: fake, force: true });
+    expect(tradingDay("KR", "2026-11-19", env).openAt).toBe("10:00");
+  });
+  it("거래 시작 여부는 1분 기억", async () => {
+    const q = quote(0);
+    expect(await krTradingStarted(env, { now: at("10:00"), client: q.client })).toBe(false);
+    expect(await krTradingStarted(env, { now: at("10:00") + 30_000, client: q.client })).toBe(false);
+    expect(q.calls.length).toBe(1);
+    expect(await krTradingStarted(env, { now: at("10:01") + 1000, client: quote(5).client })).toBe(true);
   });
 });

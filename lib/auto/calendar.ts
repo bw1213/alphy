@@ -17,6 +17,9 @@ export function sessionOn(ses: Session, date: string, e: Env = process.env): Ses
   }
   if (t.closeAt && t.closeAt < s.close) {
     s = { ...s, close: t.closeAt, watchUntil: later(t.closeAt, -10), cutoff: s.cutoff < t.closeAt ? s.cutoff : later(t.closeAt, -30) };
+  } else if (t.closeAt && t.closeAt > s.close) {
+    const n = toMin(t.closeAt) - toMin(s.close);
+    s = { ...s, close: t.closeAt, watchUntil: later(s.watchUntil, n) };
   }
   return s;
 }

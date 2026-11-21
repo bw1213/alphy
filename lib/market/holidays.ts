@@ -7,7 +7,8 @@ import fs from "fs";
 import path from "path";
 import { configDir, loadSettings, runtimeEnv } from "../settings/store";
 import { listUsers } from "../settings/users";
-import { credentialsFor, type KisCredentials } from "../kis/config";
+import { credentialsFor, quoteCredentials, type KisCredentials } from "../kis/config";
+import { kisQuote } from "../kis/market";
 import { getClient } from "../kis/client";
 import { kisEnvFor } from "../kis/userkeys";
 import type { KisClient } from "../kis/client";
@@ -29,6 +30,8 @@ export interface DayInfo {
 
 interface CalendarFile {
   kr?: Record<string, boolean>;
+  /** 09:01 에 아직 거래가 없어 늦게 연다고 본 날 */
+  krLate?: Record<string, string>;
   krFetchedAt?: string;
   krError?: string;
 }
@@ -164,6 +167,8 @@ function saveCalendar(c: CalendarFile, e: Env) {
 export const cleanDates = (v: unknown): string[] =>
   [...new Set(String(Array.isArray(v) ? v.join(",") : v ?? "").split(/[\s,]+/).map((s) => s.trim()).filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s))))].sort();
 
+export const lateOpenDays = (e: Env = process.env): string[] => cleanDates(loadSettings(e).auto.lateOpen);
+
 export function extraClosed(e: Env = process.env): Record<Market, string[]> {
   const x = loadSettings(e).auto.extraClosed ?? {};
   return { KR: cleanDates(x.KR), US: cleanDates(x.US) };
@@ -184,12 +189,17 @@ function closedInfo(market: Market, date: string, e: Env): DayInfo | null {
   return n ? { date, open: false, source: "rule", name: n } : null;
 }
 
+export const LATE_OPEN = "10:00", LATE_CLOSE = "16:30";
+
 /** 그 시장이 그날 열리는지 (날짜는 그 시장 날짜) */
 export function tradingDay(market: Market, date: string, e: Env = process.env): DayInfo {
   const closed = closedInfo(market, date, e);
   if (closed) return closed;
   const src: DayInfo["source"] = market === "KR" && loadCalendar(e).kr?.[date] === true ? "kis" : "rule";
   if (market === "US" && usEarlyClose(date)) return { date, open: true, source: src, closeAt: "13:00", name: "조기 마감" };
+  if (market === "KR" && (lateOpenDays(e).includes(date) || loadCalendar(e).krLate?.[date])) {
+    return { date, open: true, source: lateOpenDays(e).includes(date) ? "manual" : src, openAt: LATE_OPEN, closeAt: LATE_CLOSE, name: "늦은 개장" };
+  }
   if (market === "KR" && isFirstOfYear(date, e)) return { date, open: true, source: src, openAt: "10:00", name: "새해 첫 거래일" };
   return { date, open: true, source: src };
 }
@@ -283,7 +293,7 @@ export async function refreshKrCalendar(e: Env = process.env, opts: { now?: numb
       if (!Object.keys(days).length) throw new Error("빈 응답");
       const keepFrom = addDays(today, -400);
       const kr = Object.fromEntries(Object.entries({ ...(cur.kr ?? {}), ...days }).filter(([d]) => d >= keepFrom).sort(([a], [b]) => a.localeCompare(b)));
-      const next: CalendarFile = { kr, krFetchedAt: new Date(now).toISOString() };
+      const next: CalendarFile = { ...loadCalendar(e), kr, krFetchedAt: new Date(now).toISOString(), krError: undefined };
       saveCalendar(next, e);
       return next;
     } catch (err) {
@@ -296,3 +306,43 @@ export async function refreshKrCalendar(e: Env = process.env, opts: { now?: numb
 }
 
 export function resetCalendarRetry() { lastTry = 0; }
+
+const PROBE = "005930";
+const probeDone = new Set<string>();
+let started: { date: string; at: number; v: boolean } | null = null;
+
+async function krVolume(e: Env, client?: KisClient): Promise<number | null> {
+  const c = client ?? (() => { const q = quoteCredentials(runtimeEnv(e)) ?? realCredentials(e); return q ? getClient(q) : null; })();
+  if (!c) return null;
+  return (await kisQuote(c, PROBE)).volume;
+}
+
+/** 한국 장 시작 1분 뒤에도 거래가 없으면(수능일·전산 장애) 그날은 늦게 연다고 적어 둠 */
+export async function detectLateOpen(e: Env = process.env, opts: { now?: number; client?: KisClient } = {}): Promise<boolean | null> {
+  const now = opts.now ?? Date.now();
+  const k = new Date(now + 9 * 3600_000).toISOString();
+  const date = k.slice(0, 10), hm = k.slice(11, 16);
+  if (hm < "09:01" || hm >= "09:30" || probeDone.has(date)) return null;
+  const t = tradingDay("KR", date, e);
+  if (!t.open || t.openAt) { probeDone.add(date); return null; }
+  const vol = await krVolume(e, opts.client).catch(() => null);
+  if (vol == null) return null;
+  probeDone.add(date);
+  if (vol > 0) return false;
+  const cur = loadCalendar(e);
+  saveCalendar({ ...cur, krLate: { ...Object.fromEntries(Object.entries(cur.krLate ?? {}).filter(([d]) => d >= addDays(date, -400))), [date]: LATE_OPEN } }, e);
+  return true;
+}
+
+/** 오늘 한국 장에서 거래가 시작됐는지 (1분 동안 기억). 모르면 null */
+export async function krTradingStarted(e: Env = process.env, opts: { now?: number; client?: KisClient } = {}): Promise<boolean | null> {
+  const now = opts.now ?? Date.now();
+  const date = kstDate(now);
+  if (started && started.date === date && (started.v || now - started.at < 60_000)) return started.v;
+  const vol = await krVolume(e, opts.client).catch(() => null);
+  if (vol == null) return null;
+  started = { date, at: now, v: vol > 0 };
+  return started.v;
+}
+
+export function resetProbe() { probeDone.clear(); started = null; }
