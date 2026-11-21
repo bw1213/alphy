@@ -22,6 +22,7 @@ import type { EveningReport } from "@/lib/auto/evening";
 import { clearOldRecords } from "@/lib/auto/clear";
 import { hasKisAccount } from "@/lib/manual/kis";
 import { loadHistory } from "@/lib/manual/value";
+import { cleanDates, extraClosed, loadCalendar, refreshKrCalendar, tradingDay, upcomingClosed } from "@/lib/market/holidays";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,8 +81,19 @@ export async function GET(req: Request) {
     markets: plan ? planMarkets(plan) : ["KR"],
     owner: user.id === OWNER_ID,
     today: kst().date,
+    calendar: calendarView(),
     ...(hasKisAccount(user) ? { accountView: loadHistory(user.id).kis ?? null } : {}),
   }, { headers: { "Cache-Control": "no-store" } });
+}
+
+function calendarView() {
+  const c = loadCalendar();
+  return {
+    markets: (["KR", "US"] as const).map((m) => { const d = clockOf(m).date; return { market: m, today: tradingDay(m, d), upcoming: upcomingClosed(m, d, 45) }; }),
+    krFetchedAt: c.krFetchedAt ?? null,
+    krError: c.krError ?? null,
+    extra: extraClosed(),
+  };
 }
 
 export async function POST(req: Request) {
@@ -123,6 +135,18 @@ export async function POST(req: Request) {
         if (c > "10:00" || c <= m) return NextResponse.json({ error: "마감 시각은 주문 시각 뒤, 10:00 까지로 넣으세요." }, { status: 400 });
         updateSettings((s) => { s.auto.morningTime = m; s.auto.cutoffTime = c; });
         return NextResponse.json({ ok: true });
+      }
+      case "holidays": {
+        if (user.id !== OWNER_ID) return NextResponse.json({ error: "휴장일은 관리자만 바꿀 수 있습니다." }, { status: 403 });
+        const KR = cleanDates(body.KR), US = cleanDates(body.US);
+        updateSettings((s) => { s.auto.extraClosed = { KR, US }; });
+        return NextResponse.json({ ok: true, calendar: calendarView() });
+      }
+      case "holidaysRefresh": {
+        if (user.id !== OWNER_ID) return NextResponse.json({ error: "관리자만 할 수 있습니다." }, { status: 403 });
+        const c = await refreshKrCalendar(process.env, { force: true });
+        if (c.krError) return NextResponse.json({ error: c.krError }, { status: 502 });
+        return NextResponse.json({ ok: true, calendar: calendarView() });
       }
       case "real": {
         const plan = loadPlan(user.id);

@@ -7,7 +7,9 @@ import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport, Unfinished } from "./evening";
 import { REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
 import { minusDays } from "./time";
-import { clockOf, isMixed, marketOf, reportMarkets, US_SESSION, type Market } from "./session";
+import { clockOf, isMixed, krSession, marketOf, reportMarkets, US_SESSION, type Market } from "./session";
+import { sessionOn } from "./calendar";
+import { prevTradingDay } from "../market/holidays";
 import { withCode } from "../strategies/universe";
 
 type Env = Record<string, string | undefined>;
@@ -89,11 +91,13 @@ export function saveDay(d: MorningDay, user: string = OWNER_ID, e: Env = process
   writeUserFile("auto-orders.json", JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
 }
 
-export function pickReport(log: EveningReport[], plan: AutoPlan, today: string, sameDay = false): { report: EveningReport | null; reason?: string } {
-  const ok = log.filter((r) => r.status === "ok" && (sameDay ? r.runDate <= today : r.runDate < today) && r.runDate >= minusDays(today, 4))
+export function pickReport(log: EveningReport[], plan: AutoPlan, today: string, sameDay = false, market: Market = "KR"): { report: EveningReport | null; reason?: string } {
+  // 연휴가 길면 4일보다 앞의 계산이 마지막일 수 있어 2거래일 전까지 봄
+  const since = [minusDays(today, 4), minusDays(prevTradingDay(market, today, 2), 1)].sort()[0];
+  const ok = log.filter((r) => r.status === "ok" && (sameDay ? r.runDate <= today : r.runDate < today) && r.runDate >= since)
     .sort((a, b) => (a.runDate === b.runDate ? b.ranAt.localeCompare(a.ranAt) : b.runDate.localeCompare(a.runDate)));
   const r = ok[0];
-  if (!r) return { report: null, reason: "따를 저녁 계산이 없습니다 (최근 4일 안의 정상 계산 없음)." };
+  if (!r) return { report: null, reason: "따를 저녁 계산이 없습니다 (최근 4일·2거래일 안의 정상 계산 없음)." };
   if (r.label !== plan.label || (plan.updatedAt && plan.updatedAt > r.ranAt)) return { report: null, reason: "저녁 계산 뒤에 운용 전략이 바뀌어 오늘은 주문하지 않습니다. 오늘 저녁 계산부터 새 전략으로 합니다." };
   if (r.lossStop) return { report: null, reason: "손실 한도에 닿아 자동 매매가 멈춰 있습니다." };
   return { report: r };
@@ -116,14 +120,19 @@ async function placeOne(it: MorningItem, b: Broker, d: MorningDay, now: number, 
 const usedReport = (x: MorningDay, r: EveningReport, label: string) =>
   x.label === label && (x.reportData ? x.reportData === r.dataDate : x.reportDate === r.runDate) && x.items.some((it) => it.orderNo);
 
+export const HOLIDAY = "오늘은 휴장일입니다.";
+
 export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Broker, now: number, lim: MorningLimits = {}, market: Market = "KR", days: MorningDay[] = []): Promise<MorningDay> {
   const today = clockOf(market, now).date;
   const d: MorningDay = { date: today, label: plan.label, env: b.env, ...(market === "US" ? { market } : {}), phase: "placed", items: [], log: [] };
   const skip = (reason: string): MorningDay => ({ ...d, phase: "skipped", reason, log: [`${hhmm(now, d.market)} ${reason}`] });
   if (!plan.enabled) return skip("운용이 꺼져 있습니다.");
+  let open: boolean | null = null;
+  try { open = await b.openDay(today); } catch { }
+  if (open === false) return skip(HOLIDAY);
   if (b.env === "real" && !plan.realConfirmedAt) return skip(REAL_NOT_CONFIRMED);
   if (b.env === "real" && lim.realCap && plan.budget > lim.realCap) return skip(`운용 금액 ${won(plan.budget)}이 실전 운용 금액 상한 ${won(lim.realCap)}을 넘습니다. 설정에서 상한을 올리거나 운용 금액을 줄이세요.`);
-  const { report, reason } = pickReport(log, plan, today, market === "US" || isMixed(plan));
+  const { report, reason } = pickReport(log, plan, today, market === "US" || isMixed(plan), market);
   if (!report) return skip(reason!);
   if (!reportMarkets(report).includes(market)) return skip("계산 결과와 운용 종목의 시장이 달라 오늘은 주문하지 않습니다.");
   // 계산이 실패한 다음 날 예전 계산을 다시 집어 같은 주문을 두 번 내지 않게
@@ -133,9 +142,6 @@ export async function morningStart(plan: AutoPlan, log: EveningReport[], b: Brok
   d.reportDate = report.runDate;
   d.reportData = report.dataDate;
   const orders = report.orders.filter((o) => reportMarkets(report).length < 2 || marketOf(o.ticker) === market);
-  let open: boolean | null = null;
-  try { open = await b.openDay(today); } catch { }
-  if (open === false) return skip("오늘은 휴장일입니다.");
   if (!orders.length) return { ...d, phase: "done", reason: "주문 없음", log: [`${hhmm(now, d.market)} 오늘은 주문할 것이 없습니다 (${report.runDate} 계산).`] };
 
   const bal = await b.balance();
@@ -188,7 +194,7 @@ export async function morningFollow(d: MorningDay, b: Broker, now: number, cutof
   if (d.items.some((x) => x.orderNo)) {
     try { applyFills(d, await b.orders(d.date)); } catch (err) { d.log.push(`${hm} 체결 조회 실패: ${(err as Error).message}`); }
   }
-  const buyFrom = d.market === "US" ? US_SESSION.buyFrom : "09:01", buyBy = d.market === "US" ? US_SESSION.buyBy : "09:10";
+  const { buyFrom, buyBy } = sessionOn(d.market === "US" ? US_SESSION : krSession({ morning: "08:40", cutoff }), d.date);
   if (d.phase === "buying" && hm >= buyFrom) {
     const sellsOpen = d.items.some((x) => x.side === "sell" && (x.status === "placed" || x.status === "partial"));
     if (!sellsOpen || hm >= buyBy) {

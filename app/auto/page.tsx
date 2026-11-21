@@ -13,6 +13,8 @@ import { fetchJob } from "@/lib/client/fetchData";
 import type { PerfPoint, PerfSummary } from "@/lib/auto/perf";
 import type { KisView } from "@/lib/manual/value";
 import type { DayOrder } from "@/lib/kis/orders";
+import type { DayInfo } from "@/lib/market/holidays";
+import Info from "@/components/Info";
 import { marketOf, planMarkets } from "@/lib/auto/session";
 
 interface PlanView {
@@ -28,6 +30,7 @@ interface AutoState {
   perf: { base: { date: string; total: number } | null; budget: number; env: "real" | "mock"; points: PerfPoint[]; summary: PerfSummary | null } | null;
   real: { confirmedAt: string | null; lock: string | null; mockDays: number; telegram: boolean };
   accountView?: KisView | null;
+  calendar?: CalendarView;
 }
 const ST = { waiting: "대기", placed: "주문됨", partial: "일부 체결", filled: "체결", cancelled: "취소", failed: "실패", skipped: "건너뜀" } as const;
 interface TgState { botSet: boolean; bot: string | null; owner: boolean; linked: boolean; chatName: string | null; code: string | null }
@@ -178,6 +181,50 @@ function OrdersCard({ st }: { st: AutoState }) {
           <p className="help">이 가격들은 증권사에 미리 걸어 둔 주문이 아닙니다. 알피가 장중에 현재가를 지켜보다가 닿으면 그때 시장가로 팔고, 그 주문이 위 &quot;오늘 증권사 주문&quot;에 나타납니다.</p>
         </>
       ) : null}
+    </div>
+  );
+}
+
+interface CalendarView {
+  markets: { market: "KR" | "US"; today: DayInfo; upcoming: DayInfo[] }[];
+  krFetchedAt: string | null; krError: string | null; extra: { KR: string[]; US: string[] };
+}
+
+const MK = { KR: "한국", US: "미국" } as const;
+const DOWS = "일월화수목금토";
+const dayLabel = (d: string) => `${Number(d.slice(5, 7))}/${Number(d.slice(8))}(${DOWS[new Date(`${d}T00:00:00Z`).getUTCDay()]})`;
+const dayNote = (t: DayInfo) => (t.closeAt ? `${t.closeAt} 조기 마감` : t.openAt ? `${t.openAt} 개장` : t.name ?? "휴장");
+
+function HolidayCard({ cal, markets, owner, busy, onSave, onRefresh }: {
+  cal: CalendarView; markets: ("KR" | "US")[]; owner: boolean; busy: boolean;
+  onSave: (v: { KR: string; US: string }) => void; onRefresh: () => void;
+}) {
+  const [extra, setExtra] = useState({ KR: cal.extra.KR.join(", "), US: cal.extra.US.join(", ") });
+  const shown = cal.markets.filter((m) => markets.includes(m.market));
+  return (
+    <div className="card">
+      <h2 style={{ display: "flex", alignItems: "center", gap: 6 }}>휴장일
+        <Info>휴장일에는 아침 주문·장중 매도를 하지 않습니다. 한국은 한국투자증권 휴장일 조회(실전 앱키)를 하루 한 번 받고, 못 받으면 공휴일 규칙으로 판단합니다. 미국은 NYSE 휴장·조기 마감 규칙을 씁니다. 갑작스러운 임시 휴장은 아래에 직접 넣으세요.</Info>
+      </h2>
+      {shown.map((m) => (
+        <div key={m.market} style={{ marginBottom: 8 }}>
+          <p style={{ margin: "4px 0" }}><b>{MK[m.market]}</b> 오늘 {m.today.open ? (m.today.closeAt || m.today.openAt ? `장 열림 · ${dayNote(m.today)}` : "장 열림") : `휴장${m.today.name ? ` · ${m.today.name}` : ""}`}</p>
+          <p className="help" style={{ margin: 0 }}>{m.upcoming.length ? m.upcoming.slice(0, 6).map((t) => `${dayLabel(t.date)} ${dayNote(t)}`).join(" · ") : "45일 안에 휴장일 없음"}</p>
+        </div>
+      ))}
+      {markets.includes("KR") && <p className="help">{cal.krError ? cal.krError : cal.krFetchedAt ? `한국 휴장일 조회 ${kstTime(cal.krFetchedAt)}` : "한국 휴장일은 아직 조회 전입니다."}</p>}
+      {owner && (
+        <>
+          <div className="row" style={{ marginTop: 8 }}>
+            <label className="f">한국 임시 휴장일<input value={extra.KR} placeholder="2026-12-30" onChange={(e) => setExtra({ ...extra, KR: e.target.value })} /></label>
+            <label className="f">미국 임시 휴장일<input value={extra.US} placeholder="2026-12-24" onChange={(e) => setExtra({ ...extra, US: e.target.value })} /></label>
+          </div>
+          <div className="row" style={{ marginTop: 8, gap: 8 }}>
+            <button disabled={busy} onClick={() => onSave(extra)}>저장</button>
+            <button disabled={busy} onClick={onRefresh}>한국 휴장일 다시 받기</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -381,6 +428,11 @@ export default function AutoPage() {
             )}
           </div>
 
+          {st?.calendar && (
+            <HolidayCard cal={st.calendar} markets={st.markets?.length ? st.markets : ["KR"]} owner={!!st.owner} busy={!!busy}
+              onSave={(v) => act("holidays", () => post("/api/auto", { action: "holidays", ...v }), "임시 휴장일을 저장했습니다.")}
+              onRefresh={() => act("holidaysRefresh", () => post("/api/auto", { action: "holidaysRefresh" }), "한국 휴장일을 새로 받았습니다.")} />
+          )}
           {st?.owner && (
             <div className="card">
               <h2>실행 시각 (관리자)</h2>

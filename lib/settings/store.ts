@@ -62,6 +62,8 @@ export interface AutoSettings {
   telegramToken?: string;
   /** 봇 사용자 이름 (@ 없이). 토큰을 넣을 때 확인해서 저장 */
   telegramBot?: string;
+  /** 증권사·규칙표에 없는 임시 휴장일 (시장별 YYYY-MM-DD) */
+  extraClosed?: { KR?: string[]; US?: string[] };
 }
 
 export const DEFAULT_AUTO: AutoSettings = { eveningTime: "18:00", morningTime: "08:40", cutoffTime: "10:00" };

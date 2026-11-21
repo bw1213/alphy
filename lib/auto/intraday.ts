@@ -4,6 +4,7 @@ import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport, SellLevel } from "./evening";
 import { applyFills, pickReport, type Broker, type ItemStatus, type MorningLimits } from "./morning";
 import { intradayOn, REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
+import { sessionOn } from "./calendar";
 import { clockOf, isMixed, krSession, marketOf, reportMarkets, US_SESSION, type Market, type Session } from "./session";
 import { withCode } from "../strategies/universe";
 
@@ -52,7 +53,7 @@ export interface IntradayDay {
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 export const money = (m: Market | undefined, n: number) => (m === "US" ? `$${n.toFixed(2)}` : won(n));
 export const levelPrice = (l: SellLevel) => l.usd ?? l.price;
-const sessionOf = (d: Pick<IntradayDay, "market">): Session => (d.market === "US" ? US_SESSION : krSession({ morning: "08:40", cutoff: "10:00" }));
+const sessionOf = (d: Pick<IntradayDay, "market" | "date">): Session => sessionOn(d.market === "US" ? US_SESSION : krSession({ morning: "08:40", cutoff: "10:00" }), d.date);
 export const levelKey = (l: Pick<SellLevel, "ticker" | "kind" | "price">) => `${l.ticker}:${l.kind}:${l.price}`;
 
 type DaysFile = Record<string, IntradayDay>;
@@ -76,8 +77,11 @@ export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Bro
   const off = (reason: string): IntradayDay => ({ ...d, done: true, reason, log: [`${k.hm} ${reason}`] });
   if (!plan.enabled) return off("운용이 꺼져 있습니다.");
   if (!intradayOn(plan)) return off("장중 실시간 매도가 꺼져 있습니다.");
+  let open: boolean | null = null;
+  try { open = await b.openDay(k.date); } catch { }
+  if (open === false) return off("오늘은 휴장일입니다.");
   if (b.env === "real" && !plan.realConfirmedAt) return off(REAL_NOT_CONFIRMED);
-  const { report, reason } = pickReport(log, plan, k.date, market === "US" || isMixed(plan));
+  const { report, reason } = pickReport(log, plan, k.date, market === "US" || isMixed(plan), market);
   if (!report) return off(reason!);
   if (!reportMarkets(report).includes(market)) return off("계산 결과와 운용 종목의 시장이 달라 오늘은 감시하지 않습니다.");
   const levels = report.sellLevels.filter((l) => reportMarkets(report).length < 2 || marketOf(l.ticker) === market);
@@ -86,9 +90,6 @@ export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Bro
   d.reportDate = report.runDate;
   if (!report.intraday) return off(`${report.runDate} 계산은 장중 매도 없이 계산됐습니다. 다음 계산부터 적용됩니다.`);
   if (!levels.length) return off("오늘은 감시할 매도 가격이 없습니다.");
-  let open: boolean | null = null;
-  try { open = await b.openDay(k.date); } catch { }
-  if (open === false) return off("오늘은 휴장일입니다.");
   d.levels = levels;
   d.log.push(`${k.hm} 감시 시작: ${levels.map((l) => `${withCode(l.name, l.ticker)} ${money(market, levelPrice(l))} ${l.kind === "take_profit" ? "이상" : "이하"}`).join(", ")}`);
   return d;

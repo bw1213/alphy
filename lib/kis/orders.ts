@@ -1,6 +1,6 @@
 /**
- * KIS 주문 조회·취소·주문 가능 금액·휴장일 (서버 전용).
- * 거래ID는 실전 기준이고, 모의투자는 맨 앞 T 를 V 로 바꿉니다(휴장일 조회는 실전 앱키만 됨).
+ * KIS 주문 조회·취소·주문 가능 금액 (서버 전용).
+ * 거래ID는 실전 기준이고, 모의투자는 맨 앞 T 를 V 로 바꿉니다.
  */
 import type { KisClient } from "./client";
 
@@ -99,16 +99,3 @@ export async function buyableCash(client: KisClient, code: string, price: number
   return num(o.nrcvb_buy_amt ?? o.ord_psbl_cash);
 }
 
-/** 그날 장이 열리는지 (실전 앱키 필요). 모르면 null */
-export async function isOpenDay(client: KisClient, date: string): Promise<boolean | null> {
-  if (client.env !== "real") return null;
-  const { body } = await client.call({
-    method: "GET",
-    path: "/uapi/domestic-stock/v1/quotations/chk-holiday",
-    trId: "CTCA0903R",
-    query: { BASS_DT: ymd(date), CTX_AREA_NK: "", CTX_AREA_FK: "" },
-  });
-  const rows = (body.output as any[]) ?? [];
-  const row = rows.find((r) => String(r.bass_dt) === ymd(date));
-  return row ? String(row.opnd_yn).toUpperCase() === "Y" : null;
-}
