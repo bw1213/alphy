@@ -1,10 +1,8 @@
 /** 그 사람의 한국투자증권 계좌로 아침 주문을 내는 연결 (서버 전용) */
 import { getClient } from "../kis/client";
 import { tradeCredentialsFor } from "../kis/access";
-import { credentialsFor } from "../kis/config";
-import { buyableCash, cancelOrder, isOpenDay, listDayOrders } from "../kis/orders";
+import { buyableCash, cancelOrder, listDayOrders } from "../kis/orders";
 import { getBalance, placeOrder } from "../kis/trading";
-import { kisEnvFor } from "../kis/userkeys";
 import { kisQuote } from "../kis/market";
 import type { User } from "../settings/users";
 import type { Broker } from "./morning";
@@ -14,11 +12,9 @@ import { lookupCodes } from "../stocks/master";
 import { minusDays } from "./time";
 import { US_LIMIT_BAND, type Market } from "./session";
 import { BUY_GAP } from "./morning";
+import { refreshKrCalendar, tradingDay } from "../market/holidays";
 
 type Env = Record<string, string | undefined>;
-
-/** 휴장일 조회 결과 (하루 한 번만 묻기) */
-const openCache = new Map<string, boolean | null>();
 
 /** 미국 종목의 거래소 (종목 목록에서 찾고, 없으면 현재가 조회로 찾아 기억) */
 const exchangeCache = new Map<string, OrderExchange>();
@@ -70,7 +66,7 @@ export function usBrokerFor(u: User, e: Env = process.env): Broker {
       }
       return cancelUsOrder(client, { orderNo: o.orderNo, ...p });
     },
-    openDay: async () => null,
+    openDay: async (date) => tradingDay("US", date, e).open,
     quote,
   };
 }
@@ -87,12 +83,8 @@ export function brokerFor(u: User, e: Env = process.env, market: Market = "KR"):
     cancel: (o) => cancelOrder(client, o),
     quote: async (code) => (await kisQuote(client, code)).price,
     openDay: async (date) => {
-      if (openCache.has(date)) return openCache.get(date)!;
-      // 휴장일 조회는 실전 앱키로만 됨. 없으면 모름(null) → 주문을 내 보고 증권사 응답에 맡김
-      const real = credentialsFor("real", kisEnvFor(u, e));
-      const v = real ? await isOpenDay(getClient(real), date).catch(() => null) : null;
-      openCache.set(date, v);
-      return v;
+      await refreshKrCalendar(e).catch(() => undefined);
+      return tradingDay("KR", date, e).open;
     },
   };
 }

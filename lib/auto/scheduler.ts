@@ -10,7 +10,7 @@ import { tradeEnv } from "../kis/config";
 import { addPoint, loadPerf, perfFor, savePerf } from "./perf";
 import { notify } from "./telegram";
 import { cleanHm, isWeekday, kst } from "./time";
-import { formatDay, loadDay, loadDays, morningFollow, morningStart, saveDay, unfinishedItems, type MorningDay, type MorningLimits } from "./morning";
+import { HOLIDAY, formatDay, loadDay, loadDays, morningFollow, morningStart, saveDay, unfinishedItems, type MorningDay, type MorningLimits } from "./morning";
 import { brokerFor } from "./broker";
 import { addUsage, usedToday } from "../kis/limits";
 import { orderLimitFor } from "../kis/userkeys";
@@ -22,6 +22,8 @@ import { KIS_ID, kisViewOf, loadHistory, refreshHistory, saveHistory, type KisVi
 import { hasKisAccount, kisReader } from "../manual/kis";
 import { clockOf, isMixed, krSession, planMarket, planMarkets, US_SESSION, type Market, type Session } from "./session";
 import { withCode } from "../strategies/universe";
+import { sessionOn } from "./calendar";
+import { detectLateOpen, krTradingStarted, refreshKrCalendar } from "../market/holidays";
 
 type Env = Record<string, string | undefined>;
 
@@ -51,7 +53,10 @@ export const morningTimes = (e: Env = process.env) => {
 
 const FOLLOW_MS = 3 * 60_000;
 
-export const sessionFor = (m: Market, e: Env = process.env): Session => (m === "US" ? US_SESSION : krSession(morningTimes(e)));
+export const sessionFor = (m: Market, e: Env = process.env, date?: string): Session => {
+  const s = m === "US" ? US_SESSION : krSession(morningTimes(e));
+  return date ? sessionOn(s, date, e) : s;
+};
 const marketsOfUser = (u: User, e: Env): Market[] => { const p = loadPlan(u.id, e); return p ? planMarkets(p) : ["KR"]; };
 
 const limitsFor = (u: User, e: Env): MorningLimits => ({
@@ -64,7 +69,7 @@ const limitsFor = (u: User, e: Env): MorningLimits => ({
 export async function morningFor(u: User, now: number, e: Env = process.env, market: Market = "KR"): Promise<void> {
   const k = clockOf(market, now);
   if (!isWeekday(k)) return;
-  const ses = sessionFor(market, e);
+  const ses = sessionFor(market, e, k.date);
   const cutoff = ses.cutoff;
   if (k.hm < ses.orderAt || k.hm > ses.close) return;
   const mk = market === "US" ? { market } : {};
@@ -79,7 +84,7 @@ export async function morningFor(u: User, now: number, e: Env = process.env, mar
     try { d = await morningStart(plan, loadLog(u.id, e), b, now, limitsFor(u, e), market, Object.values(loadDays(u.id, e))); }
     catch (err) { d = { date: k.date, label: plan.label, env: b.env, ...mk, phase: "skipped", items: [], reason: `시작 실패: ${(err as Error).message}`, log: [`${k.hm} 시작 실패: ${(err as Error).message}`] }; }
     saveDay(d, u.id, e);
-    if (d.items.some((x) => x.orderNo) || (d.phase === "skipped" && !/꺼져/.test(d.reason ?? ""))) {
+    if (d.items.some((x) => x.orderNo) || (d.phase === "skipped" && !/꺼져/.test(d.reason ?? "") && d.reason !== HOLIDAY)) {
       await notify(u.id, formatDay(d, false), e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
     }
     if (d.phase === "done" || d.phase === "skipped") { d.notified = true; saveDay(d, u.id, e); }
@@ -88,6 +93,8 @@ export async function morningFor(u: User, now: number, e: Env = process.env, mar
   }
   if ((d.market ?? "KR") !== market) return;
   if ((d.phase === "placed" || d.phase === "buying") && k.hm >= ses.followFrom && (k.hm >= cutoff || now - (d.lastCheck ?? 0) >= FOLLOW_MS)) {
+    // 장이 아직 안 열렸으면 미체결 취소를 미룸
+    if (market === "KR" && k.hm >= cutoff && k.hm < "12:00" && (await krTradingStarted(e, { now })) === false) return;
     const before = new Map(d.items.map((it, i) => [i, it.filledQty]));
     d = await morningFollow(d, brokerFor(u, e, market), now, cutoff, limitsFor(u, e));
     saveDay(d, u.id, e);
@@ -136,7 +143,7 @@ const minutesAfter = (hm: string, n: number) => {
 
 export async function intradayFor(u: User, now: number, e: Env = process.env, market: Market = "KR"): Promise<void> {
   const k = clockOf(market, now);
-  const ses = sessionFor(market, e);
+  const ses = sessionFor(market, e, k.date);
   if (!isWeekday(k) || k.hm < ses.watchFrom || k.hm > minutesAfter(ses.close, 10)) return;
   let d = loadIntradayDay(k.date, u.id, e, market);
   const plan = loadPlan(u.id, e);
@@ -332,6 +339,8 @@ export function startScheduler(e: Env = process.env) {
   const m = morningTimes(e);
   console.log(`[auto] 예약 실행기 시작 (평일 아침 주문 ${m.morning}~${m.cutoff}, 장중 매도 감시 09:00~15:20, 저녁 계산 ${eveningTime(e)} 이후)`);
   const run = () => {
+    refreshKrCalendar(e).catch(() => undefined);
+    detectLateOpen(e).then((late) => { if (late) console.log("[auto] 한국 장이 아직 열리지 않아 오늘은 10:00 개장으로 봅니다."); }).catch(() => undefined);
     tick(Date.now(), e).catch((err) => console.error(`[auto] ${(err as Error).message}`));
     mixTick(Date.now(), e).catch((err) => console.error(`[auto] ${(err as Error).message}`));
     morningTick(Date.now(), e).catch((err) => console.error(`[auto] ${(err as Error).message}`));
