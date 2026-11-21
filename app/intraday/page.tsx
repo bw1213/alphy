@@ -60,7 +60,7 @@ function TickerCard({ t, rep }: { t: TickerResult; rep: IntradayReport }) {
   return (
     <div className="card">
       <h2>{t.name} ({t.code})</h2>
-      <p className="desc">{t.from} ~ {t.to} · {t.days}거래일 · {rep.barMinutes}분봉 · 비용: 수수료 {(t.costs.commission * 100).toFixed(3)}% ×2, 매도세 {(t.costs.sellTax * 100).toFixed(2)}%{t.etf ? " (ETF 면제)" : ""}, 시장가 1호가 ≈ {(t.costs.tickPct * 100).toFixed(3)}% + 슬리피지 {(t.costs.slippage * 100).toFixed(3)}%</p>
+      <p className="desc">{t.from} ~ {t.to} · {t.days}거래일 · {rep.barMinutes}분봉<Info>비용: 수수료 {(t.costs.commission * 100).toFixed(3)}% ×2, 매도세 {(t.costs.sellTax * 100).toFixed(2)}%{t.etf ? " (ETF 면제)" : ""}, 시장가 1호가 ≈ {(t.costs.tickPct * 100).toFixed(3)}% + 슬리피지 {(t.costs.slippage * 100).toFixed(3)}%</Info></p>
       <p style={{ fontSize: 14, margin: "10px 0" }}>{verdict(t)}</p>
       <div className="tablewrap"><table>
         <thead>
@@ -118,7 +118,12 @@ export default function IntradayPage() {
       {tab === "pick" ? <main className="app"><DayTradePanel /></main> : <main className="app">
         <section className="stack">
           <div className="card">
-            <h2>조건</h2>
+            <h2>조건<Info>
+                시작일을 비우면 1년 전부터 (한국투자증권이 1분봉을 1년치만 보관). 처음엔 종목마다 1~3분 걸리고, 받은 분봉은 저장돼 다음부터 빠릅니다.
+                신호는 봉이 끝날 때 보고 다음 봉 시가에 시장가로 산다고 봅니다. 시장가는 1호가 불리하게, 시가·종가 동시호가는 슬리피지만 붙입니다.
+                주식은 매도 때 거래세가 붙고 ETF·ETN 은 없습니다. 모든 전략은 매수만 하고 그날 종가 전에 정리합니다.
+                기간의 앞 2/3(고르는 구간)에서 가장 좋았던 설정을 뒤 1/3(확인 구간)에 그대로 써 본 결과가 &quot;확인 구간&quot;입니다. 확인 구간 숫자를 보세요.
+              </Info></h2>
             <label className="f">종목 (국내, 6개까지)
               <StockSearch keepOpen exclude={form.tickers.split(/[\s,]+/)} onPick={(s) => set({ tickers: appendCode(form.tickers, s.code) })} />
             </label>
@@ -139,13 +144,6 @@ export default function IntradayPage() {
                 <input type="number" step="0.01" min="0" value={form.slippage} onChange={(e) => set({ slippage: Number(e.target.value) })} />
               </label>
             </div>
-            <p className="help">비우면 1년 전부터 (한국투자증권이 1분봉을 1년치만 보관). 처음엔 종목마다 1~3분 걸리고, 받은 분봉은 저장돼 다음부터 빠릅니다.
-              <Info>
-                신호는 봉이 끝날 때 보고 다음 봉 시가에 시장가로 산다고 봅니다. 시장가는 1호가 불리하게, 시가·종가 동시호가는 슬리피지만 붙입니다.
-                주식은 매도 때 거래세가 붙고 ETF·ETN 은 없습니다. 모든 전략은 매수만 하고 그날 종가 전에 정리합니다.
-                기간의 앞 2/3(고르는 구간)에서 가장 좋았던 설정을 뒤 1/3(확인 구간)에 그대로 써 본 결과가 &quot;확인 구간&quot;입니다. 확인 구간 숫자를 보세요.
-              </Info>
-            </p>
             <button className="primary" style={{ marginTop: 12 }} disabled={busy || !form.tickers.trim()} onClick={runIt}>
               {busy ? <><span className="spin" />{progress ? `분봉 받는 중 ${progress.done}/${progress.total}일` : "계산 중…"}</> : "실행"}
             </button>
@@ -154,7 +152,7 @@ export default function IntradayPage() {
         <section className="stack">
           {error && <div className="error">{error}</div>}
           {rep?.warnings.map((w) => <div key={w} className="notice">{w}</div>)}
-          {rep?.split && <p className="desc">고르는 구간 {rep.split.pickFrom} ~ {rep.split.pickTo} · 확인 구간 {rep.split.checkFrom} ~ {rep.split.checkTo}. 수익률은 그 구간 누적이고, 1년이 안 되니 연 환산하지 않았습니다.</p>}
+          {rep?.split && <p className="desc">고르는 구간 {rep.split.pickFrom} ~ {rep.split.pickTo} · 확인 구간 {rep.split.checkFrom} ~ {rep.split.checkTo}<Info>수익률은 그 구간 누적이고, 1년이 안 되니 연 환산하지 않았습니다.</Info></p>}
           {rep?.tickers.map((t) => <TickerCard key={t.code} t={t} rep={rep} />)}
           {!rep && !error && <div className="card empty">종목을 고르고 실행하세요.</div>}
         </section>

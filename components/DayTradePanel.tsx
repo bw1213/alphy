@@ -60,14 +60,15 @@ export default function DayTradePanel() {
     <>
       <section className="stack">
         <div className="card">
-          <h2>종목 고르는 규칙</h2>
-          <p className="desc">전날까지의 일봉과 오늘 시가로 종목을 고르고, 시가(장 시작 동시호가)에 사서 익절·손절·종가 중 먼저 닿는 때 팝니다.
+          <h2>종목 고르는 규칙
             <Info>
+              전날까지의 일봉과 오늘 시가로 종목을 고르고, 시가(장 시작 동시호가)에 사서 익절·손절·종가 중 먼저 닿는 때 팝니다.
               국내 주식(ETF 제외) 전체에서 매일 고릅니다. 시가는 장 시작 전 예상체결가로 미리 알 수 있는 값이라 그날 아침에 쓸 수 있습니다.
               1분봉으로 익절·손절이 먼저 닿는 순서를 따지고, 같은 1분 안에 둘 다 닿으면 손절로 봅니다.
               비용: 수수료 0.015%씩, 매도세(연도별), 손절은 1호가 불리 + 슬리피지 0.05%. 09:01 이후에 사면 결과가 크게 나빠지니 동시호가 매수가 전제입니다.
+              처음엔 전 종목 일봉과 고른 종목의 1분봉을 받느라 10분 넘게 걸릴 수 있어요. 받은 것은 저장돼 다음부터 빠릅니다.
             </Info>
-          </p>
+          </h2>
           <div className="row" style={{ marginTop: 10 }}>
             {FIELDS.map((f) => (
               <label key={f.key} className="f">{f.label}
@@ -81,7 +82,6 @@ export default function DayTradePanel() {
           <button className="primary" style={{ marginTop: 12 }} disabled={busy} onClick={run}>
             {busy ? <><span className="spin" />{progress ? `받는 중 ${progress.done}/${progress.total}` : "계산 중…"}</> : "최근 1년 백테스트"}
           </button>
-          <p className="help">처음엔 전 종목 일봉과 고른 종목의 1분봉을 받느라 10분 넘게 걸릴 수 있어요. 받은 것은 저장돼 다음부터 빠릅니다.</p>
         </div>
         <div className="card">
           <h2>내 단타 전략</h2>

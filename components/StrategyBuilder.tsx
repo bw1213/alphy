@@ -2,6 +2,7 @@
 
 import { METRICS, WEIGHTINGS, generate, type BuilderSpec, type Condition, type MetricId, type Weighting } from "@/lib/strategies/builder";
 import type { Rebalance } from "@/lib/engine/types";
+import Info from "./Info";
 
 const chk = { width: "auto", flex: "none" } as const;
 const small = { width: 70 } as const;
@@ -46,7 +47,7 @@ export default function StrategyBuilder({ spec, onChange, rebalance, onRebalance
         {spec.marketMa > 0 ? "일 이동평균선 아래면 모두 팔고 현금" : "이동평균선 아래면 모두 팔고 현금 (꺼짐)"}
       </label>
 
-      <h3>2. 종목 거르기 <span className="help" style={{ fontWeight: 400 }}>모두 만족하는 종목만 남깁니다</span></h3>
+      <h3>2. 종목 거르기<Info>모두 만족하는 종목만 남깁니다.</Info></h3>
       {spec.filters.length === 0 && <p className="help">조건 없음: 모든 종목이 후보입니다.</p>}
       {spec.filters.map((c, k) => {
         const md = METRICS.find((x) => x.id === c.metric)!;
@@ -58,9 +59,9 @@ export default function StrategyBuilder({ spec, onChange, rebalance, onRebalance
               <select value={c.op} style={{ width: 74, flex: "none" }} onChange={(e) => setFilter(k, { op: e.target.value as Condition["op"] })}>
                 <option value=">=">이상</option><option value="<=">이하</option>
               </select>
+              <Info>{md.help}</Info>
               <button className="link" title="이 조건 지우기" onClick={() => set({ filters: spec.filters.filter((_, i) => i !== k) })}>지우기</button>
             </div>
-            <p className="help" style={{ margin: "2px 0 0" }}>{md.help}</p>
           </div>
         );
       })}
@@ -75,8 +76,8 @@ export default function StrategyBuilder({ spec, onChange, rebalance, onRebalance
           <option value="desc">높은 순</option><option value="asc">낮은 순</option>
         </select>
         <label className="inl">상위<input type="number" min={1} max={50} style={small} value={spec.topK} onChange={(e) => set({ topK: Number(e.target.value) })} />종목</label>
+        <Info>{METRICS.find((x) => x.id === spec.rank.metric)!.help}.</Info>
       </div>
-      <p className="help" style={{ margin: "2px 0 0" }}>{METRICS.find((x) => x.id === spec.rank.metric)!.help}.</p>
 
       <h3>4. 투자 비율과 리밸런싱</h3>
       <div style={row}>
@@ -87,15 +88,15 @@ export default function StrategyBuilder({ spec, onChange, rebalance, onRebalance
         <select value={weighting} style={{ flex: "1 1 180px", minWidth: 0 }} onChange={(e) => set({ weighting: e.target.value as Weighting })}>
           {WEIGHTINGS.map((w) => <option key={w.id} value={w.id}>{w.label}</option>)}
         </select>
+        <Info>{WEIGHTINGS.find((w) => w.id === weighting)!.help}</Info>
       </div>
-      <p className="help" style={{ margin: "2px 0 0" }}>{WEIGHTINGS.find((w) => w.id === weighting)!.help}</p>
       <div style={row}>
         <span style={{ fontSize: 13 }}>리밸런싱(종목 다시 고르고 비중 맞추기)</span>
         <select value={String(rebalance)} style={{ width: 110, flex: "none" }} onChange={(e) => onRebalance(e.target.value as Rebalance)}>
           <option value="D">매일</option><option value="W">매주</option><option value="M">매월</option><option value="Q">분기</option>
         </select>
+        <Info>비중 차이가 2%p 미만이면 그대로 둡니다.</Info>
       </div>
-      <p className="help" style={{ margin: "2px 0 0" }}>비중 차이가 2%p 미만이면 그대로 둡니다.</p>
 
       <div className="notice" style={{ marginTop: 12 }}>
         <b>이 전략은 이렇게 움직입니다</b>

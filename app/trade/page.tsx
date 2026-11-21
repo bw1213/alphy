@@ -7,6 +7,7 @@ import RebalancePlan from "@/components/RebalancePlan";
 import TodayOrders from "@/components/TodayOrders";
 import { StockSearch } from "@/components/StockSearch";
 import { useShowMore } from "@/components/ShowMore";
+import Info from "@/components/Info";
 
 interface Status {
   quotes: "real" | "mock" | null;
@@ -96,7 +97,7 @@ export default function TradePage() {
           {auth && !auth.loggedIn && <Login auth={auth} title="로그인 (관리자 비밀번호)" onDone={() => fetchAuth().then(setAuth)} />}
 
           <div className="card">
-            <h2>주문</h2>
+            <h2>주문<Info>평일 09:00~15:30에만 체결됩니다.</Info></h2>
             {env === "real" && <div className="error" style={{ marginBottom: 10 }}>실전 계좌입니다. 실제 돈으로 체결됩니다.</div>}
             <div className="seg">
               <button className={order.side === "buy" ? "on" : ""} onClick={() => setOrder({ ...order, side: "buy" })}>매수</button>
@@ -136,7 +137,6 @@ export default function TradePage() {
                 </div>
               )}
             </div>
-            <p className="help">평일 09:00~15:30에만 체결됩니다.</p>
           </div>
           {error && <div className="error">{error}</div>}
         </section>

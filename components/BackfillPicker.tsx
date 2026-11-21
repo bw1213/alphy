@@ -18,10 +18,10 @@ export default function BackfillPicker({ tickers, value, onChange }: { tickers: 
       <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
         <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={value.on} onChange={(e) => onChange({ ...value, on: e.target.checked })} />
         상장 전 기간은 지수로 채우기
+        <Info>시작일보다 늦게 상장한 종목만 채웁니다. 참고용입니다. 상장 전 기간을 고른 지수의 하루 움직임으로 이어 붙입니다. 레버리지·인버스는 하루 수익률 × 배수에서 금리 비용과 보수를 뺍니다. 미국 지수는 그날 환율로 원화로 바꾸고, 환헤지(H)를 켜면 달러 수익률을 그대로 씁니다. 커버드콜·액티브처럼 지수와 운용 방식이 다른 ETF 는 비슷하게만 따라갑니다. 자동 매매는 실제 시세만 씁니다.</Info>
       </label>
       {value.on && (
         <>
-          <p className="help">시작일보다 늦게 상장한 종목만 채웁니다. 참고용입니다.<Info>상장 전 기간을 고른 지수의 하루 움직임으로 이어 붙입니다. 레버리지·인버스는 하루 수익률 × 배수에서 금리 비용과 보수를 뺍니다. 미국 지수는 그날 환율로 원화로 바꾸고, 환헤지(H)를 켜면 달러 수익률을 그대로 씁니다. 커버드콜·액티브처럼 지수와 운용 방식이 다른 ETF 는 비슷하게만 따라갑니다. 자동 매매는 실제 시세만 씁니다.</Info></p>
           {tickers.map((t) => {
             const p = value.picks[t] ?? AUTO;
             const sug = suggestSpec(t);

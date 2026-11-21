@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { StockSearch } from "./StockSearch";
 import { fetchJob } from "@/lib/client/fetchData";
+import Info from "./Info";
 
 interface Entry { code: string; name: string; market: string; type?: string }
 interface Status { count: number; downloaded: number; updated: string | null; custom: Entry[]; error: string | null; errorAt: string | null }
@@ -35,10 +36,7 @@ export default function StockListCard() {
 
   return (
     <div className="card">
-      <h2>종목 목록 (이름 검색)</h2>
-      <p className="help" style={{ marginTop: -6, marginBottom: 10 }}>
-        종목 이름 검색용 목록 · 7일마다 새로 받습니다.
-      </p>
+      <h2>종목 목록 (이름 검색)<Info>종목 이름 검색용 목록 · 7일마다 새로 받습니다.</Info></h2>
       {st ? (
         <>
           <p className="help">검색 가능한 종목 {st.count.toLocaleString("ko-KR")}개 · 마지막으로 받은 때 {when(st.updated)}{!st.downloaded && " (아직 받지 않아 기본 목록만 있습니다)"}</p>
@@ -51,8 +49,7 @@ export default function StockListCard() {
       <StockSearch onPick={setTried} placeholder="이름·코드·초성으로 찾아보기" />
       {tried && <p className="help">{tried.name} · {tried.code} · {tried.market}{tried.type ? ` · ${tried.type}` : ""}</p>}
 
-      <h3>직접 추가</h3>
-      <p className="help" style={{ marginTop: -4, marginBottom: 6 }}>목록에 없는 종목(신규 상장·상장폐지)을 추가합니다.</p>
+      <h3>직접 추가<Info>목록에 없는 종목(신규 상장·상장폐지)을 추가합니다.</Info></h3>
       <div className="row3">
         <label className="f">종목코드<input value={add.code} placeholder="005930" onChange={(e) => setAdd({ ...add, code: e.target.value.trim().toUpperCase() })} /></label>
         <label className="f">이름<input value={add.name} placeholder="삼성전자" onChange={(e) => setAdd({ ...add, name: e.target.value })} /></label>

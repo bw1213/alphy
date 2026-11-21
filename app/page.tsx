@@ -608,7 +608,7 @@ export default function Page() {
         <section className="stack">
           <div className="card">
             <h2>전략</h2>
-            <label className="f">전략 선택
+            <label className="f"><span>전략 선택{builtin && <Info>{builtin.description}</Info>}</span>
               <select value={sid} onChange={(e) => selectStrategy(e.target.value)}>
                 <optgroup label="기본 제공">
                   {STRATEGIES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -625,7 +625,6 @@ export default function Page() {
             <p className="help">{lastMsg && <>{lastMsg} </>}<button className="link" onClick={resetLast}>처음 설정으로 되돌리기</button><Info>마지막 설정은 NAS에 자동 저장되어 어느 기기에서나 이어집니다.</Info></p>
             {builtin && (
               <>
-                <p className="desc">{builtin.description}</p>
                 <h3>파라미터</h3>
                 <div className="row">
                   {paramSpecs.map((ps) => (
@@ -640,16 +639,16 @@ export default function Page() {
                     onChange={(v) => setParams({ ...params, [builtin.id]: v as Params })} />
                 )}
                 <div className="row" style={{ marginTop: 10, alignItems: "flex-end" }}>
-                  <label className="f">내 전략 이름<input value={saveName} placeholder={builtin.name} onChange={(e) => setSaveName(e.target.value)} /></label>
+                  <label className="f"><span>내 전략 이름<Info>파라미터·종목도 함께 저장됩니다.</Info></span><input value={saveName} placeholder={builtin.name} onChange={(e) => setSaveName(e.target.value)} /></label>
                   <div className="btns"><button onClick={saveBuiltin}>내 전략으로 저장</button></div>
                 </div>
                 {stratMsg && <p className="help">{stratMsg}</p>}
-                <p className="help">파라미터·종목도 함께 저장됩니다. <button className="link" onClick={editAsCustom}>코드 직접 수정하기 →</button></p>
+                <p className="help"><button className="link" onClick={editAsCustom}>코드 직접 수정하기 →</button></p>
               </>
             )}
             {isCustom && (
               <>
-                <label className="f" style={{ marginTop: 10 }}>전략 이름
+                <label className="f" style={{ marginTop: 10 }}><span>전략 이름<Info>지금 종목도 함께 저장됩니다. 같은 이름이면 덮어씁니다.{mode === "builder" && " 더 복잡한 규칙은 \"코드 작성\"으로 이어서 고칠 수 있습니다."}</Info></span>
                   <input value={customName} onChange={(e) => setCustomName(e.target.value)} />
                 </label>
                 <div className="seg" style={{ marginTop: 10 }}>
@@ -671,10 +670,7 @@ export default function Page() {
                 {mode === "cycle" ? (
                   <CycleBuilder spec={cycleSpec} onChange={setCycleSpec} />
                 ) : mode === "builder" ? (
-                  <>
-                    <StrategyBuilder spec={spec} onChange={setSpec} rebalance={rebalance} onRebalance={setRebalance} />
-                    <p className="help">더 복잡한 규칙은 위 &quot;코드 작성&quot;으로 이어서 고칠 수 있습니다.</p>
-                  </>
+                  <StrategyBuilder spec={spec} onChange={setSpec} rebalance={rebalance} onRebalance={setRebalance} />
                 ) : (
                   <>
                     <label className="f" style={{ marginTop: 10 }}>전략 코드 (JavaScript, ctx·p 사용)
@@ -702,12 +698,12 @@ export default function Page() {
                   {local.some((l) => isLocalOnly(l.name)) && <button onClick={moveLocalToNas}>이 브라우저의 전략을 NAS로 옮기기</button>}
                 </div>
                 {stratMsg && <p className="help">{stratMsg}</p>}
-                <p className="help">지금 종목도 함께 저장됩니다. 같은 이름이면 덮어씁니다.</p>
               </>
             )}
-            <h3>운용 규칙</h3>
-            {isCustom && mode === "cycle" && <p className="help">리밸런싱은 &quot;매일&quot; 고정입니다.</p>}
-            {isCustom && mode === "builder" && <p className="help">리밸런싱 주기는 위 4번에서 정합니다.</p>}
+            <h3>운용 규칙
+              {isCustom && mode === "cycle" && <Info>리밸런싱은 &quot;매일&quot; 고정입니다.</Info>}
+              {isCustom && mode === "builder" && <Info>리밸런싱 주기는 위 4번에서 정합니다.</Info>}
+            </h3>
             <div className="row3">
               <label className="f">리밸런싱
                 <select value={String(isCustom && mode === "cycle" ? "D" : rebalance)} disabled={isCustom && mode !== "code"} onChange={(e) => setRebalance(/^\d+$/.test(e.target.value) ? Number(e.target.value) : (e.target.value as Rebalance))}>
@@ -720,8 +716,8 @@ export default function Page() {
             <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
               <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={intraday} onChange={(e) => setIntraday(e.target.checked)} />
               장중 매도: 손절·익절{isCustom && mode === "cycle" ? "·하락 매도" : ""} 가격에 장중에 닿으면 그날 그 가격에 판 것으로 계산
+              <Info>끄면 종가 확인 후 다음 날 시가에 팝니다.</Info>
             </label>
-            <p className="help">끄면 종가 확인 후 다음 날 시가에 팝니다.</p>
           </div>
 
           <div className="card">
@@ -730,7 +726,7 @@ export default function Page() {
               <label className="f">시작일<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
               <label className="f">종료일<input type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></label>
             </div>
-            <label className="f" style={{ marginTop: 10 }}>데이터
+            <label className="f" style={{ marginTop: 10 }}><span>데이터{sourceHelp && <Info>{sourceHelp}</Info>}</span>
               <select value={source} onChange={(e) => setSource(e.target.value as Source)}>
                 <option value="naver">네이버 증권 (실제 시세)</option>
                 <option value="kis">한국투자증권 API (실제 시세)</option>
@@ -738,7 +734,6 @@ export default function Page() {
                 <option value="synthetic">가짜 데이터 (테스트용)</option>
               </select>
             </label>
-            {sourceHelp && <p className="help">{sourceHelp}</p>}
             <div className="seg" style={{ marginTop: 10 }}>
               <button className={universeMode === "top" ? "on" : ""} onClick={() => setUniverseMode("top")}>시총 상위 N</button>
               <button className={universeMode === "list" ? "on" : ""} onClick={() => setUniverseMode("list")}>종목 직접 입력</button>
@@ -753,8 +748,8 @@ export default function Page() {
                     <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 8 }}>
                       <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={pit} onChange={(e) => setPit(e.target.checked)} />
                       과거 시점의 시총 상위 종목 사용 (생존편향 제거)
+                      <Info>끄면 수익률이 실제보다 좋게 나옵니다. 켜면 분기마다 그때의 시총 상위 종목(이후 상장폐지 포함)으로 바꿉니다. 과거 목록은 KRX에서 받으며 처음 한 번은 몇 분 걸립니다.</Info>
                     </label>
-                    <p className="help">끄면 수익률이 실제보다 좋게 나옵니다.<Info>켜면 분기마다 그때의 시총 상위 종목(이후 상장폐지 포함)으로 바꿉니다. 과거 목록은 KRX에서 받으며 처음 한 번은 몇 분 걸립니다.</Info></p>
                   </>
                 )}
               </>
@@ -763,18 +758,19 @@ export default function Page() {
                 <label className="f" style={{ marginTop: 8 }}>종목 이름으로 찾아 넣기
                   <StockSearch keepOpen exclude={splitCodes(tickers)} onPick={(s) => setTickers((t) => appendCode(t, s.code))} />
                 </label>
-                <label className="f" style={{ marginTop: 8 }}>종목코드 (쉼표 구분)
+                <label className="f" style={{ marginTop: 8 }}><span>종목코드 (쉼표 구분)<Info>한국 005930, 미국 AAPL·SPY 처럼 넣고 섞어도 됩니다.</Info></span>
                   <input value={tickers} onChange={(e) => setTickers(e.target.value)} />
                 </label>
                 <StockChips value={tickers} onChange={setTickers} />
-                <p className="help">한국 005930, 미국 AAPL·SPY 처럼 넣고 섞어도 됩니다.</p>
                 {(source === "naver" || source === "kis") && <BackfillPicker tickers={parseTickers(tickers)} value={backfill} onChange={setBackfill} />}
               </>
             )}
           </div>
 
           <div className="card">
-            <h2>자금 · 비용</h2>
+            <h2>자금 · 비용<Info>신호는 당일 종가, 체결은 다음 날 시가. 추가 입금은 다음 달부터 매월 첫 거래일 장 전에 들어오며, 수익률은 입금 효과를 뺀 값입니다. 매도세를 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%)을 씁니다.
+              {useDiv && " 배당금은 배당락일에 세후 현금으로 들어와 수익으로 계산합니다. 배당소득세 기본 15.4%(ISA·연금은 0), 미국은 원천징수 15%."}
+              {hasUs && " 미국 종목은 그날 환율로 원화 환산하며 거래세·양도소득세는 빼고 계산합니다(한국투자증권 기본 수수료 0.25%)."}</Info></h2>
             <div className="row">
               <label className="f">초기 자금(원)<input type="number" step={1_000_000} value={cash} onChange={(e) => setCash(Number(e.target.value))} /></label>
               <label className="f">매달 추가 입금(원)<input type="number" min={0} step={100_000} placeholder="0 = 없음" value={monthly || ""} onChange={(e) => setMonthly(Math.max(0, Number(e.target.value) || 0))} /></label>
@@ -795,9 +791,6 @@ export default function Page() {
               </label>
               {useDiv && <label className="f">배당소득세 %<input placeholder="15.4" value={divTax} onChange={(e) => setDivTax(e.target.value)} /></label>}
             </div>
-            <p className="help">신호는 당일 종가, 체결은 다음 날 시가.<Info>추가 입금은 다음 달부터 매월 첫 거래일 장 전에 들어오며, 수익률은 입금 효과를 뺀 값입니다. 매도세를 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%)을 씁니다.
-              {useDiv && " 배당금은 배당락일에 세후 현금으로 들어와 수익으로 계산합니다. 배당소득세 기본 15.4%(ISA·연금은 0), 미국은 원천징수 15%."}
-              {hasUs && " 미국 종목은 그날 환율로 원화 환산하며 거래세·양도소득세는 빼고 계산합니다(한국투자증권 기본 수수료 0.25%)."}</Info></p>
           </div>
 
           <button className="primary" onClick={run} disabled={!!busy}>
@@ -805,8 +798,7 @@ export default function Page() {
           </button>
 
           <div className="card">
-            <h2>전략 비교</h2>
-            <p className="desc">고른 전략을 지금 기간·자금·비용으로 함께 돌려 나란히 봅니다 (최대 {MAX_COMPARE}개).<Info>내 전략은 저장된 종목으로, 기본 전략은 지금 화면의 종목·파라미터로 돌립니다. S&amp;P 500·KOSPI도 함께 표시합니다.</Info></p>
+            <h2>전략 비교<Info>고른 전략을 지금 기간·자금·비용으로 함께 돌려 나란히 봅니다 (최대 {MAX_COMPARE}개). 내 전략은 저장된 종목으로, 기본 전략은 지금 화면의 종목·파라미터로 돌립니다. S&amp;P 500·KOSPI도 함께 표시합니다.</Info></h2>
             <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 6, padding: "6px 10px", marginTop: 8 }}>
               {[true, false].map((mine) => {
                 const opts = compareOptions.filter((o) => o.mine === mine);
@@ -836,20 +828,17 @@ export default function Page() {
           </div>
 
           <div className="card">
-            <h2>전략 찾기 (종목 1~3개)</h2>
-            <p className="desc">직접 입력한 종목 1~3개로 전략 6가지·설정 약 100개를 시험해 가장 좋은 것을 찾습니다.</p>
-            <label className="f" style={{ marginTop: 10 }}>무엇을 기준으로 고를까요
+            <h2>전략 찾기 (종목 1~3개)<Info>직접 입력한 종목 1~3개로 전략 6가지·설정 약 100개를 시험해 가장 좋은 것을 찾습니다.</Info></h2>
+            <label className="f" style={{ marginTop: 10 }}><span>무엇을 기준으로 고를까요<Info>{OBJECTIVES.find((o) => o.id === objective)?.help}</Info></span>
               <select value={objective} onChange={(e) => setObjective(e.target.value as Objective)}>
                 {OBJECTIVES.map((o) => <option key={o.id} value={o.id}>{o.id === "capped" ? `최대 낙폭 -${target.mdd}% 안에서 수익률이 가장 높은 것` : o.label}</option>)}
               </select>
             </label>
-            <p className="help">{OBJECTIVES.find((o) => o.id === objective)?.help}</p>
-            <label className="f" style={{ marginTop: 8 }}>확인 구간 (고를 때 보지 않을 마지막 기간)
+            <label className="f" style={{ marginTop: 8 }}><span>확인 구간 (고를 때 보지 않을 마지막 기간)<Info>앞 구간으로 고르고 확인 구간에서 통했는지 봅니다. 5년 이상 권장.</Info></span>
               <select value={testRatio} onChange={(e) => setTestRatio(Number(e.target.value))}>
                 <option value={0.2}>마지막 20%</option><option value={0.3}>마지막 30%</option><option value={0.4}>마지막 40%</option><option value={0.5}>마지막 50%</option>
               </select>
             </label>
-            <p className="help">앞 구간으로 고르고 확인 구간에서 통했는지 봅니다. 5년 이상 권장.</p>
             <button className="primary" style={{ marginTop: 10 }} onClick={findStrategy} disabled={!!busy || !finderReady}>
               {busy ? <><span className="spin" />실행 중</> : finderReady ? `${finderList.length}종목으로 전략 찾기` : "종목을 1~3개 직접 입력하세요"}
             </button>

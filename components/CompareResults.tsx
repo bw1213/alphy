@@ -59,7 +59,7 @@ export default function CompareResults({ report, onOpen, onClose }: {
       <p className="help">
         {report.start} ~ {report.end}
         {report.lateBy && <> · 같은 기간으로 맞추느라 <b>{report.lateBy}</b> 시작일부터 비교합니다</>}
-        <Info>모든 전략을 지금 화면의 기간·자금·비용으로 돌린 뒤, 모두 값이 있는 같은 기간으로 맞춰 계산합니다. 내 전략은 저장된 종목, 기본 전략은 지금 화면의 종목을 씁니다. 지수는 배당 제외 가격 지수(원화)입니다.</Info>
+        <Info>모든 전략을 지금 화면의 기간·자금·비용으로 돌린 뒤, 모두 값이 있는 같은 기간으로 맞춰 계산합니다. 내 전략은 저장된 종목, 기본 전략은 지금 화면의 종목을 씁니다. 지수는 배당 제외 가격 지수(원화)입니다. 표의 굵은 글씨가 항목별 1등입니다. 이름을 누르면 그 전략을 열고, 떨어진 구간을 누르면 그래프를 확대합니다.</Info>
       </p>
       {report.errors.length > 0 && (
         <div className="error" style={{ marginTop: 8 }}>
@@ -97,10 +97,9 @@ export default function CompareResults({ report, onOpen, onClose }: {
           </tbody>
         </table>
       </div>
-      <p className="help">굵은 글씨가 항목별 1등입니다. 이름을 누르면 그 전략을 열고, 떨어진 구간을 누르면 그래프를 확대합니다.</p>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
-        <h3 style={{ margin: 0 }}>{view === "cum" ? "자산 추이 (시작 = 100)" : "1년 수익률 (%)"}</h3>
+        <h3 style={{ margin: 0 }}>{view === "cum" ? "자산 추이 (시작 = 100)" : "1년 수익률 (%)"}{view === "roll" && <Info>날마다 그날까지 1년 수익률입니다. 0 아래(빨간 바탕)가 1년 손실 구간입니다.</Info>}</h3>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <div className="seg" style={{ width: 160 }}>
             <button className={view === "cum" ? "on" : ""} onClick={() => setView("cum")}>누적</button>
@@ -118,7 +117,6 @@ export default function CompareResults({ report, onOpen, onClose }: {
         {rows.map((r, i) => <span key={r.id}><Dot col={color(r, i)} />{r.name}</span>)}
         {ix.map((r) => <span key={r.id}><Dot col={color(r, 0)} dash />{r.name}</span>)}
       </div>
-      {view === "roll" && <p className="help" style={{ margin: "4px 0 0" }}>날마다 그날까지 1년 수익률입니다. 0 아래(빨간 바탕)가 1년 손실 구간입니다.</p>}
       <ZoomBar dates={report.dates} zoom={zm.zoom} onReset={() => zm.setZoom(null)} />
       <div style={{ height: 340, userSelect: "none" }}>
         <ResponsiveContainer>
