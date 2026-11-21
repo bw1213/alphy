@@ -11,6 +11,7 @@ import type { AutoOrder } from "@/lib/auto/evening";
 import type { ManualPosition, ManualTrade } from "@/lib/manual/store";
 import type { KisView, PriceBook, Snapshot } from "@/lib/manual/value";
 import { withCode } from "@/lib/strategies/universe";
+import Info from "@/components/Info";
 
 interface Last { runDate: string; orders: AutoOrder[]; equity: number | null; label: string }
 interface DashState {
@@ -333,7 +334,7 @@ export default function DashboardPage() {
               </div>
 
               <div className="card">
-                <h2>자산 구성 (종목별 비중)</h2>
+                <h2>자산 구성 (종목별 비중)<Info>회색은 현금입니다.</Info></h2>
                 {!weights.length ? <p className="help">보유 종목이 없습니다.</p> : (
                   <div style={{ height: Math.max(120, weights.length * 28 + 20) }}>
                     <ResponsiveContainer>
@@ -349,7 +350,6 @@ export default function DashboardPage() {
                     </ResponsiveContainer>
                   </div>
                 )}
-                <p className="help">회색은 현금입니다.</p>
               </div>
 
               <div className="card">

@@ -10,6 +10,7 @@ import type { EveningReport, AutoOrder } from "@/lib/auto/evening";
 import type { ManualPosition, ManualTrade, FeeRates } from "@/lib/manual/store";
 import type { PriceBook } from "@/lib/manual/value";
 import { fetchJob } from "@/lib/client/fetchData";
+import Info from "@/components/Info";
 
 interface PlanView { label: string; kind: string; strategyName: string | null; builtin: string | null; tickers: string[]; budget: number; startDate: string; enabled: boolean; updatedAt: string }
 interface AccountView { id: string; name: string; broker: string; cash: number; others?: "sell" | "keep"; positions: ManualPosition[]; plan: PlanView | null; log: EveningReport[]; updatedAt: string }
@@ -63,6 +64,7 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
       {r.targets && r.targets.length > 0 && (
         <>
           <b style={{ fontSize: 13 }}>전략상 목표 보유</b>
+          <Info>목표 수량 = 지금 계좌 평가액 × 전략 비중 ÷ 오늘 종가. 차이가 평가액의 1%보다 작으면 사고팔지 않습니다.</Info>
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>지금</th><th>목표</th><th>차이</th><th>목표 비중</th><th>오늘 종가</th></tr></thead>
             <tbody>{r.targets.map((t) => {
@@ -77,7 +79,6 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
               );
             })}</tbody>
           </table></div>
-          <p className="help">목표 수량 = 지금 계좌 평가액 × 전략 비중 ÷ 오늘 종가. 차이가 평가액의 1%보다 작으면 사고팔지 않습니다.</p>
         </>
       )}
       {short && <p className="help" style={{ color: "var(--bad)" }}>매수에 약 {won(buy)}이 필요한데 예수금과 매도 대금을 합쳐 약 {won((r.accountCash ?? 0) + sell)}입니다. 입금하거나 수량을 줄이세요.</p>}
@@ -229,7 +230,7 @@ export default function ManualPage() {
               <h2>{form.id ? "계좌 고치기" : "새 계좌"}</h2>
               <div className="row">
                 <label className="f">계좌 이름<input value={form.name} placeholder="예: 토스 미국 주식" onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
-                <label className="f">증권사
+                <label className="f"><span>증권사<Info>직접 넣은 증권사는 저장하면 목록에 남아 다음에도 고를 수 있습니다.</Info></span>
                   {brokerText == null ? (
                     <select value={st?.brokers.includes(form.broker) ? form.broker : "기타"} onChange={(e) => (e.target.value === "__custom" ? setBrokerText("") : setForm({ ...form, broker: e.target.value }))}>
                       {st?.brokers.map((b) => <option key={b}>{b}</option>)}
@@ -243,12 +244,11 @@ export default function ManualPage() {
                   )}
                 </label>
               </div>
-              {brokerText != null && <p className="help">직접 넣은 증권사는 저장하면 목록에 남아 다음에도 고를 수 있습니다.</p>}
               {brokerText == null && st && form.broker && !["토스증권", "미래에셋증권", "한화투자증권", "키움증권", "삼성증권", "NH투자증권", "KB증권", "한국투자증권", "기타"].includes(form.broker) && (
                 <p className="help">직접 넣은 증권사입니다. <button className="link" type="button" onClick={() => act("forget", () => post({ action: "forgetBroker", name: form.broker }), `"${form.broker}"을(를) 목록에서 지웠습니다 (이 이름을 쓰는 계좌는 그대로).`)}>목록에서 지우기</button></p>
               )}
               <label className="f" style={{ marginTop: 10 }}>예수금(원)<input type="number" min={0} value={form.cash} onChange={(e) => setForm({ ...form, cash: e.target.value })} /></label>
-              <h3>보유 종목</h3>
+              <h3>보유 종목<Info>미국 종목 평균단가는 원화로 넣으세요.</Info></h3>
               {form.positions.length > 0 && (
                 <div className="tablewrap"><table>
                   <thead><tr><th>종목</th><th>수량</th><th>평균단가(원)</th><th></th></tr></thead>
@@ -265,7 +265,6 @@ export default function ManualPage() {
               <div style={{ marginTop: 6 }}>
                 <StockSearch placeholder="보유 종목 이름으로 찾아 추가" exclude={form.positions.map((p) => p.ticker)} onPick={(s) => setForm((f) => f && ({ ...f, positions: [...f.positions, { ticker: s.code, name: s.name, qty: "", avgPrice: "" }] }))} />
               </div>
-              <p className="help">미국 종목 평균단가는 원화로 넣으세요.</p>
 
               <h3>전략</h3>
               <label className="f">적용할 전략
@@ -288,7 +287,7 @@ export default function ManualPage() {
               {form.strategy && (
                 <>
                   {picked?.universe ? (
-                    <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe, nameOf)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
+                    <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe, nameOf)}</b><Info>종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</Info></p>
                   ) : (<>
                   <label className="f" style={{ marginTop: 10 }}>대상 종목 {picked?.cycle ? "(필수)" : "(비우면 전략 기본: 시총 상위 종목)"}
                     <input value={form.tickers} placeholder="예: 069500, QQQ" onChange={(e) => setForm({ ...form, tickers: e.target.value })} />
@@ -302,19 +301,17 @@ export default function ManualPage() {
                   </div>
                   </>)}
                   <div className="row" style={{ marginTop: 10 }}>
-                    <label className="f">운용 금액(원)<input type="number" min={100000} step={100000} value={form.budget}
+                    <label className="f"><span>운용 금액(원)<Info>보통 계좌 평가액(흐린 값)을 넣습니다.</Info></span><input type="number" min={100000} step={100000} value={form.budget}
                       placeholder={String(Math.round(Number(form.cash || 0) + form.positions.reduce((s, p) => s + Number(p.qty || 0) * (price(p.ticker) ?? Number(p.avgPrice || 0)), 0)))}
                       onChange={(e) => setForm({ ...form, budget: e.target.value })} /></label>
                     <label className="f">운용 시작일<input type="date" value={form.startDate} max={st?.today} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
                   </div>
-                  <p className="help">운용 금액은 보통 계좌 평가액(흐린 값)을 넣습니다.</p>
-                  <label className="f" style={{ marginTop: 10 }}>전략에 없는 보유 종목
+                  <label className="f" style={{ marginTop: 10 }}><span>전략에 없는 보유 종목<Info>사고팔 수량은 이 계좌의 지금 평가액에 전략 비중을 곱해 정하고, 매수는 예수금과 매도 대금 안에서만 안내합니다.</Info></span>
                     <select value={form.others} onChange={(e) => setForm({ ...form, others: e.target.value as "sell" | "keep" })}>
                       <option value="sell">팔아서 전략 종목 사는 데 쓰기 (계좌 전체를 전략으로)</option>
                       <option value="keep">그대로 두기 (나머지 금액만 전략으로)</option>
                     </select>
                   </label>
-                  <p className="help">사고팔 수량은 이 계좌의 지금 평가액에 전략 비중을 곱해 정하고, 매수는 예수금과 매도 대금 안에서만 안내합니다.</p>
                   <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 8 }}>
                     <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} /> 매일 저녁 계산·텔레그램 안내 켜기
                   </label>
@@ -391,6 +388,7 @@ export default function ManualPage() {
 
               <div className="card">
                 <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>다음 거래일 할 일
+                  <Info>증권사 앱에서 주문한 뒤 &quot;체결 기록&quot;으로 넣으세요.</Info>
                   <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", fontSize: 12, fontWeight: 400 }}>
                     <label style={{ display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" style={{ width: "auto", flex: "none" }} checked={sendTg} onChange={(e) => setSendTg(e.target.checked)} />텔레그램으로도</label>
                     <button disabled={!!busy || !acc.plan} onClick={() => act("run", () => post({ action: "run", accountId: acc.id, notify: sendTg })).then(() => setOpen(0))}>{busy === "run" ? "계산 중…" : "지금 계산해 보기"}</button>
@@ -409,7 +407,6 @@ export default function ManualPage() {
                       ))}
                     </div>
                   )}
-                <p className="help">증권사 앱에서 주문한 뒤 "체결 기록"으로 넣으세요.</p>
               </div>
 
               <div className="card">
@@ -428,13 +425,12 @@ export default function ManualPage() {
                     <div className="row3">
                       <label className="f">구분<select value={trade.side} onChange={(e) => setTrade({ ...trade, side: e.target.value as "buy" | "sell" })}><option value="buy">매수</option><option value="sell">매도</option></select></label>
                       <label className="f">체결 수량<input type="number" min={1} value={trade.qty} onChange={(e) => setTrade({ ...trade, qty: e.target.value })} /></label>
-                      <label className="f">체결 가격(원)<input type="number" min={0} value={trade.price} onChange={(e) => setTrade({ ...trade, price: e.target.value })} /></label>
+                      <label className="f"><span>체결 가격(원)<Info>실제 체결 가격(미국은 원화)으로 넣으세요. 수수료는 비우면 어림합니다.</Info></span><input type="number" min={0} value={trade.price} onChange={(e) => setTrade({ ...trade, price: e.target.value })} /></label>
                     </div>
                     <div className="row">
                       <label className="f">수수료·세금(원, 비우면 어림)<input type="number" min={0} value={trade.fee} onChange={(e) => setTrade({ ...trade, fee: e.target.value })} /></label>
                       <label className="f">체결일<input type="date" value={trade.date} max={st?.today} onChange={(e) => setTrade({ ...trade, date: e.target.value })} /></label>
                     </div>
-                    <p className="help" style={{ margin: 0 }}>실제 체결 가격(미국은 원화)으로 넣으세요. 수수료는 비우면 어림합니다.</p>
                     <div className="btns">
                       <button className="primary" disabled={!!busy || !trade.ticker || !trade.qty || !trade.price}
                         onClick={() => act("trade", () => post({ action: trade.id ? "editTrade" : "trade", accountId: acc.id, ...trade }), trade.id ? "체결 기록을 고치고 잔고를 다시 계산했습니다." : "체결을 기록하고 계좌 잔고를 바꿨습니다.").then((ok) => { if (ok) setTrade(null); })}>{busy === "trade" ? "저장 중…" : trade.id ? "고친 내용 저장" : "기록"}</button>

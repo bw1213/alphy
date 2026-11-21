@@ -83,6 +83,7 @@ function AccountCard({ v, busy, onRefresh }: { v: KisView | null; busy: boolean;
   return (
     <div className="card">
       <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>지금 계좌{v ? ` (${v.env === "real" ? "실전" : "모의투자"})` : ""}
+        <Info>증권사 잔고를 그대로 보여 줍니다 (국내·미국 주식, 원화·달러 예수금을 원화로). 저녁 계산 결과의 &quot;전략 계산 평가액&quot;은 운용 금액에서 출발해 전략대로 했다면 얼마인지 계산한 값이라 이 숫자와 다릅니다.</Info>
         <span style={{ marginLeft: "auto" }}><button disabled={busy} onClick={onRefresh}>{busy ? "읽는 중…" : "계좌 새로 읽기"}</button></span>
       </h2>
       {!v ? <p className="help">아직 계좌를 읽지 않았습니다. &quot;계좌 새로 읽기&quot;를 누르세요.</p> : (
@@ -103,7 +104,6 @@ function AccountCard({ v, busy, onRefresh }: { v: KisView | null; busy: boolean;
             </table></div>
           )}
           {v.note && <p className="help">※ {v.note}</p>}
-          <p className="help">증권사 잔고를 그대로 보여 줍니다 (국내·미국 주식, 원화·달러 예수금을 원화로). 저녁 계산 결과의 &quot;전략 계산 평가액&quot;은 운용 금액에서 출발해 전략대로 했다면 얼마인지 계산한 값이라 이 숫자와 다릅니다.</p>
         </div>
       )}
     </div>
@@ -141,6 +141,7 @@ function OrdersCard({ st }: { st: AutoState }) {
   return (
     <div className="card">
       <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>주문 현황{v ? ` (${v.env === "real" ? "실전" : "모의투자"})` : ""}
+        <Info>한국투자증권에서 읽은 내역입니다 (화면을 보는 동안 1분마다 다시 읽음). 체결되면 텔레그램으로도 알려 드립니다.</Info>
         <span style={{ marginLeft: "auto" }}><button disabled={busy} onClick={load}>{busy ? "읽는 중…" : "새로 읽기"}</button></span>
       </h2>
       <b style={{ fontSize: 13 }}>오늘 증권사 주문{v ? ` · ${v.date}${open ? ` · 체결 기다리는 주문 ${open}건` : ""}` : ""}</b>
@@ -167,10 +168,11 @@ function OrdersCard({ st }: { st: AutoState }) {
           </tbody>
         </table></div>
       )}
-      {v && <p className="help">{kstTime(v.at)}에 한국투자증권에서 읽은 내역입니다 (화면을 보는 동안 1분마다 다시 읽음). 체결되면 텔레그램으로도 알려 드립니다.</p>}
+      {v && <p className="help">{kstTime(v.at)} 기준</p>}
       {(watching?.length || next.length) ? (
         <>
           <b style={{ fontSize: 13 }}>{watching ? "오늘 장중 매도 대기 가격 (지켜보는 중)" : "다음 거래일 장중 매도 대기 가격"}</b>
+          <Info>이 가격들은 증권사에 미리 걸어 둔 주문이 아닙니다. 알피가 장중에 현재가를 지켜보다가 닿으면 그때 시장가로 팔고, 그 주문이 위 &quot;오늘 증권사 주문&quot;에 나타납니다.</Info>
           <div className="tablewrap" style={{ marginTop: 6 }}><table>
             <thead><tr><th>종목</th><th>매도 가격</th><th>수량</th><th>지금 가격</th><th>규칙</th></tr></thead>
             <tbody>{(watching ?? next).map((l, i) => (
@@ -178,7 +180,6 @@ function OrdersCard({ st }: { st: AutoState }) {
                 <td>{watching && lastSeen(l.ticker) ? `${money(marketOf(l.ticker), lastSeen(l.ticker)!.price)} (${lastSeen(l.ticker)!.at})` : `${won(l.close)} (종가)`}</td><td>{l.label}</td></tr>
             ))}</tbody>
           </table></div>
-          <p className="help">이 가격들은 증권사에 미리 걸어 둔 주문이 아닙니다. 알피가 장중에 현재가를 지켜보다가 닿으면 그때 시장가로 팔고, 그 주문이 위 &quot;오늘 증권사 주문&quot;에 나타납니다.</p>
         </>
       ) : null}
     </div>
@@ -255,6 +256,7 @@ function Report({ r }: { r: EveningReport }) {
       {r.targets && r.targets.length > 0 && (
         <>
           <b style={{ fontSize: 13 }}>전략상 목표 보유</b>
+          <Info>목표 수량 = 전략 계산 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 차이만큼 사고팔고, 차이가 1%보다 작으면 건너뜁니다. 전략에 없는 종목은 건드리지 않습니다.</Info>
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>지금</th><th>목표</th><th>차이</th><th>목표 비중</th><th>오늘 종가</th></tr></thead>
             <tbody>{r.targets.map((t) => {
@@ -269,21 +271,20 @@ function Report({ r }: { r: EveningReport }) {
               );
             })}</tbody>
           </table></div>
-          <p className="help">목표 수량 = 전략 계산 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 차이만큼 사고팔고, 차이가 1%보다 작으면 건너뜁니다. 전략에 없는 종목은 건드리지 않습니다.</p>
         </>
       )}
       {r.sellLevels.length > 0 && (
         <>
           <b style={{ fontSize: 13 }}>장중 매도 기준 가격</b>
+          <Info>{r.intraday
+            ? "장중에 이 가격에 닿으면 바로 시장가로 팝니다."
+            : "알림용 가격입니다. 종가로 확인해 다음 날 아침에 팝니다."} {(r.markets?.length ?? 0) > 1 ? "주문은 종목마다 다음 한국 장 또는 미국 장에 냅니다." : "주문 목록은 다음 거래일 아침에 냅니다."}</Info>
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>기준 가격</th>{r.intraday && <th>매도 수량</th>}<th>오늘 종가</th><th>차이</th><th>규칙</th></tr></thead>
             <tbody>{r.sellLevels.map((s, i) => (
               <tr key={i}><td>{s.name} <span className="help">{s.ticker}</span></td><td>{won(s.price)}{s.usd ? ` ($${s.usd.toFixed(2)})` : ""} {s.kind === "take_profit" ? "이상" : "이하"}</td>{r.intraday && <td>{s.qty ? `${s.qty.toLocaleString("ko-KR")}주` : "전부"}</td>}<td>{won(s.close)}</td><td>{s.gap >= 0 ? "+" : ""}{s.gap.toFixed(1)}%</td><td>{s.label}</td></tr>
             ))}</tbody>
           </table></div>
-          <p className="help">{r.intraday
-            ? "장중에 이 가격에 닿으면 바로 시장가로 팝니다."
-            : "알림용 가격입니다. 종가로 확인해 다음 날 아침에 팝니다."} {(r.markets?.length ?? 0) > 1 ? "주문은 종목마다 다음 한국 장 또는 미국 장에 냅니다." : "주문 목록은 다음 거래일 아침에 냅니다."}</p>
         </>
       )}
       <p className="help">보유 수량 기준: {r.holdingsFrom === "account" ? `실제 계좌 (${r.account === "real" ? "실전" : "모의투자"})` : "전략상 보유 (계좌를 읽지 못함)"}</p>
@@ -360,7 +361,7 @@ export default function AutoPage() {
             </label>
             {isCustom && !auth?.user?.owner && <p className="help">코드 전략은 관리자만 운용할 수 있습니다.</p>}
             {picked?.universe ? (
-              <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe, nameOf)}</b><br />종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</p>
+              <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe, nameOf)}</b><Info>종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</Info></p>
             ) : (<>
             <label className="f" style={{ marginTop: 10 }}>대상 종목 {isCycle ? "(필수)" : "(비우면 전략 기본: 시총 상위 종목)"}
               <input value={form.tickers} placeholder="예: 069500, 005930" onChange={(e) => setForm({ ...form, tickers: e.target.value })} />
@@ -371,7 +372,7 @@ export default function AutoPage() {
             </div>
             </>)}
             {planMarkets({ tickers: picked?.universe?.mode === "list" ? splitCodes(picked.universe.tickers) : splitCodes(form.tickers) }).length > 1 && (
-              <p className="help" style={{ marginTop: 10 }}>한국·미국 종목을 섞은 운용입니다. 미국 장이 끝난 뒤 한국 시간 아침 {st?.mixTime ?? "07:00"}에 계산하고, 한국 종목은 한국 장에, 미국 종목은 그날 밤 미국 장에 주문합니다. 한국 주식을 판 돈으로 미국 주식을 바로 사려면 한국투자증권 통합증거금 신청이 필요합니다 (안 하면 그 매수는 다음 장으로 미뤄짐).</p>
+              <p className="help" style={{ marginTop: 10 }}>한국·미국 섞은 운용<Info>미국 장이 끝난 뒤 한국 시간 아침 {st?.mixTime ?? "07:00"}에 계산하고, 한국 종목은 한국 장에, 미국 종목은 그날 밤 미국 장에 주문합니다. 한국 주식을 판 돈으로 미국 주식을 바로 사려면 한국투자증권 통합증거금 신청이 필요합니다 (안 하면 그 매수는 다음 장으로 미뤄짐).</Info></p>
             )}
             <div className="row" style={{ marginTop: 10 }}>
               <label className="f">운용 금액(원)<input type="number" min={100000} step={100000} value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} /></label>
@@ -383,8 +384,8 @@ export default function AutoPage() {
             </label>
             <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginTop: 4 }}>
               <input type="checkbox" style={{ width: "auto", flex: "none" }} checked={typeof picked?.intraday === "boolean" ? picked.intraday : form.intraday} disabled={typeof picked?.intraday === "boolean"} onChange={(e) => setForm({ ...form, intraday: e.target.checked })} /> 장중 실시간 매도 (손절·익절·하락 매도 가격에 장중에 닿으면 바로 팖){typeof picked?.intraday === "boolean" && " · 내 전략 설정"}
+              <Info>끄면 종가 확인 후 다음 날 아침에 팝니다.</Info>
             </label>
-            <p className="help">끄면 종가 확인 후 다음 날 아침에 팝니다.</p>
             <div className="btns" style={{ marginTop: 12 }}>
               <button className="primary" disabled={!!busy || !form.strategy} onClick={() => act("save", () => post("/api/auto", { action: "save", ...form, budget: Number(form.budget) }), "저장했습니다. 보관함에서 전략을 고쳐도 여기서 다시 저장해야 운용에 반영됩니다.")}>{busy === "save" ? "저장 중…" : "저장"}</button>
               {st?.plan && <button disabled={!!busy} onClick={() => act("del", () => post("/api/auto", { action: "delete" }), "운용 전략을 지웠습니다.")}>운용 그만두기</button>}
@@ -399,8 +400,8 @@ export default function AutoPage() {
               <>
                 {tg.owner && (
                   <div style={{ marginBottom: 12 }}>
-                    <p className="help" style={{ marginTop: 0 }}>관리자 봇: {tg.botSet ? <span className="badge ok">@{tg.bot} 연결됨</span> : <span className="badge no">봇 없음</span>}</p>
-                    {!tg.botSet && <p className="help">@BotFather 에서 /newbot 으로 받은 토큰을 넣으세요.</p>}
+                    <p className="help" style={{ marginTop: 0 }}>관리자 봇: {tg.botSet ? <span className="badge ok">@{tg.bot} 연결됨</span> : <span className="badge no">봇 없음</span>}<Info>@BotFather 에서 /newbot 으로 받은 토큰을 넣으세요.</Info></p>
+                    
                     <div className="row">
                       <input type="password" placeholder={tg.botSet ? "새 토큰으로 바꾸기 (비우고 저장하면 해제)" : "봇 토큰 (123456:ABC…)"} value={token} onChange={(e) => setToken(e.target.value)} />
                       <button disabled={!!busy} onClick={() => act("token", () => post("/api/telegram", { action: "token", token }), token ? "봇을 연결했습니다." : "봇 연결을 해제했습니다.").then(() => setToken(""))}>{busy === "token" ? "확인 중…" : "봇 저장"}</button>
@@ -436,18 +437,16 @@ export default function AutoPage() {
           )}
           {st?.owner && (
             <div className="card">
-              <h2>실행 시각 (관리자)</h2>
+              <h2>실행 시각 (관리자)<Info>저녁 계산은 16:00 이후로 정하세요. 아침 주문은 09:00 전에 내면 시가에 체결되어 백테스트와 같습니다.</Info></h2>
               <div className="row">
                 <label className="f">저녁 계산<input value={time} placeholder="18:00" onChange={(e) => setTime(e.target.value)} /></label>
                 <button style={{ alignSelf: "end" }} disabled={!!busy} onClick={() => act("time", () => post("/api/auto", { action: "time", eveningTime: time }), "계산 시각을 바꿨습니다.")}>저장</button>
               </div>
-              <p className="help">16:00 이후로 정하세요.</p>
               <div className="row" style={{ marginTop: 10 }}>
                 <label className="f">아침 주문<input value={mt.morning} placeholder="08:40" onChange={(e) => setMt({ ...mt, morning: e.target.value })} /></label>
                 <label className="f">미체결 취소<input value={mt.cutoff} placeholder="10:00" onChange={(e) => setMt({ ...mt, cutoff: e.target.value })} /></label>
               </div>
               <button style={{ marginTop: 8 }} disabled={!!busy} onClick={() => act("times", () => post("/api/auto", { action: "times", morningTime: mt.morning, cutoffTime: mt.cutoff }), "아침 시각을 바꿨습니다.")}>저장</button>
-              <p className="help">09:00 전에 내면 시가에 체결되어 백테스트와 같습니다.</p>
             </div>
           )}
           {error && <div className="error">{error}</div>}
@@ -459,6 +458,7 @@ export default function AutoPage() {
           {st?.accountView !== undefined && <AccountCard v={st.accountView} busy={busy === "account"} onRefresh={() => act("account", () => post("/api/dashboard", { action: "refresh" }))} />}
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>{(st?.markets?.length ?? 0) > 1 ? "계산 결과" : "저녁 계산 결과"}
+              {(st?.markets?.length ?? 0) > 1 && <Info>섞은 운용은 한국 시간 아침 {st?.mixTime ?? "07:00"}에 계산합니다.</Info>}
               <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", fontSize: 12, fontWeight: 400 }}>
                 {tg?.linked && <label style={{ display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" style={{ width: "auto", flex: "none" }} checked={sendTg} onChange={(e) => setSendTg(e.target.checked)} />텔레그램으로도</label>}
                 <button disabled={!!busy || !st?.plan} onClick={() => act("run", () => post("/api/auto", { action: "run", notify: sendTg })).then(() => setOpen(0))}>{busy === "run" ? "계산 중…" : "지금 계산해 보기"}</button>
@@ -466,7 +466,7 @@ export default function AutoPage() {
               </span>
             </h2>
             {(st?.markets?.length ?? 0) > 1
-              ? <p className="help" style={{ marginTop: 0 }}>섞은 운용은 한국 시간 아침 {st?.mixTime ?? "07:00"}에 계산합니다.{st?.lastMix ? ` 마지막 자동 계산: ${st.lastMix.date} (${st.lastMix.done ? "완료" : `시도 ${st.lastMix.attempts}번`})` : ""}</p>
+              ? st?.lastMix && <p className="help" style={{ marginTop: 0 }}>마지막 자동 계산: {st.lastMix.date} ({st.lastMix.done ? "완료" : `시도 ${st.lastMix.attempts}번`})</p>
               : st?.lastEvening && <p className="help" style={{ marginTop: 0 }}>마지막 자동 계산: {st.lastEvening.date} ({st.lastEvening.done ? "완료" : `시도 ${st.lastEvening.attempts}번`})</p>}
             {!st?.log.length ? <p className="help">아직 계산 기록이 없습니다.</p> : (
               <div style={{ display: "grid", gap: 8 }}>
@@ -484,6 +484,10 @@ export default function AutoPage() {
           </div>
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>{(st?.markets?.length ?? 0) > 1 ? "자동 주문" : "아침 자동 주문"}
+              <Info>
+                {(st?.markets ?? [st?.market ?? "KR"]).includes("KR") && <>{(st?.markets?.length ?? 0) > 1 ? "한국 종목: " : ""}평일 {st?.times.morning ?? "08:40"} {st?.account === "real" ? "실전" : "모의투자"} 계좌로 주문, {st?.times.cutoff ?? "10:00"}에 미체결 취소. </>}
+                {(st?.markets ?? [st?.market ?? "KR"]).includes("US") && <>{(st?.markets?.length ?? 0) > 1 ? "미국 종목: " : ""}미국 장 시작(뉴욕 09:32)에 현재가 ±1% 지정가로 내고 10:30에 미체결을 취소합니다. 시각·가격은 뉴욕·달러 기준.</>}
+              </Info>
               <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                 {!stopAsk ? <button disabled={!!busy || (!st?.plan?.enabled && !st?.days.some((d) => d.date === st.today && ["placed", "buying"].includes(d.phase)))} onClick={() => setStopAsk(true)}>긴급 정지</button> : (
                   <>
@@ -493,8 +497,6 @@ export default function AutoPage() {
                 )}
               </span>
             </h2>
-            {(st?.markets ?? [st?.market ?? "KR"]).includes("KR") && <p className="help" style={{ marginTop: 0 }}>{(st?.markets?.length ?? 0) > 1 ? "한국 종목: " : ""}평일 {st?.times.morning ?? "08:40"} {st?.account === "real" ? "실전" : "모의투자"} 계좌로 주문, {st?.times.cutoff ?? "10:00"}에 미체결 취소.</p>}
-            {(st?.markets ?? [st?.market ?? "KR"]).includes("US") && <p className="help" style={{ marginTop: 0 }}>{(st?.markets?.length ?? 0) > 1 ? "미국 종목: " : ""}미국 장 시작(뉴욕 09:32)에 현재가 ±1% 지정가로 내고 10:30에 미체결을 취소합니다. 시각·가격은 뉴욕·달러 기준.</p>}
             {!st?.days.length ? <p className="help">아직 주문 기록이 없습니다.</p> : st.days.slice(0, 6).map((d) => (
               <details key={d.date + (d.market ?? "")} open={d.date === st.today} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
                 <summary style={{ cursor: "pointer", fontSize: 13 }}><b>{d.date}</b>{d.market === "US" ? " 미국" : ""} · {d.env === "real" ? "실전" : "모의"} · {({ placed: "진행 중", buying: "매도 체결 기다림", done: "끝남", skipped: "주문 안 함", stopped: "긴급 정지" } as const)[d.phase]}{d.reason ? ` · ${d.reason}` : ""}</summary>
@@ -518,6 +520,7 @@ export default function AutoPage() {
           </div>
           <div className="card">
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>성과: 실제 계좌와 전략 비교
+              <Info>입출금 뒤에는 &quot;기준 다시 잡기&quot;(지금까지 손익 유지), 손익이 말이 안 되면 &quot;손익 처음부터&quot;(지금을 0으로)를 누르세요.</Info>
               {st?.perf?.base && <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                 <button disabled={!!busy} title="입금·출금을 했을 때 누르세요" onClick={() => act("rebase", () => post("/api/auto", { action: "rebase" }), "지금 계좌 평가액에 맞춰 기준을 다시 잡았습니다. 지금까지의 손익은 그대로입니다.")}>기준 다시 잡기</button>
                 <button disabled={!!busy} title="계좌 손익이 말이 안 되는 숫자일 때: 지금 평가액을 손익 0으로" onClick={() => { if (confirm("지금 계좌 평가액을 새 기준(손익 0)으로 잡고 예전 계좌 손익 기록을 지울까요?")) act("reset", () => post("/api/auto", { action: "rebase", reset: true }), "지금 계좌 평가액을 손익 0으로 다시 잡았습니다."); }}>손익 처음부터</button>
@@ -540,7 +543,7 @@ export default function AutoPage() {
                     ))}</tbody>
                   </table></div>
                 </details>
-                <p className="help">기준: {st.perf.base ? `${st.perf.base.date} ${won(st.perf.base.total)}` : "아직 없음"} · 입출금 뒤에는 &quot;기준 다시 잡기&quot;(지금까지 손익 유지), 손익이 말이 안 되면 &quot;손익 처음부터&quot;(지금을 0으로)를 누르세요.</p>
+                <p className="help">기준: {st.perf.base ? `${st.perf.base.date} ${won(st.perf.base.total)}` : "아직 없음"}</p>
               </div>
             )}
           </div>
@@ -571,8 +574,7 @@ export default function AutoPage() {
             )}
           </div>
           <div className="card">
-            <h2>장중 실시간 매도</h2>
-            <p className="help" style={{ marginTop: 0 }}>{(st?.markets?.length ?? 0) > 1 ? "한국 평일 09:00~15:20, 미국 뉴욕 09:35~15:50" : st?.market === "US" ? "뉴욕 09:35~15:50" : "평일 09:00~15:20"} 동안 매도 가격에 닿으면 바로 팝니다.</p>
+            <h2>장중 실시간 매도<Info>{(st?.markets?.length ?? 0) > 1 ? "한국 평일 09:00~15:20, 미국 뉴욕 09:35~15:50" : st?.market === "US" ? "뉴욕 09:35~15:50" : "평일 09:00~15:20"} 동안 매도 가격에 닿으면 바로 팝니다.</Info></h2>
             {!st?.intradayDays?.length ? <p className="help">아직 장중 감시 기록이 없습니다.</p> : st.intradayDays.slice(0, 6).map((d) => (
               <details key={d.date + (d.market ?? "")} open={d.date === st.today} style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}>
                 <summary style={{ cursor: "pointer", fontSize: 13 }}><b>{d.date}</b>{d.market === "US" ? " 미국" : ""} · {d.env === "real" ? "실전" : "모의"} · {d.done ? (d.reason ?? "끝남") : `감시 중 (가격 ${d.levels.length}개, 매도 ${d.sells.length}건)`}</summary>

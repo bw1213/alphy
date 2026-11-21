@@ -1,6 +1,7 @@
 "use client";
 
 import { describeCycle, type CycleSpec, type Unit } from "@/lib/strategies/cycle";
+import Info from "./Info";
 
 const small = { width: 90 } as const;
 const row = { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 6, fontSize: 13 } as const;
@@ -25,9 +26,7 @@ export default function CycleBuilder({ spec, onChange }: { spec: CycleSpec; onCh
 
   return (
     <div className="builder">
-      <p className="help">아래 <b>종목 직접 입력</b>의 종목마다 따로 적용됩니다.</p>
-
-      <h3>1. 적립 매수</h3>
+      <h3>1. 적립 매수<Info>아래 <b>종목 직접 입력</b>의 종목마다 따로 적용됩니다.</Info></h3>
       <div style={row}>
         <select value={spec.buy.period} style={{ width: 130, flex: "none" }} onChange={(e) => set("buy", { period: e.target.value as CycleSpec["buy"]["period"] })}>
           <option value="W">매주</option><option value="M">매월</option><option value="Q">분기마다</option><option value="days">N영업일마다</option>
@@ -61,7 +60,7 @@ export default function CycleBuilder({ spec, onChange }: { spec: CycleSpec; onCh
         {spec.drop.peakDays > 0 && <label className="inl"><Num value={spec.drop.peakDays} min={1} step={1} onChange={(v) => set("drop", { peakDays: v })} />영업일</label>}
       </div>
 
-      <h3>3. 안정되면 다시 적립 <span className="help" style={{ fontWeight: 400 }}>켠 조건을 모두 만족하면 (0 = 안 봄)</span></h3>
+      <h3>3. 안정되면 다시 적립<Info>켠 조건을 모두 만족하면 다시 적립합니다 (0 = 안 봄).</Info></h3>
       <div style={row}>바닥(최저 종가)에서 <Num value={spec.stable.rebound} onChange={(v) => set("stable", { rebound: v })} />% 이상 반등</div>
       <div style={row}>바닥 이후 <Num value={spec.stable.calmDays} min={0} step={1} onChange={(v) => set("stable", { calmDays: v })} />영업일 동안 신저가 없음</div>
       <div style={row}>종가가 <Num value={spec.stable.ma} min={0} step={1} onChange={(v) => set("stable", { ma: v })} />일 이동평균선 위</div>
@@ -73,13 +72,12 @@ export default function CycleBuilder({ spec, onChange }: { spec: CycleSpec; onCh
           <option value="off">안 함</option><option value="W">매주</option><option value="M">매월</option><option value="Q">분기마다</option>
         </select>
         주가가 올라 이 비율을 넘었으면 팔아서 맞춤
+        <Info>리밸런싱을 켜면 넘친 만큼을 주기 첫 거래일에 팝니다.</Info>
       </div>
-      <p className="help" style={{ margin: "2px 0 0" }}>리밸런싱을 켜면 넘친 만큼을 주기 첫 거래일에 팝니다.</p>
 
       <div className="notice" style={{ marginTop: 12 }}>
-        <b>이 전략은 이렇게 움직입니다</b>
+        <b>이 전략은 이렇게 움직입니다</b><Info>현금이 떨어지면 적립은 쉽니다(매달 추가 입금 가능).</Info>
         <ul>{describeCycle(spec).map((t, k) => <li key={k}>{t}</li>)}</ul>
-        <p className="help" style={{ margin: 0 }}>현금이 떨어지면 적립은 쉽니다(매달 추가 입금 가능).</p>
       </div>
     </div>
   );

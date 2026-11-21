@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Info from "./Info";
 
 export function useDragZoom(dates: string[]) {
   const [zoom, setZoom] = useState<[number, number] | null>(null);
@@ -31,7 +32,7 @@ export function useDragZoom(dates: string[]) {
 }
 
 export function ZoomBar({ dates, zoom, onReset }: { dates: string[]; zoom: [number, number] | null; onReset: () => void }) {
-  if (!zoom) return <p className="help" style={{ margin: "2px 0 6px" }}>그래프를 끌면 그 구간을 확대합니다.</p>;
+  if (!zoom) return <p className="help" style={{ margin: "2px 0 6px" }}><Info label="ⓘ 확대">그래프를 끌면 그 구간을 확대합니다.</Info></p>;
   return (
     <p className="help" style={{ margin: "2px 0 6px" }}>
       <b>{dates[zoom[0]]} ~ {dates[zoom[1]]}</b> 확대 중 (자산 추이는 이 구간 시작 = 100) · <button className="link" onClick={onReset}>전체 보기</button>

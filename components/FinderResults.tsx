@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { FAMILIES, type Candidate } from "@/lib/finder/candidates";
 import { type FinderReport } from "@/lib/finder/search";
+import Info from "./Info";
 
 const pct = (x: number | null | undefined, d = 1) => (x == null || !Number.isFinite(x) ? "–" : `${(x * 100).toFixed(d)}%`);
 const VERDICT = {
@@ -33,8 +34,8 @@ export default function FinderResults({ report, holdName, onApply, onClose }: {
         <span className={`badge ${v.cls}`}>믿을 수 있는 정도: {v.label}</span>
         <button className="link" style={{ marginLeft: "auto" }} onClick={onClose}>닫기</button>
       </div>
-      <p className="desc" style={{ fontSize: 15, color: "var(--text)", marginTop: 8 }}><b>{b.c.name}</b></p>
-      <p className="help">{FAMILIES[b.c.family].help} 후보 {r.tried}개 중 1등.</p>
+      <p className="desc" style={{ fontSize: 15, color: "var(--text)", marginTop: 8 }}><b>{b.c.name}</b><Info>{FAMILIES[b.c.family].help}</Info></p>
+      <p className="help">후보 {r.tried}개 중 1등<Info>앞으로의 성과는 확인 구간 쪽에 가깝습니다.</Info></p>
 
       <div className="tablewrap" style={{ marginTop: 10 }}>
         <table>
@@ -48,7 +49,6 @@ export default function FinderResults({ report, holdName, onApply, onClose }: {
           </tbody>
         </table>
       </div>
-      <p className="help">앞으로의 성과는 확인 구간 쪽에 가깝습니다.</p>
 
       {beatsHold === false && (
         <div className="notice" style={{ marginTop: 10 }}>
@@ -112,7 +112,8 @@ export default function FinderResults({ report, holdName, onApply, onClose }: {
       {r.rows.length > 10 && <p className="help"><button className="link" onClick={() => setAll(!all)}>{all ? "상위 10개만 보기" : `전체 ${r.rows.length}개 보기`}</button></p>}
 
       <div className="notice" style={{ marginTop: 12 }}>
-        <b>꼭 읽어 주세요.</b> 이 결과는 과거 시세로 계산한 것이고 앞으로의 수익을 보장하지 않습니다. 후보를 많이 시험할수록 우연히 과거에만 잘 맞은 설정이 1등이 되기 쉬워서, 1등의 &quot;고르는 구간&quot; 수익률은 실제보다 부풀려져 있습니다. 확인 구간과 해마다 다시 고르기 결과를 함께 보고, 실제 돈을 넣기 전에 모의투자로 먼저 확인하세요.
+        <b>꼭 읽어 주세요.</b> 과거 시세로 계산한 결과라 앞으로의 수익을 보장하지 않습니다. 실제 돈을 넣기 전에 모의투자로 먼저 확인하세요.
+        <Info>후보를 많이 시험할수록 우연히 과거에만 잘 맞은 설정이 1등이 되기 쉬워서, 1등의 &quot;고르는 구간&quot; 수익률은 실제보다 부풀려져 있습니다. 확인 구간과 해마다 다시 고르기 결과를 함께 보세요.</Info>
       </div>
     </div>
   );

@@ -133,10 +133,7 @@ export default function SettingsPage() {
     const locked = v.appKey.fromEnv && v.appSecret.fromEnv && v.account.fromEnv;
     return (
       <div className="card">
-        <h2>한국투자증권 · {label}</h2>
-        <p className="help" style={{ marginTop: -6, marginBottom: 10 }}>
-          {env === "mock" ? "모의투자 주문·잔고·시세용" : "선택 · 시세를 더 빠르게 받습니다"}
-        </p>
+        <h2>한국투자증권 · {label}<Info>{env === "mock" ? "모의투자 주문·잔고·시세용" : "선택 · 시세를 더 빠르게 받습니다"}</Info></h2>
         {(["appKey", "appSecret", "account"] as const).map((f) => (
           <label className="f" key={f} style={{ marginTop: 8 }}>
             {f === "appKey" ? "앱키 (App Key)" : f === "appSecret" ? "앱시크릿 (App Secret)" : "계좌번호 (12345678-01)"}
@@ -195,22 +192,20 @@ export default function SettingsPage() {
           <p className="help">셋 다 되고 &apos;실전&apos;을 골라야 실제 돈으로 주문이 나갑니다.</p>
         </>
       )}
-      <h2 style={{ marginTop: 16 }}>실전 주문 금액 상한</h2>
+      <h2 style={{ marginTop: 16 }}>실전 주문 금액 상한<Info>실전 주문에만 적용 · 0 = 제한 없음</Info></h2>
       <div className="row">
         <label className="f">1회 주문 상한(원)<input type="number" min={0} value={limit.perOrder} onChange={(e) => setLimit({ ...limit, perOrder: e.target.value })} /></label>
         <label className="f">하루 합계 상한(원)<input type="number" min={0} value={limit.perDay} onChange={(e) => setLimit({ ...limit, perDay: e.target.value })} /></label>
       </div>
-      <p className="help">실전 주문에만 적용 · 0 = 제한 없음</p>
       <button style={{ marginTop: 10 }} onClick={() => {
         if (limit.perOrder.trim() === "" || limit.perDay.trim() === "") return setError("상한 금액을 넣으세요. 제한을 없애려면 0 을 넣습니다.");
         save({ kis: { orderLimit: { perOrder: Number(limit.perOrder), perDay: Number(limit.perDay) } } }, "주문 금액 상한을 저장했습니다");
       }}>저장</button>
-      <h2 style={{ marginTop: 16 }}>자동 매매 한도</h2>
+      <h2 style={{ marginTop: 16 }}>자동 매매 한도<Info>손실 한도만큼 잃으면 자동 매매를 멈추고 알립니다 · 0 = 제한 없음</Info></h2>
       <div className="row">
         <label className="f">실전 운용 금액 상한(원)<input type="number" min={0} step={100000} value={alim.realBudget} onChange={(e) => setAlim({ ...alim, realBudget: e.target.value })} /></label>
         <label className="f">손실 한도(%)<input type="number" min={0} max={100} step={1} value={alim.maxLoss} onChange={(e) => setAlim({ ...alim, maxLoss: e.target.value })} /></label>
       </div>
-      <p className="help">손실 한도만큼 잃으면 자동 매매를 멈추고 알립니다 · 0 = 제한 없음</p>
       <button style={{ marginTop: 10 }} onClick={() => {
         if (alim.realBudget.trim() === "" || alim.maxLoss.trim() === "") return setError("두 칸을 모두 넣으세요. 제한을 없애려면 0 을 넣습니다.");
         save({ kis: { autoLimit: { realBudget: Number(alim.realBudget), maxLoss: Number(alim.maxLoss) } } }, "자동 매매 한도를 저장했습니다");
@@ -225,9 +220,8 @@ export default function SettingsPage() {
       <main className="settings">
         {(error || saved) && <div className="wide">{error ? <div className="error">{error}</div> : <span className="saved">✓ {saved}</span>}</div>}
         <div className="card">
-          <h2>내 계정</h2>
+          <h2>내 계정<Info>앱키·계좌는 암호화되어 본인만 씁니다. 결과와 추천은 참고용이며 투자 책임은 본인에게 있습니다.</Info></h2>
           <p className="desc"><b>{auth.user.name}</b> (<code>{auth.user.id}</code>) · {auth.user.role === "admin" ? "관리자" : "일반 사용자"}</p>
-          <p className="help">앱키·계좌는 암호화되어 본인만 씁니다. 결과와 추천은 참고용이며 투자 책임은 본인에게 있습니다.</p>
         </div>
         <div className="wide section"><h2>내 설정</h2></div>
         {keyCard("mock")}
@@ -236,7 +230,7 @@ export default function SettingsPage() {
         {pwCard(false)}
         <SecurityCard />
         {auth.user.role === "admin" && (<>
-        <div className="wide section"><h2>관리</h2><p className="help">모든 사용자에게 적용됩니다.</p></div>
+        <div className="wide section"><h2>관리<Info>모든 사용자에게 적용됩니다.</Info></h2></div>
           <UsersCard />
           <StockListCard />
           <ServerStatusCard />
@@ -261,7 +255,7 @@ export default function SettingsPage() {
 
         <SecurityCard />
 
-        <div className="wide section"><h2>관리</h2><p className="help">모든 사용자에게 적용됩니다.</p></div>
+        <div className="wide section"><h2>관리<Info>모든 사용자에게 적용됩니다.</Info></h2></div>
         <UsersCard />
 
         <div className="card">
@@ -278,13 +272,12 @@ export default function SettingsPage() {
             <label className="f">시총 상위 종목 수<input type="number" value={bt.universeSize} onChange={(e) => setBt({ ...bt, universeSize: e.target.value })} /></label>
             <label className="f">수수료 %<input value={bt.commission} onChange={(e) => setBt({ ...bt, commission: e.target.value })} /></label>
             <label className="f">슬리피지 %<input value={bt.slippage} onChange={(e) => setBt({ ...bt, slippage: e.target.value })} /></label>
-            <label className="f">매도세 %<input placeholder="연도별 자동" value={bt.sellTax} onChange={(e) => setBt({ ...bt, sellTax: e.target.value })} /></label>
+            <label className="f"><span>매도세 %<Info>비우면 연도별 법정세율을 씁니다.</Info></span><input placeholder="연도별 자동" value={bt.sellTax} onChange={(e) => setBt({ ...bt, sellTax: e.target.value })} /></label>
             <label className="f">미국 수수료 %<input value={bt.usCommission} onChange={(e) => setBt({ ...bt, usCommission: e.target.value })} /></label>
             <label className="f">미국 환전 비용 %<input value={bt.usFx} onChange={(e) => setBt({ ...bt, usFx: e.target.value })} /></label>
             <label className="f">목표 연 수익률 %<input type="number" value={bt.targetCagr} onChange={(e) => setBt({ ...bt, targetCagr: e.target.value })} /></label>
             <label className="f">감당할 최대 낙폭 %<input type="number" value={bt.maxDrawdown} onChange={(e) => setBt({ ...bt, maxDrawdown: e.target.value })} /></label>
           </div>
-          <p className="help">매도세를 비우면 연도별 법정세율을 씁니다.</p>
           <button style={{ marginTop: 10 }} onClick={() => save({
             backtest: { source: bt.source, cash: Number(bt.cash), commission: Number(bt.commission), slippage: Number(bt.slippage), sellTax: bt.sellTax.trim() === "" ? null : Number(bt.sellTax), usCommission: Number(bt.usCommission), usFx: Number(bt.usFx), universeSize: Number(bt.universeSize), targetCagr: Number(bt.targetCagr), maxDrawdown: Number(bt.maxDrawdown) },
           }, "백테스트 기본값을 저장했습니다")}>저장</button>
@@ -311,8 +304,8 @@ export default function SettingsPage() {
               <tr><td>포트, 실행 사용자(PUID/PGID)</td><td>docker-compose</td><td>컨테이너가 뜨기 전에 정해져야 하는 값이라 앱이 바꿀 수 없습니다.</td></tr>
             </tbody>
           </table>
-          </details>
           <p className="help">.env 값(🔒)이 화면 값보다 우선합니다.</p>
+          </details>
         </div>
       </main>
     </>

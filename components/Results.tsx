@@ -24,6 +24,7 @@ import { userKey } from "@/lib/client/userStorage";
 import CycleStatusCard from "./CycleStatusCard";
 import { periodReturn, relative, rollingReturn, weakPeriods } from "@/lib/engine/weak";
 import { rebase, useDragZoom, ZoomBar } from "./ChartZoom";
+import Info from "./Info";
 
 export const pct = (x: number | null | undefined, d = 1) =>
   x == null || !Number.isFinite(x) ? "–" : `${(x * 100).toFixed(d)}%`;
@@ -198,7 +199,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
       {s.deposits > 0 && (
         <div className="notice">
           <b>매달 추가 입금 포함</b>: 넣은 돈 {won(s.contributed)} (시작 {won(s.initial)} + 추가 {won(s.deposits)}) → 최종자산 {won(s.final)}, 손익 {won(s.final - s.contributed)}.
-          {" "}수익률·낙폭은 입금 효과를 뺀 값입니다.
+          <Info>수익률·낙폭은 입금 효과를 뺀 값입니다.</Info>
         </div>
       )}
 
@@ -214,7 +215,10 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
 
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-          <h2>{view === "cum" ? "자산 추이 (시작 = 100)" : view === "roll" ? "1년 수익률 (%)" : "지수 대비 (시작 = 100)"}</h2>
+          <h2>{view === "cum" ? "자산 추이 (시작 = 100)" : view === "roll" ? "1년 수익률 (%)" : "지수 대비 (시작 = 100)"}
+            {view === "roll" && <Info>날마다 그날까지 1년 수익률입니다. 0 아래(빨간 바탕)가 1년 손실 구간입니다.</Info>}
+            {view === "rel" && <Info>내려가는 구간이 지수(또는 매수 후 보유)보다 못했던 때입니다. 100 아래면 시작부터 누적으로 뒤처진 상태입니다.</Info>}
+          </h2>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <div className="seg" style={{ width: 230 }}>
               <button className={view === "cum" ? "on" : ""} onClick={() => setView("cum")}>누적</button>
@@ -246,10 +250,6 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
           {weakShown.length > 0 && <span><i style={{ background: c.bad, opacity: 0.25 }} />큰 낙폭 구간 (번호 = 아래 표)</span>}
           {fillEnd && view === "cum" && <span><i style={{ background: c.t3, opacity: 0.25 }} />지수로 채운 구간</span>}
         </div>
-        <p className="help" style={{ margin: "4px 0 0" }}>
-          {view === "roll" && "날마다 그날까지 1년 수익률입니다. 0 아래(빨간 바탕)가 1년 손실 구간입니다."}
-          {view === "rel" && "내려가는 구간이 지수(또는 매수 후 보유)보다 못했던 때입니다. 100 아래면 시작부터 누적으로 뒤처진 상태입니다."}
-        </p>
         <ZoomBar dates={dates} zoom={zm.zoom} onReset={() => zm.setZoom(null)} />
         <div style={{ height: 320, userSelect: "none" }}>
           <ResponsiveContainer>
@@ -303,7 +303,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
         </div>
         {weak.length > 0 && (
           <>
-            <h3>크게 떨어졌던 구간</h3>
+            <h3>크게 떨어졌던 구간<Info>비교 열은 같은 고점 → 바닥 기간의 수익률입니다. 줄을 누르면 그 구간을 확대합니다.</Info></h3>
             <div className="tablewrap">
               <table>
                 <thead><tr><th>#</th><th className="l">고점 → 바닥</th><th className="l">회복</th><th>낙폭</th><th>기간</th>
@@ -327,7 +327,6 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                 </tbody>
               </table>
             </div>
-            <p className="help">비교 열은 같은 고점 → 바닥 기간의 수익률입니다. 줄을 누르면 그 구간을 확대합니다.</p>
           </>
         )}
       </div>
@@ -346,7 +345,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
           !res.signal ? <p className="help">데이터가 모자라 계산하지 못했습니다.</p> : (
             <>
               <p className="help">
-                <b>{res.signal.date}</b> 종가 기준, 오늘 새로 시작한다면의 종목과 비중입니다.
+                <b>{res.signal.date}</b> 종가 기준<Info>오늘 새로 시작한다면의 종목과 비중입니다. 목록을 확인하고 실행을 눌러야 주문이 나갑니다.</Info>
                 {res.signal.kept ? " (이번엔 매매 안 함: 지금 보유 그대로)" : res.signal.due === false ? " (리밸런싱 주기상 오늘은 매매하는 날이 아님: 참고용)" : ""}
                 {res.signal.date >= new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10) && " 장중 가격이라 마감 후와 다를 수 있습니다."}
               </p>
@@ -378,16 +377,13 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                   window.location.href = "/trade#plan";
                 }}>이 비중으로 주문 목록 만들기 →</button>
               </div>
-              <p className="help">목록을 확인하고 실행을 눌러야 주문이 나갑니다.</p>
             </>
           )
         )}
 
         {tab === "check" && (
           <>
-            <p className="help">과거에만 맞춘 설정(과최적화)인지 봅니다. 셋 다 괜찮아야 믿을 만합니다.</p>
-
-            <h3>1. 앞 기간과 뒤 기간</h3>
+            <h3>1. 앞 기간과 뒤 기간<Info>과거에만 맞춘 설정(과최적화)인지 봅니다. 아래 셋 다 괜찮아야 믿을 만합니다. 뒤 구간은 마지막에 한 번만 확인하세요.</Info></h3>
             {!split ? <p className="help">기간이 짧아 나눌 수 없습니다(각 구간 60영업일 이상 필요).</p> : (
               <>
                 <div className="tablewrap">
@@ -405,10 +401,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                     </tbody>
                   </table>
                 </div>
-                <p className="help">
-                  뒤 구간은 마지막에 한 번만 확인하세요.
-                  {split.second.cagr < split.first.cagr * 0.5 && split.first.cagr > 0 && <b> 뒤 구간 수익률이 앞 구간의 절반에 못 미칩니다. 과최적화를 의심하세요.</b>}
-                </p>
+                {split.second.cagr < split.first.cagr * 0.5 && split.first.cagr > 0 && <p className="help"><b>뒤 구간 수익률이 앞 구간의 절반에 못 미칩니다. 과최적화를 의심하세요.</b></p>}
               </>
             )}
 
@@ -422,8 +415,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
               </div>
             )}
 
-            <h3>3. 파라미터를 조금 바꿔도 비슷한가</h3>
-            <p className="help">파라미터를 하나씩 ±20% 바꿔 다시 돌립니다.</p>
+            <h3>3. 파라미터를 조금 바꿔도 비슷한가<Info>파라미터를 하나씩 ±20% 바꿔 다시 돌립니다.</Info></h3>
             {onSensitivity && <button disabled={!!sensBusy} onClick={runSens}>{sensBusy || "파라미터 민감도 검사"}</button>}
             {sensErr && <div className="error" style={{ marginTop: 8 }}>{sensErr}</div>}
             {sens && (
@@ -595,7 +587,7 @@ function IndexCard({ s, hold, idx, start }: { s: Summary; hold?: HoldCompare | n
   const late = idx.filter((i) => start && i.from > start);
   return (
     <div className="card">
-      <h2>지수와 비교</h2>
+      <h2>지수와 비교<Info>지수는 원화 기준, 배당 제외 가격 지수입니다. 최장 손실 구간은 고점 아래에 머문 가장 긴 기간입니다.</Info></h2>
       <div className="tablewrap">
         <table>
           <thead><tr><th className="l">지표</th>{cols.map((c) => <th key={c.name}>{c.name}</th>)}</tr></thead>
@@ -606,10 +598,7 @@ function IndexCard({ s, hold, idx, start }: { s: Summary; hold?: HoldCompare | n
           </tbody>
         </table>
       </div>
-      <p className="help">
-        지수는 원화 기준, 배당 제외 가격 지수입니다. 최장 손실 구간은 고점 아래에 머문 가장 긴 기간입니다.
-        {late.map((i) => ` ${i.name}는 ${i.from}부터 계산했습니다.`).join("")}
-      </p>
+      {late.length > 0 && <p className="help">{late.map((i) => `${i.name}는 ${i.from}부터 계산했습니다.`).join(" ")}</p>}
     </div>
   );
 }
@@ -630,11 +619,10 @@ function HoldCard({ s, hold, names }: { s: Summary; hold: HoldCompare; names: Re
   const beat = s.cagr - h.cagr;
   return (
     <div className="card">
-      <h2>매수 후 보유와 비교</h2>
-      <p className="help">
+      <h2>매수 후 보유와 비교<Info>
         같은 돈으로 <b>{shown}</b>{list.length > 1 ? "을(를) 똑같이 나눠" : "을(를)"} 첫날 사서 들고만 있었다면의 결과입니다.
         {hold.basis === "traded" && " (전략이 한 번이라도 산 종목 기준, 참고용)"}
-      </p>
+      </Info></h2>
       <div className="tablewrap">
         <table>
           <thead><tr><th className="l">지표</th><th>전략</th><th>매수 후 보유</th><th>차이 (전략 − 보유)</th></tr></thead>

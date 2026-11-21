@@ -91,8 +91,7 @@ export default function SecurityCard() {
         휴대폰을 잃어버렸으면<Info>File Station에서 <code>nas/cache/config</code> 폴더에 <code>disable-2fa.txt</code> 빈 파일을 올리면 다음 접속 때 owner 계정의 2단계 인증이 꺼집니다.</Info>
       </p>}
 
-      <h3 style={{ marginTop: 16 }}>다른 기기 로그아웃</h3>
-      <p className="help">이 기기만 남기고 내 다른 기기의 로그인을 끊습니다.</p>
+      <h3 style={{ marginTop: 16 }}>다른 기기 로그아웃<Info>이 기기만 남기고 내 다른 기기의 로그인을 끊습니다.</Info></h3>
       <button onClick={() => run(async () => { await post({ action: "logout-all" }); return "다른 기기의 로그인을 모두 끊었습니다"; })}>모든 기기 로그아웃</button>
 
       <h3 style={{ marginTop: 16 }}>최근 로그인 기록</h3>

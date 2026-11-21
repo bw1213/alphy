@@ -6,6 +6,7 @@ import { isUsTicker } from "@/lib/data/market";
 import { withCode } from "@/lib/strategies/universe";
 import { buildPlan, SIGNAL_KEY, type Plan, type SavedSignal } from "@/lib/trade/plan";
 import { userKey } from "@/lib/client/userStorage";
+import Info from "./Info";
 
 const won = (n: number) => Math.round(n).toLocaleString("ko-KR");
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
@@ -85,7 +86,11 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
 
   return (
     <div className="card" id="plan">
-      <h2>전략대로 맞추기</h2>
+      <h2>전략대로 맞추기<Info>
+            지정가는 조회한 현재가로 주문하므로 가격이 움직이면 체결되지 않을 수 있습니다. 시장가 매수는 증권사가 여유 증거금을 더 잡아서 현금을 거의 다 쓰는 주문은 거부될 수 있습니다.
+            지정가 매도가 체결되기 전에는 매수할 현금이 모자랄 수 있으니, 거부된 주문은 잠시 뒤 목록을 다시 만들어 내세요.
+            추천은 백테스트상의 보유를 기준으로 계산한 것이라, 보유 종목을 이어 가는 전략(이동평균·RSI)은 실제 잔고와 다를 수 있습니다.
+          </Info></h2>
       {!signal ? (
         <p className="help">추천 종목이 없습니다. <a href="/">백테스트</a> 결과의 <b>추천 종목</b> 탭에서 가져오세요.</p>
       ) : (
@@ -160,11 +165,6 @@ export default function RebalancePlan({ env, loggedIn, onLog, onDone }: {
               )}
             </>
           )}
-          <p className="help" style={{ marginTop: 10 }}>
-            지정가는 조회한 현재가로 주문하므로 가격이 움직이면 체결되지 않을 수 있습니다. 시장가 매수는 증권사가 여유 증거금을 더 잡아서 현금을 거의 다 쓰는 주문은 거부될 수 있습니다.
-            지정가 매도가 체결되기 전에는 매수할 현금이 모자랄 수 있으니, 거부된 주문은 잠시 뒤 목록을 다시 만들어 내세요.
-            추천은 백테스트상의 보유를 기준으로 계산한 것이라, 보유 종목을 이어 가는 전략(이동평균·RSI)은 실제 잔고와 다를 수 있습니다.
-          </p>
         </>
       )}
     </div>
