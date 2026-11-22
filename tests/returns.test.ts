@@ -76,7 +76,7 @@ describe("계좌 목록 하나", () => {
     saveHistory({ prices: null, points: { m1: [{ date: "2026-11-16", total: 1000, cash: 1000, stock: 0, cost: 0 }, { date: "2026-11-17", total: 1100, cash: 1100, stock: 0, cost: 0 }] }, kis: null }, "owner", env);
     const list = listAccounts({ id: "owner" } as any, env);
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ id: "m1", mode: "manual", total: 1100, since: "2026-11-16", href: "/manual?account=m1", plan: null });
+    expect(list[0]).toMatchObject({ id: "m1", mode: "manual", total: 1100, since: "2026-11-16", href: "/accounts?id=m1", plan: null });
     expect(list[0].ret).toBeCloseTo(10);
   });
 });

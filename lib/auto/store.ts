@@ -27,7 +27,7 @@ export function keepRealConfirm(prev: AutoPlan | null, next: AutoPlan): AutoPlan
   return same ? { ...next, realConfirmedAt: prev.realConfirmedAt } : next;
 }
 
-export const REAL_NOT_CONFIRMED = "주문 계좌가 실전인데 실전 전환을 아직 확인하지 않아 주문하지 않습니다. 자동 매매 화면의 \"실전 전환\"에서 확인하세요.";
+export const REAL_NOT_CONFIRMED = "주문 계좌가 실전인데 실전 전환을 아직 확인하지 않아 주문하지 않습니다. 계좌 화면(한국투자증권)의 \"실전 전환\"에서 확인하세요.";
 
 export const intradayOn = (p: Pick<AutoPlan, "intraday">) => p.intraday !== false;
 
