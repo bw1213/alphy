@@ -602,7 +602,7 @@ export default function Page() {
       <header className="top">
         <h1>백테스트 (한국·미국)</h1>
         <p>목표 연 {target.cagr}% · 최대 낙폭 -{target.mdd}%</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/dashboard">전체 계좌</a><a href="/auto">자동 매매</a><a href="/manual">수동 매매</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/trade">한국투자증권 주문·잔고</a><a href="/dashboard">전체 계좌</a><a href="/manual">계좌</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">

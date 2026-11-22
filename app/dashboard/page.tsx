@@ -290,7 +290,7 @@ export default function DashboardPage() {
       <header className="top">
         <h1>전체 계좌</h1>
         <p>자동·수동 계좌 한눈에 보기</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/manual">수동 매매</a><a href="/auto">자동 매매</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/manual">계좌</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
       </header>
       <main style={{ padding: 16, maxWidth: 1500, margin: "0 auto", display: "grid", gap: 16 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -320,7 +320,7 @@ export default function DashboardPage() {
         )}
 
         {!st ? <div className="card"><p className="help">불러오는 중…</p></div> : !all.length ? (
-          <div className="card"><p className="help">계좌가 없습니다. <a href="/settings">설정</a>이나 <a href="/manual">수동 매매</a>에서 추가하세요.</p></div>
+          <div className="card"><p className="help">계좌가 없습니다. <a href="/settings">설정</a>이나 <a href="/manual">계좌</a>에서 추가하세요.</p></div>
         ) : !accts.length ? (
           <div className="card"><p className="help">볼 계좌를 하나 이상 고르세요.</p></div>
         ) : (
@@ -498,7 +498,7 @@ export default function DashboardPage() {
                   <tbody>{todo.map(({ a, o, runDate }, i) => (
                     <tr key={i}>
                       <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} />{a.name}</td>
-                      <td>{a.kind === "auto" ? "자동 주문" : <a href="/manual">직접 주문</a>}</td>
+                      <td><a href={a.kind === "auto" ? "/auto" : `/manual?account=${a.id}`}>{a.kind === "auto" ? "자동 주문" : "직접 주문"}</a></td>
                       <td style={{ color: o.side === "buy" ? "var(--bad)" : "var(--accent)", fontWeight: 600 }}>{o.side === "buy" ? "매수" : "매도"}</td>
                       <td>{o.name} <span className="help">{o.ticker}</span></td><td>{o.qty.toLocaleString("ko-KR")}주</td><td>{won(o.amount)}</td><td>{o.note ?? ""}</td><td>{runDate}</td>
                     </tr>
@@ -518,7 +518,7 @@ export default function DashboardPage() {
                   const p = known.reduce((s, h) => s + h.value - h.qty * h.avgPrice, 0);
                   return [
                     <tr key={a.id}>
-                      <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} /><b>{a.name}</b></td>
+                      <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} /><a href={a.kind === "auto" ? "/auto" : `/manual?account=${a.id}`}><b>{a.name}</b></a></td>
                       <td>{a.broker}</td><td>{a.plan ?? "–"}</td><td>{won(a.total)}</td><td>{won(a.cash)}</td>
                       <td style={{ color: p >= 0 ? "var(--bad)" : "var(--accent)" }}>{known.length ? signed(p) : "–"}</td>
                       {(() => { const r = rets[a.id] ?? []; const l = r.at(-1); return <td style={{ color: l && r.length > 1 ? retColor(l.ret) : undefined }}>{l && r.length > 1 ? <>{pct(l.ret)} <span className="help">{r[0].date.slice(2)}~</span></> : "–"}</td>; })()}

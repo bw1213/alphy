@@ -67,3 +67,16 @@ describe("입출금 기록", () => {
     expect(Object.keys(loadHistory("owner", env).flows!)).toEqual(["kis"]);
   });
 });
+
+describe("계좌 목록 하나", () => {
+  it("수동 계좌를 평가액·누적 수익률·이동 주소와 함께, 한국투자증권 키가 없으면 빼고", async () => {
+    const { listAccounts } = await import("@/lib/accounts/list");
+    const a: ManualAccount = { id: "m1", name: "토스", broker: "토스증권", cash: 1100, positions: [], plan: null, createdAt: "", updatedAt: "" };
+    saveAccounts([a], "owner", env);
+    saveHistory({ prices: null, points: { m1: [{ date: "2026-11-16", total: 1000, cash: 1000, stock: 0, cost: 0 }, { date: "2026-11-17", total: 1100, cash: 1100, stock: 0, cost: 0 }] }, kis: null }, "owner", env);
+    const list = listAccounts({ id: "owner" } as any, env);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ id: "m1", mode: "manual", total: 1100, since: "2026-11-16", href: "/manual?account=m1", plan: null });
+    expect(list[0].ret).toBeCloseTo(10);
+  });
+});
