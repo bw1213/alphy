@@ -1,6 +1,6 @@
 /** 설정 화면용: 비밀값을 가린 보기 + 화면에서 보낸 변경 적용 */
 import { parseAccount } from "../kis/config";
-import { envPassword, KIS_FIELDS, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type AutoLimit, type Settings } from "./store";
+import { envPassword, KIS_FIELDS, serverRealLock, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type AutoLimit, type Settings } from "./store";
 
 type Env = Record<string, string | undefined>;
 const has = (v: string | undefined) => !!(v && v.trim());
@@ -39,7 +39,7 @@ export function settingsView(s: Settings, e: Env = process.env): SettingsView {
       real: one("real"), mock: one("mock"),
       tradeEnv: { value: (tradeFromEnv ? e.KIS_TRADE_ENV!.trim().toLowerCase() : s.kis.tradeEnv) === "real" ? "real" : "mock", fromEnv: tradeFromEnv },
     },
-    realOrdersAllowed: /^(yes|true|1)$/i.test(e.KIS_ALLOW_REAL_ORDERS?.trim() ?? ""),
+    realOrdersAllowed: serverRealLock(e, s).open,
     orderLimit: s.kis.orderLimit,
     autoLimit: s.kis.autoLimit,
     backtest: s.backtest,

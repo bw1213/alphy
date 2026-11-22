@@ -48,7 +48,7 @@ sudo docker login ghcr.io -u bw1213        # 비밀번호 자리에 토큰
 
 ### 한국투자증권 앱키·설정
 웹 화면 `/settings`에서 넣습니다. 자세한 내용은 [kis.md](kis.md).
-`.env`는 실전 주문 잠금 해제(`KIS_ALLOW_REAL_ORDERS`)를 쓸 때만 필요합니다 (`.env.example` 참고).
+`.env`는 꼭 필요하지 않습니다. 실전 주문 잠금은 설정 화면에서 2단계 인증으로 풉니다 (`.env.example` 참고).
 
 ### 예전 버전에서 넘어올 때
 예전 `docker-compose.yml`에는 `KIS_TRADE_ENV=${KIS_TRADE_ENV:-mock}`가 있어서 화면의 주문 대상이 모의투자로 고정(🔒)됩니다.

@@ -21,7 +21,7 @@ describe("settings store", () => {
     expect(loadSettings(env).kis.mock.appKey).toBe("mk");
     expect(statSync(settingsPath(env)).mode & 0o777).toBe(0o600);
   });
-  it("화면 값 위에 환경변수가 우선, 실전 잠금은 환경변수에서만", () => {
+  it("화면 값 위에 환경변수가 우선, 파일에 KIS_ALLOW_REAL_ORDERS 를 넣어도 무시", () => {
     updateSettings((s) => {
       s.kis.mock = { appKey: "file-key", appSecret: "file-secret", account: "50012345-01" };
       s.kis.tradeEnv = "real";
@@ -35,7 +35,7 @@ describe("settings store", () => {
     // 빈 환경변수는 무시
     expect(runtimeEnv({ ...env, KIS_MOCK_APP_KEY: "" }).KIS_MOCK_APP_KEY).toBe("file-key");
   });
-  it("화면에서 실전을 골라도 잠금 해제 환경변수 없이는 실전 주문 불가", () => {
+  it("화면에서 실전을 골라도 잠금이 안 풀렸으면 실전 주문 불가", () => {
     updateSettings((s) => {
       s.kis.real = { appKey: "rk", appSecret: "rs", account: "12345678-01" };
       s.kis.tradeEnv = "real";

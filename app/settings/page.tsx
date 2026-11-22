@@ -10,7 +10,8 @@ import StockListCard from "@/components/StockListCard";
 import Info from "@/components/Info";
 import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
 
-type SettingsView = BaseView & { scope?: "owner" | "member"; realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean }; secretFromEnv?: boolean };
+type ServerLock = { env: "yes" | "no" | null; screen: boolean; at?: number; ownerTotp: boolean };
+type SettingsView = BaseView & { scope?: "owner" | "member"; realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean }; serverLock?: ServerLock; secretFromEnv?: boolean };
 import type { DataSource } from "@/lib/settings/store";
 
 type Env = "real" | "mock";
@@ -31,6 +32,9 @@ export default function SettingsPage() {
   const [limit, setLimit] = useState({ perOrder: "", perDay: "" });
   const [alim, setAlim] = useState({ realBudget: "", maxLoss: "" });
   const [realConfirm, setRealConfirm] = useState(false);
+  const [realOtp, setRealOtp] = useState("");
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [unlockOtp, setUnlockOtp] = useState("");
   const [pw, setPw] = useState({ current: "", next: "", next2: "" });
   const [error, setError] = useState("");
   const [saved, setSaved] = useState("");
@@ -56,7 +60,7 @@ export default function SettingsPage() {
 
   const flash = (msg: string) => { setSaved(msg); setTimeout(() => setSaved(""), 2500); };
 
-  const save = async (patch: SettingsPatch, msg: string) => {
+  const save = async (patch: SettingsPatch & { otp?: string }, msg: string) => {
     setError("");
     const r = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
     const j = await r.json();
@@ -75,6 +79,17 @@ export default function SettingsPage() {
   const clearKeys = async (env: Env) => {
     if (!window.confirm(`${env === "real" ? "실전" : "모의투자"} 앱키·앱시크릿·계좌번호를 모두 지울까요?`)) return;
     await save({ kis: { [env]: { appKey: "", appSecret: "", account: "" } } }, "지웠습니다");
+  };
+
+  const setServerLock = async (on: boolean) => {
+    setError("");
+    const r = await fetch("/api/settings/real-lock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(on ? { on, code: unlockOtp } : { on }) });
+    const j = await r.json();
+    setUnlockOtp("");
+    if (!r.ok) { setError(j.error ?? `HTTP ${r.status}`); if (r.status === 401) refresh(); return; }
+    setUnlockOpen(false);
+    await refresh();
+    flash(on ? "실전 주문 잠금을 풀었습니다" : "실전 주문을 잠갔습니다");
   };
 
   const changePassword = async () => {
@@ -154,6 +169,39 @@ export default function SettingsPage() {
     );
   };
 
+  const sl = view.serverLock;
+  const serverLockBox = (
+    <div style={{ marginTop: 12 }}>
+      <p className="help" style={{ margin: 0 }}>
+        실전 주문 잠금: {view.realOrdersAllowed ? <span className="badge ok">해제됨</span> : <span className="badge no">잠김</span>}
+        <Info>실전 주문은 &apos;실전&apos; 선택과 잠금 해제가 모두 있어야 나갑니다. 풀 때는 2단계 인증 코드가 필요하고, 잠글 때는 코드 없이 바로 잠깁니다. 2단계 인증을 끄면 자동으로 다시 잠깁니다. NAS .env 에 KIS_ALLOW_REAL_ORDERS=yes 를 넣으면 늘 풀림, =no 를 넣으면 화면에서도 못 풉니다.</Info>
+      </p>
+      {sl?.env === "yes" && <div className="lock">.env 의 KIS_ALLOW_REAL_ORDERS=yes 로 풀려 있습니다. 화면에서 잠그려면 .env 에서 지우세요.</div>}
+      {sl?.env === "no" && <div className="lock">.env 의 KIS_ALLOW_REAL_ORDERS=no 로 잠겨 있습니다.</div>}
+      {!sl?.env && (view.realOrdersAllowed ? (
+        <div className="btns" style={{ marginTop: 8 }}>
+          <button onClick={() => setServerLock(false)}>실전 주문 잠그기</button>
+          {sl?.at ? <span className="help" style={{ margin: 0 }}>{new Date(sl.at).toLocaleString("ko-KR")} 에 풂</span> : null}
+        </div>
+      ) : !sl?.ownerTotp ? (
+        <p className="help">잠금을 풀려면 먼저 아래 보안 칸에서 2단계 인증을 켜세요.</p>
+      ) : !unlockOpen ? (
+        <button style={{ marginTop: 8 }} onClick={() => setUnlockOpen(true)}>실전 주문 잠금 풀기</button>
+      ) : (
+        <div className="error" style={{ marginTop: 8 }}>
+          잠금을 풀면 &apos;실전&apos;을 고른 계정과 실전 자동 매매에서 <b>실제 돈으로 주문</b>이 나갑니다.
+          <label className="f" style={{ marginTop: 8, maxWidth: 220 }}>2단계 인증 코드
+            <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={unlockOtp} onChange={(e) => setUnlockOtp(e.target.value.replace(/\D/g, ""))} placeholder="인증 앱의 6자리" />
+          </label>
+          <div className="btns" style={{ marginTop: 8 }}>
+            <button disabled={unlockOtp.length !== 6} onClick={() => setServerLock(true)}>잠금 풀기</button>
+            <button onClick={() => { setUnlockOpen(false); setUnlockOtp(""); }}>취소</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   const tradeCard = (
     <div className="card">
       <h2>주문 대상</h2>
@@ -166,26 +214,22 @@ export default function SettingsPage() {
       {realConfirm && trade.value !== "real" && (
         <div className="error" style={{ marginTop: 10 }}>
           실전으로 바꾸면 주문 화면의 주문이 <b>실제 돈으로 체결</b>됩니다.
+          <label className="f" style={{ marginTop: 8, maxWidth: 220 }}>2단계 인증 코드
+            <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={realOtp} onChange={(e) => setRealOtp(e.target.value.replace(/\D/g, ""))} placeholder="인증 앱의 6자리" />
+          </label>
           <div className="btns" style={{ marginTop: 8 }}>
-            <button onClick={async () => { if (await save({ kis: { tradeEnv: "real" } }, "실전으로 바꿨습니다")) setRealConfirm(false); }}>실전으로 바꾸기</button>
-            <button onClick={() => setRealConfirm(false)}>취소</button>
+            <button disabled={realOtp.length !== 6} onClick={async () => { const ok = await save({ kis: { tradeEnv: "real" }, otp: realOtp }, "실전으로 바꿨습니다"); setRealOtp(""); if (ok) setRealConfirm(false); }}>실전으로 바꾸기</button>
+            <button onClick={() => { setRealConfirm(false); setRealOtp(""); }}>취소</button>
           </div>
         </div>
       )}
-      {isOwner ? (<>
-      <p className="help" style={{ marginTop: 10 }}>
-        실전 주문 잠금: {view.realOrdersAllowed ? <span className="badge ok">해제됨 (KIS_ALLOW_REAL_ORDERS=yes)</span> : <span className="badge no">잠김</span>}
-      </p>
-      <p className="help">
-        실전 주문은 &apos;실전&apos; 선택 + <b>NAS .env 의 KIS_ALLOW_REAL_ORDERS=yes</b> 가 모두 있어야 나갑니다.
-      </p>
-      </>) : (
+      {isOwner ? serverLockBox : (
         <>
           <p className="help" style={{ marginTop: 10 }}>
             실전 주문 잠금: {lock?.open ? <span className="badge ok">해제됨</span> : <span className="badge no">잠김</span>}
           </p>
           <ul className="help" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
-            <li>서버의 실전 주문 잠금 해제 (관리자가 NAS 에서 설정): {lock?.server ? "됨" : "안 됨"}</li>
+            <li>서버의 실전 주문 잠금 해제 (관리자가 설정): {lock?.server ? "됨" : "안 됨"}</li>
             <li>관리자(owner)의 실전 허용: {lock?.granted ? "받음" : "아직 — 관리자에게 요청하세요"}</li>
             <li>내 계정의 2단계 인증: {lock?.totp ? "켜짐" : "꺼짐 — 아래 보안 칸에서 켜세요"}</li>
           </ul>
@@ -300,7 +344,7 @@ export default function SettingsPage() {
               <tr><td>관리자 비밀번호</td><td>화면</td><td>scrypt 해시로만 저장합니다. 처음 만들 때는 컨테이너 로그에 나온 설정 코드가 있어야 해서, 남이 먼저 접속해 비밀번호를 정할 수 없습니다.</td></tr>
               <tr><td>2단계 인증</td><td>화면</td><td>인증 앱 키는 NAS 설정 파일에만 저장됩니다. 휴대폰을 잃어버리면 NAS 파일(<code>disable-2fa.txt</code>)로만 끌 수 있습니다.</td></tr>
               <tr><td>점검 키</td><td>화면</td><td>읽기 전용 점검 API(/api/diag)에만 쓰이고 주문·설정 변경에는 쓸 수 없습니다. 해시만 저장하고 기간이 지나면 저절로 막힙니다.</td></tr>
-              <tr><td><b>실전 주문 잠금 해제</b> (KIS_ALLOW_REAL_ORDERS)</td><td>.env 만</td><td>화면 비밀번호가 새거나 브라우저가 털려도 실제 돈이 나가지 않게, NAS 파일에 손댈 수 있는 사람만 풀 수 있게 했습니다.</td></tr>
+              <tr><td><b>실전 주문 잠금 해제</b>, 주문 대상을 실전으로</td><td>화면 + 2단계 인증</td><td>비밀번호만 새서는 실제 돈이 나가지 않게, 켤 때마다 인증 앱 코드를 다시 확인합니다. 2단계 인증이 꺼지면 잠금이 다시 걸립니다. .env 의 KIS_ALLOW_REAL_ORDERS=no 로 화면 해제를 막을 수 있습니다.</td></tr>
               <tr><td>포트, 실행 사용자(PUID/PGID)</td><td>docker-compose</td><td>컨테이너가 뜨기 전에 정해져야 하는 값이라 앱이 바꿀 수 없습니다.</td></tr>
             </tbody>
           </table>
