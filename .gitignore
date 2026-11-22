@@ -14,4 +14,3 @@ nas/csv/*
 # 비밀값
 .env
 .env.*
-!.env.example

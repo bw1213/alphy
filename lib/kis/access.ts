@@ -12,7 +12,7 @@ export function realLockReason(u: User, e: Env = process.env): string | undefine
   const l = realLock(u, e);
   if (l.open) return undefined;
   const need = [
-    !l.server && "서버의 실전 주문 잠금 해제(관리자가 NAS 에서 설정)",
+    !l.server && "서버의 실전 주문 잠금 해제(관리자가 설정 화면에서)",
     !l.granted && "관리자(owner)의 실전 허용",
     !l.totp && "내 계정의 2단계 인증 켜기(설정 → 보안)",
   ].filter(Boolean).join(", ");

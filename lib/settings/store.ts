@@ -4,16 +4,14 @@
  * 저장 위치: {ALPHY_CONFIG_DIR 또는 .cache/config}/settings.json  (권한 600)
  *   Docker 에서는 .cache 가 NAS 의 nas/cache 폴더에 연결돼 있어서 컨테이너를 업데이트해도 남습니다.
  *
- * 우선순위: 환경변수(값이 있으면) > 설정 파일 > 기본값
- *   예전처럼 .env 로 넣은 값도 그대로 동작하고, 그 항목은 화면에서 "환경변수로 고정"으로 보입니다.
- *
- * 환경변수로만 바꿀 수 있는 것 (보안상 이유):
- *   KIS_ALLOW_REAL_ORDERS  실전 주문 잠금 해제. 화면 비밀번호가 새도 실전 돈이 나가지 않도록 NAS 파일 접근이 있어야만 풀림
- *   ADMIN_PASSWORD         (선택) 관리자 비밀번호를 화면 대신 고정하고 싶을 때. 예전 이름 TRADE_API_TOKEN 도 인식
+ * 모든 설정은 이 파일(화면)에서만 읽습니다. 환경변수는 읽지 않습니다 (설정 폴더 위치 ALPHY_CONFIG_DIR 만 예외).
+ * 실전 주문 잠금 해제: 화면에서 owner 가 2단계 인증 코드로 켬(kis.realUnlock). owner 의 2단계 인증이 꺼지면 다시 잠김.
  */
 import { randomBytes } from "crypto";
 import fs from "fs";
 import path from "path";
+import { getUser } from "./users";
+import { OWNER_ID } from "./userdir";
 
 export type KisEnvName = "real" | "mock";
 export type DataSource = "naver" | "kis" | "csv" | "synthetic";
@@ -70,10 +68,12 @@ export interface AutoSettings {
 
 export const DEFAULT_AUTO: AutoSettings = { eveningTime: "18:00", morningTime: "08:40", cutoffTime: "10:00" };
 
+export interface RealUnlock { at: number; ip?: string }
+
 export interface Settings {
   version: 1;
   auto: AutoSettings;
-  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit };
+  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit; realUnlock?: RealUnlock };
   backtest: BacktestDefaults;
   auth: {
     passwordHash?: string; sessionSecret?: string; setupCode?: string;
@@ -120,6 +120,7 @@ function merge(raw: Partial<Settings> | null): Settings {
       tradeEnv: raw.kis?.tradeEnv === "real" ? "real" : "mock",
       orderLimit: { ...d.kis.orderLimit, ...(raw.kis?.orderLimit ?? {}) },
       autoLimit: { ...d.kis.autoLimit, ...(raw.kis?.autoLimit ?? {}) },
+      ...(typeof raw.kis?.realUnlock?.at === "number" ? { realUnlock: { at: raw.kis.realUnlock.at, ip: raw.kis.realUnlock.ip } } : {}),
     },
     backtest: { ...d.backtest, ...(raw.backtest ?? {}) },
     auth: { ...(raw.auth ?? {}) },
@@ -167,31 +168,29 @@ export const KIS_FIELDS = {
   mock: { appKey: "KIS_MOCK_APP_KEY", appSecret: "KIS_MOCK_APP_SECRET", account: "KIS_MOCK_ACCOUNT" },
 } as const;
 
-/**
- * KIS 설정 코드(lib/kis/config.ts)가 읽는 값 묶음.
- * 설정 파일 값 위에 환경변수를 덮어씀. KIS_ALLOW_REAL_ORDERS 는 환경변수에서만 가져옴.
- */
+export interface ServerRealLock { open: boolean; at?: number; ownerTotp: boolean }
+
+export function serverRealLock(e: Env = process.env, s: Settings = loadSettings(e)): ServerRealLock {
+  const ownerTotp = !!getUser(OWNER_ID, e)?.totpSecret;
+  return { open: !!s.kis.realUnlock && ownerTotp, at: s.kis.realUnlock?.at, ownerTotp };
+}
+
+/** KIS 설정 코드(lib/kis/config.ts)가 읽는 값 묶음 (설정 파일에서) */
 export function runtimeEnv(e: Env = process.env): Env {
   const s = loadSettings(e);
   const out: Env = {};
   for (const env of ["real", "mock"] as const) {
     for (const [field, name] of Object.entries(KIS_FIELDS[env])) {
-      out[name] = nonEmpty(e[name]) ?? nonEmpty(s.kis[env][field as keyof KisKeySet]);
+      out[name] = nonEmpty(s.kis[env][field as keyof KisKeySet]);
     }
   }
-  out.KIS_TRADE_ENV = nonEmpty(e.KIS_TRADE_ENV) ?? s.kis.tradeEnv;
-  out.KIS_ALLOW_REAL_ORDERS = e.KIS_ALLOW_REAL_ORDERS;
+  out.KIS_TRADE_ENV = s.kis.tradeEnv;
+  out.KIS_ALLOW_REAL_ORDERS = serverRealLock(e, s).open ? "yes" : undefined;
   return out;
-}
-
-/** 환경변수로 고정된 관리자 비밀번호 (없으면 화면에서 정함) */
-export function envPassword(e: Env = process.env): string | undefined {
-  return nonEmpty(e.ADMIN_PASSWORD) ?? nonEmpty(e.TRADE_API_TOKEN);
 }
 
 /** 비밀번호가 아직 없으면 1회용 설정 코드를 만들어 로그와 파일에 남김 (Jenkins 방식) */
 export function ensureSetupCode(e: Env = process.env): string | null {
-  if (envPassword(e)) return null;
   const s = loadSettings(e);
   if (s.auth.passwordHash) return null;
   if (s.auth.setupCode) return s.auth.setupCode;

@@ -4,7 +4,7 @@ import {
   passwordConfigured, recordFail, resetFails, setPassword, totpEnabled,
 } from "@/lib/settings/auth";
 import { recordLogin, type LoginEvent } from "@/lib/settings/loginlog";
-import { ensureSetupCode, envPassword, loadSettings } from "@/lib/settings/store";
+import { ensureSetupCode, loadSettings } from "@/lib/settings/store";
 import { OWNER_ID } from "@/lib/settings/userdir";
 import { acceptInvite, checkInvite, getUser, listUsers } from "@/lib/settings/users";
 import { timingSafeEqual, createHash } from "crypto";
@@ -27,7 +27,6 @@ export async function GET(req: Request) {
   return NextResponse.json({
     setupNeeded: !configured,
     loggedIn: !!me,
-    passwordFromEnv: !!envPassword() && (!me || me.id === OWNER_ID),
     minPassword: MIN_PASSWORD,
     // 혼자 쓸 때는 예전처럼 비밀번호만 물음. 2단계 인증 코드는 비밀번호가 맞은 뒤에 물음(POST 의 otpNeeded)
     multiUser: users.length > 1,
@@ -83,7 +82,6 @@ export async function POST(req: Request) {
     if (b.action === "change") {
       const me = currentUser(req);
       if (!me) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
-      if (me.id === OWNER_ID && envPassword()) return NextResponse.json({ error: "비밀번호가 환경변수(ADMIN_PASSWORD)로 고정돼 있어 화면에서 바꿀 수 없습니다." }, { status: 409 });
       if (!checkPassword(String(b.current ?? ""), process.env, me.id)) { recordFail(ip); log("fail", me.id); return NextResponse.json({ error: "현재 비밀번호가 틀렸습니다." }, { status: 401 }); }
       setPassword(pw, process.env, me.id);
       resetFails(ip);

@@ -12,7 +12,7 @@ const EVENT: Record<string, string> = {
   locked: "잠긴 상태에서 시도", "logout-all": "모든 기기 로그아웃", "2fa-on": "2단계 인증 켬", "2fa-off": "2단계 인증 끔",
   "diag-create": "점검 키 발급", "diag-revoke": "점검 키 폐기", "diag-strategy": "점검 키로 내 전략 저장",
   join: "초대로 가입", "invite-create": "초대 링크 만듦", "invite-revoke": "초대 취소", "user-disable": "계정 정지", "user-enable": "정지 해제",
-  "user-delete": "계정 삭제", "user-2fa-reset": "2단계 인증 초기화", "logout-everyone": "모든 사람 로그아웃", "real-allow": "실전 주문 허용", "real-deny": "실전 주문 허용 취소",
+  "user-delete": "계정 삭제", "user-2fa-reset": "2단계 인증 초기화", "logout-everyone": "모든 사람 로그아웃", "real-allow": "실전 주문 허용", "real-deny": "실전 주문 허용 취소", "real-unlock": "실전 주문 잠금 해제", "real-lock": "실전 주문 잠금", "real-env": "주문 대상 실전으로",
 };
 const BAD = new Set(["fail", "otp-fail", "locked"]);
 

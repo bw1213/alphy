@@ -6,14 +6,14 @@
  *   각자 본인 앱키·계좌만 넣고, 다른 사람(관리자 포함)은 볼 수 없습니다.
  *
  * 실전 주문이 나가려면 (owner 가 아닌 사람):
- *   1) 서버 전체 잠금 해제  KIS_ALLOW_REAL_ORDERS=yes (환경변수, 지금과 같음)
+ *   1) 서버 전체 잠금 해제 (owner 가 설정 화면에서 2단계 인증으로)
  *   2) owner 가 그 사람에게 "실전 허용" (설정 → 사용자)
  *   3) 본인이 2단계 인증을 켜 둠
- *   4) 본인 설정에서 주문 대상을 실전으로
+ *   4) 본인 설정에서 주문 대상을 실전으로 (2단계 인증 코드 필요)
  */
 import fs from "fs";
 import path from "path";
-import { DEFAULT_AUTO_LIMIT, DEFAULT_ORDER_LIMIT, loadSettings, type AutoLimit, runtimeEnv, type KisEnvName, type KisKeySet, type OrderLimit, type Settings } from "../settings/store";
+import { DEFAULT_AUTO_LIMIT, DEFAULT_ORDER_LIMIT, loadSettings, serverRealLock, type AutoLimit, runtimeEnv, type KisEnvName, type KisKeySet, type OrderLimit, type Settings } from "../settings/store";
 import { open, seal } from "../settings/secretbox";
 import { ensureUserDir, OWNER_ID, userDir } from "../settings/userdir";
 import type { User } from "../settings/users";
@@ -59,7 +59,7 @@ export function deleteUserKis(user: string, e: Env = process.env): void {
 export interface RealLock { server: boolean; granted: boolean; totp: boolean; open: boolean }
 
 export function realLock(u: Pick<User, "id" | "realOrders" | "totpSecret">, e: Env = process.env): RealLock {
-  const server = /^(yes|true|1)$/i.test(e.KIS_ALLOW_REAL_ORDERS?.trim() ?? "");
+  const server = serverRealLock(e).open;
   if (u.id === OWNER_ID) return { server, granted: true, totp: true, open: server };
   const granted = u.realOrders === true, totp = !!u.totpSecret;
   return { server, granted, totp, open: server && granted && totp };

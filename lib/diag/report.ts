@@ -27,7 +27,7 @@ import { passwordConfigured, totpEnabled } from "../settings/auth";
 import { listInvites, listUsers } from "../settings/users";
 import { OWNER_ID } from "../settings/userdir";
 import { dataGate } from "../server/limiter";
-import { configDir, envPassword, loadSettings, runtimeEnv } from "../settings/store";
+import { configDir, loadSettings, runtimeEnv } from "../settings/store";
 
 type Env = Record<string, string | undefined>;
 
@@ -98,8 +98,8 @@ export function overview(e: Env = process.env) {
       memoryMb: Math.round(process.memoryUsage().rss / 1048576),
     },
     settings: {
-      passwordSet: passwordConfigured(e), passwordFromEnv: !!envPassword(e), totpEnabled: totpEnabled(e),
-      kis: { real: keys("REAL"), mock: keys("MOCK"), tradeEnv: rt.KIS_TRADE_ENV, realOrdersUnlocked: /^(1|true|yes)$/i.test(rt.KIS_ALLOW_REAL_ORDERS?.trim() ?? "") },
+      passwordSet: passwordConfigured(e), totpEnabled: totpEnabled(e),
+      kis: { real: keys("REAL"), mock: keys("MOCK"), tradeEnv: rt.KIS_TRADE_ENV, realOrdersUnlocked: rt.KIS_ALLOW_REAL_ORDERS === "yes" },
       orderLimit: s.kis.orderLimit,
       backtest: s.backtest,
       diagTokens: (s.auth.diagTokens ?? []).filter((t) => t.expiresAt > Date.now()).length,

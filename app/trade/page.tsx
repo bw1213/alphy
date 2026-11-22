@@ -88,7 +88,7 @@ export default function TradePage() {
                 <li>시세 조회: {status.quotes ? <span className="badge ok">{status.quotes === "real" ? "실전 키" : "모의 키"}</span> : <span className="badge no">앱키 없음</span>}</li>
                 <li>모의투자: {status.mock.keys ? <span className="badge ok">앱키</span> : <span className="badge no">앱키 없음</span>} {status.mock.account ? <span className="badge ok">계좌</span> : <span className="badge no">계좌 없음</span>}</li>
                 <li>실전: {status.real.keys ? <span className="badge ok">앱키</span> : <span className="badge no">앱키 없음</span>} {status.real.account ? <span className="badge ok">계좌</span> : <span className="badge no">계좌 없음</span>}</li>
-                <li>주문 대상: <b>{envLabel}</b>{env === "real" && !status.realOrdersAllowed && (auth?.user && !auth.user.owner ? " (잠김: 설정 화면의 실전 주문 잠금 참고)" : " (잠김: NAS .env 에 KIS_ALLOW_REAL_ORDERS=yes 필요)")}</li>
+                <li>주문 대상: <b>{envLabel}</b>{env === "real" && !status.realOrdersAllowed && " (잠김: 설정 화면의 실전 주문 잠금 참고)"}</li>
                 <li>로그인: {auth?.loggedIn ? <span className="badge ok">됨</span> : <span className="badge no">필요</span>}</li>
               </ul>
             )}

@@ -48,12 +48,14 @@ sudo docker login ghcr.io -u bw1213        # 비밀번호 자리에 토큰
 
 ### 한국투자증권 앱키·설정
 웹 화면 `/settings`에서 넣습니다. 자세한 내용은 [kis.md](kis.md).
-`.env`는 실전 주문 잠금 해제(`KIS_ALLOW_REAL_ORDERS`)를 쓸 때만 필요합니다 (`.env.example` 참고).
+앱은 환경변수(`.env`)를 읽지 않습니다. 실전 주문 잠금도 설정 화면에서 2단계 인증으로 풉니다.
 
 ### 예전 버전에서 넘어올 때
-예전 `docker-compose.yml`에는 `KIS_TRADE_ENV=${KIS_TRADE_ENV:-mock}`가 있어서 화면의 주문 대상이 모의투자로 고정(🔒)됩니다.
-NAS의 `docker-compose.yml`을 새 파일로 바꾸고 프로젝트를 다시 시작한 뒤, `.env`에 있던 앱키를 설정 화면에 옮겨 넣으세요.
-(그대로 둬도 `.env` 값으로 계속 동작합니다. `TRADE_API_TOKEN`은 관리자 비밀번호로 쓰입니다)
+예전에 `.env` 로 넣던 값(`KIS_*` 앱키·계좌, `KIS_TRADE_ENV`, `KIS_ALLOW_REAL_ORDERS`, `ADMIN_PASSWORD`/`TRADE_API_TOKEN`, `ALPHY_SECRET_KEY`)은 더 이상 쓰이지 않습니다.
+- 앱키·계좌·주문 대상은 설정 화면에 다시 넣고, 실전 주문 잠금은 화면에서 2단계 인증으로 푸세요.
+- `ADMIN_PASSWORD` 로만 로그인하던 경우 비밀번호가 없는 상태가 됩니다. 컨테이너 로그(또는 `nas/cache/config/setup-code.txt`)의 설정 코드로 새 비밀번호를 만드세요.
+- `ALPHY_SECRET_KEY` 를 썼다면 다른 사람이 넣은 앱키를 풀 수 없게 되니 각자 다시 넣어야 합니다.
+- NAS의 `docker-compose.yml`을 새 파일로 바꾸고 `.env` 는 지워도 됩니다.
 
 ## 4. 업데이트
 자동입니다. main에 머지 → Actions 빌드(3~5분) → Watchtower 반영(최대 5분).

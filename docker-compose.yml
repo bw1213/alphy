@@ -23,15 +23,7 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       - TZ=Asia/Seoul
-      # 앱키·계좌번호·주문 대상·백테스트 기본값·2단계 인증은 웹 화면(/settings)에서 설정하고 nas/cache/config/ 에 저장됩니다.
-      # 아래 두 개만 같은 폴더의 .env 파일로 넣습니다 (.env.example 참고)
-      # 실전 주문 잠금 해제: 보안상 화면이 아닌 환경변수로만 풀 수 있음
-      - KIS_ALLOW_REAL_ORDERS=${KIS_ALLOW_REAL_ORDERS:-}
-      # 선택: 관리자 비밀번호 고정 (비우면 처음 접속 때 화면에서 만듦)
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
-      # 선택: 다른 사람의 한국투자증권 앱키·계좌를 암호화하는 키. 비우면 nas/cache/config/secret.key 를 자동으로 만들어 씀.
-      # 넣어 두면 설정 폴더 백업·복사본만으로는 풀 수 없음 (잃어버리면 각자 앱키를 다시 넣어야 함)
-      - ALPHY_SECRET_KEY=${ALPHY_SECRET_KEY:-}
+      # 앱 설정은 모두 웹 화면(/settings)에서 하고 nas/cache/config/ 에 저장됩니다 (환경변수는 읽지 않음)
     volumes:
       - ./nas/cache:/app/.cache       # 화면 설정(config/)·로그인 기록·시세 캐시·KIS 접근토큰
       - ./nas/csv:/app/data/csv       # 내 CSV 데이터 ({종목코드}.csv, KOSPI.csv)

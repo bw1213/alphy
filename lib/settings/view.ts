@@ -1,20 +1,18 @@
 /** 설정 화면용: 비밀값을 가린 보기 + 화면에서 보낸 변경 적용 */
 import { parseAccount } from "../kis/config";
-import { envPassword, KIS_FIELDS, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type AutoLimit, type Settings } from "./store";
+import { serverRealLock, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type AutoLimit, type Settings } from "./store";
 
 type Env = Record<string, string | undefined>;
-const has = (v: string | undefined) => !!(v && v.trim());
 
-export interface FieldView { set: boolean; fromEnv: boolean; hint?: string }
+export interface FieldView { set: boolean; hint?: string }
 export interface SettingsView {
   kis: Record<KisEnvName, { appKey: FieldView; appSecret: FieldView; account: FieldView }> & {
-    tradeEnv: { value: KisEnvName; fromEnv: boolean };
+    tradeEnv: { value: KisEnvName };
   };
   realOrdersAllowed: boolean;
   orderLimit: OrderLimit;
   autoLimit: AutoLimit;
   backtest: BacktestDefaults;
-  passwordFromEnv: boolean;
   path: string;
 }
 
@@ -25,25 +23,21 @@ const maskAccount = (s: string) => {
 
 export function settingsView(s: Settings, e: Env = process.env): SettingsView {
   const field = (env: KisEnvName, f: keyof KisKeySet): FieldView => {
-    const envName = KIS_FIELDS[env][f];
-    const fromEnv = has(e[envName]);
-    const v = (fromEnv ? e[envName] : s.kis[env][f])?.trim() ?? "";
-    if (!v) return { set: false, fromEnv: false };
+    const v = s.kis[env][f]?.trim() ?? "";
+    if (!v) return { set: false };
     const hint = f === "appKey" ? `…${v.slice(-4)}` : f === "account" ? maskAccount(v) : undefined;
-    return { set: true, fromEnv, hint };
+    return { set: true, hint };
   };
   const one = (env: KisEnvName) => ({ appKey: field(env, "appKey"), appSecret: field(env, "appSecret"), account: field(env, "account") });
-  const tradeFromEnv = has(e.KIS_TRADE_ENV);
   return {
     kis: {
       real: one("real"), mock: one("mock"),
-      tradeEnv: { value: (tradeFromEnv ? e.KIS_TRADE_ENV!.trim().toLowerCase() : s.kis.tradeEnv) === "real" ? "real" : "mock", fromEnv: tradeFromEnv },
+      tradeEnv: { value: s.kis.tradeEnv === "real" ? "real" : "mock" },
     },
-    realOrdersAllowed: /^(yes|true|1)$/i.test(e.KIS_ALLOW_REAL_ORDERS?.trim() ?? ""),
+    realOrdersAllowed: serverRealLock(e, s).open,
     orderLimit: s.kis.orderLimit,
     autoLimit: s.kis.autoLimit,
     backtest: s.backtest,
-    passwordFromEnv: !!envPassword(e),
     path: settingsPath(e),
   };
 }

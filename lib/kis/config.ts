@@ -1,14 +1,13 @@
 /**
  * 한국투자증권(KIS) Open API 설정.
- * 값은 웹 설정 화면(/settings, 파일: lib/settings/store.ts)에서 넣고, 같은 이름의 환경변수가 있으면 그게 우선합니다.
- * 아래 함수들은 그 둘을 합친 값(runtimeEnv)을 읽습니다.
+ * 값은 웹 설정 화면(/settings, 파일: lib/settings/store.ts)에서 넣습니다. 아래 이름은 runtimeEnv 가 만든 값 묶음의 키입니다.
  *
  *  KIS_REAL_APP_KEY / KIS_REAL_APP_SECRET   실전투자 앱키 (시세 조회에 우선 사용, 실전 주문 시 필요)
  *  KIS_REAL_ACCOUNT                         실전 계좌 "12345678-01" (실전 주문·잔고에만 필요)
  *  KIS_MOCK_APP_KEY / KIS_MOCK_APP_SECRET   모의투자 앱키
  *  KIS_MOCK_ACCOUNT                         모의투자 계좌 "50012345-01"
  *  KIS_TRADE_ENV                            주문·잔고에 쓸 환경: mock(기본) | real
- *  KIS_ALLOW_REAL_ORDERS                    "yes" 일 때만 실전 주문 허용 (안전장치, 환경변수에서만)
+ *  KIS_ALLOW_REAL_ORDERS                    "yes" 일 때만 실전 주문 허용 (화면의 실전 주문 잠금)
  */
 import { runtimeEnv } from "../settings/store";
 
@@ -64,11 +63,11 @@ export function realOrdersAllowed(e: Env = runtimeEnv()): boolean {
   return /^(yes|true|1)$/i.test(e.KIS_ALLOW_REAL_ORDERS?.trim() ?? "");
 }
 
-/** 주문·잔고용 자격 증명. 실전 환경인데 KIS_ALLOW_REAL_ORDERS 가 없으면 에러 */
+/** 주문·잔고용 자격 증명. 실전 환경인데 실전 잠금이 안 풀렸으면 에러 */
 export function tradeCredentials(e: Env = runtimeEnv()): KisCredentials {
   const env = tradeEnv(e);
   if (env === "real" && !realOrdersAllowed(e)) {
-    throw new Error(e.ALPHY_REAL_LOCK_REASON ?? "실전 주문이 잠겨 있습니다. 실전으로 주문하려면 NAS 의 .env 에 KIS_ALLOW_REAL_ORDERS=yes 를 넣고 컨테이너를 다시 시작해야 합니다 (안전장치).");
+    throw new Error(e.ALPHY_REAL_LOCK_REASON ?? "실전 주문이 잠겨 있습니다. 설정 화면의 '실전 주문 잠금'에서 2단계 인증 코드로 풀어야 합니다.");
   }
   const c = credentialsFor(env, e);
   const label = env === "real" ? "실전" : "모의투자";
