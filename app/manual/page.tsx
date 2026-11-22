@@ -11,6 +11,7 @@ import type { ManualPosition, ManualTrade, FeeRates } from "@/lib/manual/store";
 import type { PriceBook } from "@/lib/manual/value";
 import { fetchJob } from "@/lib/client/fetchData";
 import Info from "@/components/Info";
+import AccountList from "@/components/AccountList";
 
 interface PlanView { label: string; kind: string; strategyName: string | null; builtin: string | null; tickers: string[]; budget: number; startDate: string; enabled: boolean; updatedAt: string }
 interface AccountView { id: string; name: string; broker: string; cash: number; others?: "sell" | "keep"; positions: ManualPosition[]; plan: PlanView | null; log: EveningReport[]; updatedAt: string }
@@ -117,13 +118,19 @@ export default function ManualPage() {
   const [resetAsk, setResetAsk] = useState(false);
   const [brokerText, setBrokerText] = useState<string | null>(null);
   const priceTried = useRef(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     const [m, l] = await Promise.all([
       fetch("/api/manual", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/strategies", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
     ]);
-    if (m) { setSt(m); setSel((s) => (m.accounts.some((a: AccountView) => a.id === s) ? s : m.accounts[0]?.id ?? "")); }
+    if (m) {
+      const want = new URLSearchParams(window.location.search).get("account") ?? "";
+      setSt(m);
+      setSel((s) => (m.accounts.some((a: AccountView) => a.id === s) ? s : m.accounts.some((a: AccountView) => a.id === want) ? want : m.accounts[0]?.id ?? ""));
+      setReloadKey((k) => k + 1);
+    }
     if (Array.isArray(l)) setLib(l);
     return m as ManualState | null;
   }, []);
@@ -198,32 +205,14 @@ export default function ManualPage() {
   return (
     <>
       <header className="top">
-        <h1>수동 매매</h1>
-        <p>토스·미래에셋 등 계좌별 전략 · 평일 저녁 매매 안내</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/">백테스트</a><a href="/auto">자동 매매</a><a href="/settings">설정</a></span>
+        <h1>계좌</h1>
+        <p>직접 주문 계좌 · 평일 저녁 매매 안내</p>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">
-          <div className="card">
-            <h2 style={{ display: "flex", alignItems: "center" }}>내 수동 계좌
-              <button style={{ marginLeft: "auto", fontWeight: 400 }} disabled={!!busy || !st} onClick={() => { setForm(emptyForm(st!.today)); setDelAsk(false); setBrokerText(null); }}>+ 계좌 추가</button>
-            </h2>
-            {!st ? <p className="help">불러오는 중…</p> : !st.accounts.length ? <p className="help">아직 계좌가 없습니다.</p> : (
-              <div style={{ display: "grid", gap: 6 }}>
-                {st.accounts.map((a) => {
-                  const v = a.cash + a.positions.reduce((s, p) => s + p.qty * (price(p.ticker) ?? p.avgPrice), 0);
-                  const todo = a.log.find((r) => r.status === "ok")?.orders.length ?? 0;
-                  return (
-                    <button key={a.id} onClick={() => { setSel(a.id); setForm(null); setTrade(null); setTradeDel(""); setOpen(0); }}
-                      style={{ textAlign: "left", display: "grid", gap: 2, borderColor: a.id === sel ? "var(--accent)" : undefined }}>
-                      <span><b>{a.name}</b> <span className="help">{a.broker}</span></span>
-                      <span style={{ fontSize: 12, color: "var(--text-2)" }}>{won(v)} · {a.plan ? `${a.plan.label}${a.plan.enabled ? "" : " (꺼짐)"}` : "전략 없음"}{todo ? ` · 할 일 ${todo}건` : ""}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <AccountList current={sel} reload={reloadKey} onPick={(id) => { setSel(id); setForm(null); setTrade(null); setTradeDel(""); setOpen(0); }}
+            onAdd={st ? () => { setForm(emptyForm(st.today)); setDelAsk(false); setBrokerText(null); } : undefined} />
 
           {form && (
             <div className="card">

@@ -77,7 +77,7 @@ export default function TradePage() {
       <header className="top">
         <h1>한국투자증권 주문·잔고</h1>
         <p>{envLabel}로 주문합니다.</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/">← 백테스트</a><a href="/auto">자동 매매</a><a href="/manual">수동 매매</a><a href="/dashboard">전체 계좌</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/">← 백테스트</a><a href="/manual">계좌</a><a href="/dashboard">전체 계좌</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">

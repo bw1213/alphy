@@ -15,6 +15,7 @@ import type { KisView } from "@/lib/manual/value";
 import type { DayOrder } from "@/lib/kis/orders";
 import type { DayInfo } from "@/lib/market/holidays";
 import Info from "@/components/Info";
+import AccountList from "@/components/AccountList";
 import { marketOf, planMarkets } from "@/lib/auto/session";
 
 interface PlanView {
@@ -344,12 +345,13 @@ export default function AutoPage() {
   return (
     <>
       <header className="top">
-        <h1>자동 매매</h1>
+        <h1>계좌 · 한국투자증권</h1>
         <p>평일 {st?.eveningTime ?? "18:00"} 계산 · 텔레그램 알림</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/manual">수동 매매</a><a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/manual">계좌</a><a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">
+          <AccountList current="kis" />
           <div className="card">
             <h2>운용 전략</h2>
             <label className="f">전략
