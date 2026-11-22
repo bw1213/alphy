@@ -5,6 +5,7 @@
  *     prices  마지막으로 받은 종가 (보유 종목 모두, 원화)
  *     points  계좌별 하루 한 점: 평가액·예수금·주식·매입 원가·전략 평가액. 한국투자증권 계좌는 "kis"
  *     kis     마지막으로 읽은 한국투자증권 잔고 (대시보드에서 수동 계좌와 함께 보여 줌)
+ *     flows   계좌별 입금·출금 (누적 수익률에서 뺌)
  *
  * 매일 저녁 계산 뒤와 화면의 "시세 새로 받기"에서 갱신. 같은 날은 한 점으로 덮어씀.
  */
@@ -14,6 +15,7 @@ import { loadSettings } from "../settings/store";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import { kst, minusDays } from "../auto/time";
 import { accountValue, loadAccounts, type ManualAccount } from "./store";
+import type { Flow } from "./returns";
 
 type Env = Record<string, string | undefined>;
 
@@ -26,6 +28,8 @@ export interface Snapshot {
   cost: number;
   /** 그날 저녁 계산의 전략 평가액 (전략이 있을 때) */
   strategy?: number;
+  /** 기록한 시각 */
+  at?: string;
 }
 
 export interface PriceBook {
@@ -65,6 +69,7 @@ export interface History {
   prices: PriceBook | null;
   points: Record<string, Snapshot[]>;
   kis?: KisView | null;
+  flows?: Record<string, Flow[]>;
 }
 
 export const MAX_POINTS = 750;
@@ -72,8 +77,8 @@ export const MAX_POINTS = 750;
 export function loadHistory(user: string = OWNER_ID, e: Env = process.env): History {
   try {
     const j = JSON.parse(fs.readFileSync(userFile("manual-history.json", user, e), "utf8"));
-    return { prices: j?.prices ?? null, points: j?.points && typeof j.points === "object" ? j.points : {}, kis: j?.kis ?? null };
-  } catch { return { prices: null, points: {}, kis: null }; }
+    return { prices: j?.prices ?? null, points: j?.points && typeof j.points === "object" ? j.points : {}, kis: j?.kis ?? null, flows: j?.flows && typeof j.flows === "object" ? j.flows : {} };
+  } catch { return { prices: null, points: {}, kis: null, flows: {} }; }
 }
 
 export function saveHistory(h: History, user: string = OWNER_ID, e: Env = process.env) {
@@ -81,11 +86,11 @@ export function saveHistory(h: History, user: string = OWNER_ID, e: Env = proces
 }
 
 /** 계좌 하나의 지금 모습 (가격을 모르는 종목은 평균단가) */
-export function snapshotOf(a: ManualAccount, date: string, prices: PriceBook | null, strategy?: number): Snapshot {
+export function snapshotOf(a: ManualAccount, date: string, prices: PriceBook | null, strategy?: number, at?: string): Snapshot {
   const px = (t: string) => prices?.map[t]?.close;
   const total = accountValue(a, px);
   const cost = a.positions.reduce((s, p) => s + p.qty * p.avgPrice, 0);
-  return { date, total: Math.round(total), cash: Math.round(a.cash), stock: Math.round(total - a.cash), cost: Math.round(cost), ...(strategy != null ? { strategy: Math.round(strategy) } : {}) };
+  return { date, total: Math.round(total), cash: Math.round(a.cash), stock: Math.round(total - a.cash), cost: Math.round(cost), ...(strategy != null ? { strategy: Math.round(strategy) } : {}), ...(at ? { at } : {}) };
 }
 
 /** 점 하나 넣기 (같은 날은 바꿈, 날짜순) */
@@ -163,17 +168,74 @@ export async function refreshHistory(user: string, opts: { e?: Env; load?: (q: D
     warnings.push(`시세를 받지 못해 ${h.prices ? "지난번 시세" : "평균단가"}로 계산했습니다: ${(err as Error).message}`);
   }
   const date = kst(now).date;
+  const at = new Date(now).toISOString();
   const ids = new Set([...accounts.map((a) => a.id), KIS_ID]);
   const points: History["points"] = {};
   for (const [k, v] of Object.entries(h.points)) if (ids.has(k)) points[k] = v;
-  for (const a of accounts) points[a.id] = addSnapshot(points[a.id] ?? [], snapshotOf(a, date, h.prices, opts.strategy?.[a.id]));
+  const flows: NonNullable<History["flows"]> = {};
+  for (const [k, v] of Object.entries(h.flows ?? {})) if (ids.has(k)) flows[k] = v;
+  h.flows = flows;
+  for (const a of accounts) points[a.id] = addSnapshot(points[a.id] ?? [], snapshotOf(a, date, h.prices, opts.strategy?.[a.id], at));
   if (raw) {
     h.kis = kisViewOf(raw, h.prices, now);
     const k = h.kis;
     const stock = k.positions.reduce((a, p) => a + p.value, 0);
-    points[KIS_ID] = addSnapshot(points[KIS_ID] ?? [], { date, total: k.total, cash: k.cash, stock: Math.round(stock), cost: Math.round(k.positions.reduce((a, p) => a + p.qty * p.avgPrice, 0)), ...(opts.strategy?.[KIS_ID] != null ? { strategy: Math.round(opts.strategy[KIS_ID]!) } : {}) });
+    points[KIS_ID] = addSnapshot(points[KIS_ID] ?? [], { date, total: k.total, cash: k.cash, stock: Math.round(stock), cost: Math.round(k.positions.reduce((a, p) => a + p.qty * p.avgPrice, 0)), ...(opts.strategy?.[KIS_ID] != null ? { strategy: Math.round(opts.strategy[KIS_ID]!) } : {}), at });
   }
   h.points = points;
   saveHistory(h, user, e);
   return { history: h, warnings };
+}
+
+export const MAX_FLOWS = 500;
+
+const flowId = () => Math.random().toString(36).slice(2, 10);
+
+/** 입금·출금 넣기. 지난 날짜는 그날 기록 전에 한 것으로 본다 */
+export function addFlow(user: string, accountId: string, x: { date: string; amount: number; note?: string; auto?: boolean }, e: Env = process.env, now = Date.now()): Flow {
+  const amount = Math.round(Number(x.amount));
+  if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100_000_000_000) throw new Error("금액을 넣으세요 (입금은 +, 출금은 −).");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) throw new Error("날짜 형식이 맞지 않습니다.");
+  const today = kst(now).date;
+  if (x.date > today) throw new Error("앞으로의 날짜는 넣을 수 없습니다.");
+  const h = loadHistory(user, e);
+  const at = x.date < today ? `${minusDays(x.date, 1)}T15:00:00.000Z` : new Date(now).toISOString();
+  const note = String(x.note ?? "").trim().slice(0, 40);
+  const f: Flow = { id: flowId(), date: x.date, amount, at, ...(note ? { note } : {}), ...(x.auto ? { auto: true } : {}) };
+  const flows = { ...(h.flows ?? {}) };
+  flows[accountId] = [...(flows[accountId] ?? []), f].sort((a, b) => a.at.localeCompare(b.at)).slice(-MAX_FLOWS);
+  saveHistory({ ...h, flows }, user, e);
+  return f;
+}
+
+export function deleteFlow(user: string, id: string, e: Env = process.env): void {
+  const h = loadHistory(user, e);
+  const flows: NonNullable<History["flows"]> = {};
+  let found = false;
+  for (const [k, v] of Object.entries(h.flows ?? {})) {
+    const left = v.filter((f) => f.id !== id);
+    if (left.length !== v.length) found = true;
+    flows[k] = left;
+  }
+  if (!found) throw new Error("그 입출금 기록을 찾지 못했습니다.");
+  saveHistory({ ...h, flows }, user, e);
+}
+
+/**
+ * 수동 계좌를 고쳐 평가액이 달라지면 그 차이를 입출금으로 남기고 오늘 기록도 고친 값으로 바꾼다.
+ * 기록이 아직 없는 계좌는 첫 기록이 출발점이라 남기지 않음.
+ */
+export function recordEdit(user: string, prev: ManualAccount, next: ManualAccount, e: Env = process.env, now = Date.now()): Flow | null {
+  const h = loadHistory(user, e);
+  const list = h.points[next.id] ?? [];
+  if (!list.length) return null;
+  const px = (t: string) => h.prices?.map[t]?.close;
+  const diff = Math.round(accountValue(next, px) - accountValue(prev, px));
+  const date = kst(now).date;
+  const at = new Date(now).toISOString();
+  const strategy = list.find((p) => p.date === date)?.strategy;
+  const points = { ...h.points, [next.id]: addSnapshot(list, snapshotOf(next, date, h.prices, strategy, at)) };
+  saveHistory({ ...h, points }, user, e);
+  if (diff === 0) return null;
+  return addFlow(user, next.id, { date, amount: diff, note: "계좌 고침", auto: true }, e, now - 1);
 }

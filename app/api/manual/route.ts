@@ -8,7 +8,7 @@ import { kst } from "@/lib/auto/time";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { manualEveningFor } from "@/lib/manual/evening";
 import { MAX_ACCOUNTS, brokerList, cleanAccount, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, rewriteTrade, saveAccounts, undoLastTrade, type FeeRates } from "@/lib/manual/store";
-import { fetchPrices, loadHistory, refreshHistory } from "@/lib/manual/value";
+import { fetchPrices, loadHistory, recordEdit, refreshHistory } from "@/lib/manual/value";
 import type { EveningReport } from "@/lib/auto/evening";
 
 export const runtime = "nodejs";
@@ -76,9 +76,11 @@ export async function POST(req: Request) {
         if (id && i < 0) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
         if (i < 0 && list.length >= MAX_ACCOUNTS) return NextResponse.json({ error: `수동 계좌는 ${MAX_ACCOUNTS}개까지 만들 수 있습니다.` }, { status: 400 });
         const a = cleanAccount(body.account, i >= 0 ? list[i] : null, user.id, kst().date, loadStrategies(process.env, user.id));
+        const prev = i >= 0 ? list[i] : null;
         if (i >= 0) list[i] = a; else list.push(a);
         saveAccounts(list, user.id);
-        return NextResponse.json({ ok: true, id: a.id });
+        const flow = prev ? recordEdit(user.id, prev, a) : null;
+        return NextResponse.json({ ok: true, id: a.id, ...(flow ? { flow } : {}) });
       }
       case "delete": {
         const list = loadAccounts(user.id);

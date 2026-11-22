@@ -5,7 +5,7 @@ import { loadLog, loadPlan } from "@/lib/auto/store";
 import { planMarket } from "@/lib/auto/session";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { loadAccounts, loadManualLog, loadTrades } from "@/lib/manual/store";
-import { KIS_ID, loadHistory, refreshHistory } from "@/lib/manual/value";
+import { KIS_ID, addFlow, deleteFlow, loadHistory, refreshHistory } from "@/lib/manual/value";
 import { hasKisAccount, kisReader } from "@/lib/manual/kis";
 
 export const runtime = "nodejs";
@@ -30,6 +30,7 @@ export async function GET(req: Request) {
     today: kst().date,
     prices: h.prices,
     points: h.points,
+    flows: h.flows ?? {},
     kis: hasKisAccount(user) ? { view: h.kis ?? null, plan: plan ? { label: plan.label, budget: plan.budget, enabled: plan.enabled, market: planMarket(plan) } : null, last: pick(autoLast) } : null,
     kisId: KIS_ID,
     manual: loadAccounts(user.id).map((a) => ({
@@ -41,12 +42,25 @@ export async function GET(req: Request) {
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
-/** { action: "refresh" } 시세·한국투자증권 잔고를 새로 받아 오늘 점 기록 */
+/**
+ * { action: "refresh" } 시세·한국투자증권 잔고를 새로 받아 오늘 점 기록
+ * { action: "flow", accountId, date, amount, note? } 입금(+)·출금(−) 기록
+ * { action: "deleteFlow", id }
+ */
 export async function POST(req: Request) {
   const { user, denied } = requireUser(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "요청 형식 오류" }, { status: 400 }); }
+  if (body?.action === "flow" || body?.action === "deleteFlow") {
+    try {
+      if (body.action === "deleteFlow") { deleteFlow(user.id, String(body.id ?? "")); return NextResponse.json({ ok: true }); }
+      const id = String(body.accountId ?? "");
+      const ok = id === KIS_ID ? hasKisAccount(user) : loadAccounts(user.id).some((a) => a.id === id);
+      if (!ok) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
+      return NextResponse.json({ ok: true, flow: addFlow(user.id, id, { date: String(body.date ?? ""), amount: Number(body.amount), note: body.note }) });
+    } catch (err) { return NextResponse.json({ error: (err as Error).message }, { status: 400 }); }
+  }
   if (body?.action !== "refresh") return NextResponse.json({ error: "알 수 없는 요청" }, { status: 400 });
   return startJob(refreshJobs, user.id, "refresh", async () => {
     const r = await refreshHistory(user.id, { kis: hasKisAccount(user) ? kisReader(user) : undefined });
