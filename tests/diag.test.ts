@@ -66,7 +66,7 @@ describe("점검 키는 점검 API 에서만 통함 (middleware)", () => {
     expect(passes(middleware(req("/api/diag", token)))).toBe(true);
     expect(passes(middleware(req("/api/diag/data?tickers=069500", token)))).toBe(true);
     expect(passes(middleware(req("/api/diag/backtest", token)))).toBe(true);
-    for (const p of ["/", "/settings", "/api/settings", "/api/security", "/api/kis/order", "/api/kis/balance", "/api/strategies", "/api/data", "/api/diagx"]) {
+    for (const p of ["/", "/settings", "/api/settings", "/api/security", "/api/auto", "/api/accounts", "/api/strategies", "/api/data", "/api/diagx"]) {
       expect(passes(middleware(req(p, token)))).toBe(false);
     }
     expect(middleware(req("/api/diag")).status).toBe(401);

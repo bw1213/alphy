@@ -348,7 +348,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
       <header className="top">
         <h1>계좌</h1>
         <p>평일 {st?.eveningTime ?? "18:00"} 계산 · 텔레그램 알림</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/">백테스트</a><a href="/trade">주문·잔고</a><a href="/settings">설정</a></span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
       </header>
       <main className="app">
         <section className="stack">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { credentialsFor, parseAccount, quoteCredentials, tradeCredentials, kisStatus } from "@/lib/kis/config";
+import { credentialsFor, parseAccount, quoteCredentials, tradeCredentials } from "@/lib/kis/config";
 import { KisClient } from "@/lib/kis/client";
 import { kisDaily, parseIndexDaily, parseStockDaily, prevDay } from "@/lib/kis/market";
 import { getBalance, orderBody, orderTrId, placeOrder, validateOrder } from "@/lib/kis/trading";
@@ -41,9 +41,6 @@ describe("kis config", () => {
     expect(() => tradeCredentials(realEnv)).toThrow(/실전 주문이 잠겨/);
     expect(tradeCredentials({ ...realEnv, KIS_ALLOW_REAL_ORDERS: "yes" }).env).toBe("real");
     expect(() => tradeCredentials({ KIS_MOCK_APP_KEY: "a", KIS_MOCK_APP_SECRET: "b" })).toThrow(/계좌번호/);
-  });
-  it("상태에는 키 값이 들어가지 않음", () => {
-    expect(JSON.stringify(kisStatus(mockEnv))).not.toMatch(/mk|ms|50012345/);
   });
 });
 

@@ -89,7 +89,7 @@ describe("앱 전체 로그인 잠금 (middleware)", () => {
   const isLogin = (r: Response) => new URL(r.headers.get("x-middleware-rewrite") ?? "http://x/none").pathname === "/login";
   it("로그인 전: 화면은 로그인 화면으로 바뀌고, API 는 401, 로그인·상태 확인은 열림", async () => {
     setPassword("long-password", env);
-    expect(isLogin(middleware(req("/trade?x=1")))).toBe(true);
+    expect(isLogin(middleware(req("/accounts?id=kis")))).toBe(true);
     const api = middleware(req("/api/data"));
     expect(api.status).toBe(401);
     for (const p of ["/login", "/api/auth", "/api/health", "/robots.txt"]) {
@@ -104,7 +104,7 @@ describe("앱 전체 로그인 잠금 (middleware)", () => {
     setPassword("long-password", env);
     const s = issueSession(env);
     expect(middleware(req("/", s.value)).headers.get("x-middleware-next")).toBe("1");
-    expect(middleware(req("/api/kis/order", s.value)).headers.get("x-middleware-next")).toBe("1");
+    expect(middleware(req("/api/auto", s.value)).headers.get("x-middleware-next")).toBe("1");
     expect(isLogin(middleware(req("/", `${Date.now() + 1e9}.forged`)))).toBe(true);
   });
 });
