@@ -228,8 +228,8 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const loss = basis === "account" ? (-r.accountPnl! / plan.budget) * 100 : (1 - E / plan.budget) * 100;
   if (deps.maxLoss && deps.maxLoss > 0 && loss >= deps.maxLoss) {
     r.lossStop = { loss, limit: deps.maxLoss, basis };
-    if (basis === "account" && loss > 100) r.warnings.unshift("계좌 손익이 운용 금액보다 크게 줄었습니다. 계좌 평가액을 잘못 읽었을 수 있으니 자동 매매 화면의 성과 카드에서 \"손익 처음부터\"를 누르고 다시 켜세요.");
-    r.warnings.unshift(`운용 금액 대비 ${loss.toFixed(1)}% 손실(${basis === "account" ? "실제 계좌" : "전략 계산"} 기준)로 손실 한도(${deps.maxLoss}%)에 닿아 자동 매매를 멈춥니다. 다시 켜려면 자동 매매 화면에서 켜고 저장하세요.`);
+    if (basis === "account" && loss > 100) r.warnings.unshift("계좌 손익이 운용 금액보다 크게 줄었습니다. 계좌 평가액을 잘못 읽었을 수 있으니 계좌 화면(한국투자증권)의 성과 카드에서 \"손익 처음부터\"를 누르고 다시 켜세요.");
+    r.warnings.unshift(`운용 금액 대비 ${loss.toFixed(1)}% 손실(${basis === "account" ? "실제 계좌" : "전략 계산"} 기준)로 손실 한도(${deps.maxLoss}%)에 닿아 자동 매매를 멈춥니다. 다시 켜려면 계좌 화면(한국투자증권)에서 켜고 저장하세요.`);
   }
   const curQty = (t: string) => (real ? real.get(t) ?? 0 : btQty.get(t) ?? 0);
 
@@ -382,10 +382,10 @@ export function formatReport(r: EveningReport): string {
   }
   if (r.holdingsFrom === "backtest") lines.push("※ 계좌를 읽지 못해 전략상 보유로 계산했습니다.");
   for (const w of r.warnings.slice(0, 3)) lines.push(`※ ${w}`);
-  if (r.orders.length && mixed) lines.push("한국 종목은 다음 한국 장에, 미국 종목은 다음 미국 장에 자동으로 냅니다. 미국 종목은 현재가 ±1% 지정가입니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요.");
+  if (r.orders.length && mixed) lines.push("한국 종목은 다음 한국 장에, 미국 종목은 다음 미국 장에 자동으로 냅니다. 미국 종목은 현재가 ±1% 지정가입니다. 멈추려면 계좌 화면(한국투자증권)의 긴급 정지를 누르세요.");
   else if (r.orders.length) lines.push(r.market === "US"
-    ? "이 주문은 오늘 밤 미국 장이 열리면(뉴욕 09:32) 현재가 ±1% 지정가로 자동으로 냅니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요."
-    : "이 주문은 다음 거래일 아침에 자동으로 냅니다. 멈추려면 자동 매매 화면의 긴급 정지를 누르세요.");
+    ? "이 주문은 오늘 밤 미국 장이 열리면(뉴욕 09:32) 현재가 ±1% 지정가로 자동으로 냅니다. 멈추려면 계좌 화면(한국투자증권)의 긴급 정지를 누르세요."
+    : "이 주문은 다음 거래일 아침에 자동으로 냅니다. 멈추려면 계좌 화면(한국투자증권)의 긴급 정지를 누르세요.");
   if (r.sellLevels.length) lines.push(r.intraday ? (mixed ? "다음 거래일 장중(한국 09:00~15:20, 미국 뉴욕 09:35~15:50)에 이 가격에 닿으면 바로 팝니다." : r.market === "US" ? "오늘 밤 미국 장중(뉴욕 09:35~15:50)에 이 가격(달러로 바꾼 값)에 닿으면 바로 팝니다." : "다음 거래일 장중(09:00~15:20)에 이 가격에 닿으면 바로 시장가로 팝니다.") : "장중 실시간 매도가 꺼져 있어 이 가격은 알림용입니다 (종가로 확인해 다음 날 아침에 팝니다).");
   return lines.join("\n");
 }

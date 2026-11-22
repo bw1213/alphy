@@ -49,7 +49,7 @@ export function listAccounts(u: User, e: Env = process.env): AccountSummary[] {
     out.push({
       id: KIS_ID, name: `한국투자증권${env === "mock" ? " (모의)" : ""}`, broker: "한국투자증권", mode: "auto", env,
       plan: planOf(plan, plan ? planMarkets(plan) : []), total: h.kis?.total ?? null, ...retOf(KIS_ID),
-      todo: last?.orders.length ?? 0, runDate: last?.runDate ?? null, href: "/auto",
+      todo: last?.orders.length ?? 0, runDate: last?.runDate ?? null, href: `/accounts?id=${KIS_ID}`,
     });
   }
   const logs = loadManualLog(u.id, e);
@@ -59,7 +59,7 @@ export function listAccounts(u: User, e: Env = process.env): AccountSummary[] {
       id: a.id, name: a.name, broker: a.broker, mode: "manual",
       plan: planOf(a.plan, a.plan ? planMarkets(a.plan) : []),
       total: Math.round(accountValue(a, (t) => h.prices?.map[t]?.close)), ...retOf(a.id),
-      todo: last?.orders.length ?? 0, runDate: last?.runDate ?? null, href: `/manual?account=${a.id}`,
+      todo: last?.orders.length ?? 0, runDate: last?.runDate ?? null, href: `/accounts?id=${a.id}`,
     });
   }
   return out;

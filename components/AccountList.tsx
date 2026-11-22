@@ -8,7 +8,7 @@ const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 
 /**
- * 내 계좌 목록 (자동·수동 함께). 수동 계좌는 onPick 이 있으면 그 화면 안에서 고르고, 없으면 그 계좌 화면으로 이동.
+ * 내 계좌 목록 (자동·수동 함께). onPick 이 있으면 그 화면 안에서 고르고, 없으면 그 계좌 화면으로 이동.
  * reload 가 바뀌면 다시 읽음.
  */
 export default function AccountList({ current, onPick, onAdd, reload = 0 }: { current?: string; onPick?: (id: string) => void; onAdd?: () => void; reload?: number }) {
@@ -18,7 +18,7 @@ export default function AccountList({ current, onPick, onAdd, reload = 0 }: { cu
   }, [reload]);
   const go = (a: AccountSummary) => {
     if (a.id === current) return;
-    if (a.mode === "manual" && onPick) onPick(a.id); else window.location.href = a.href;
+    if (onPick) onPick(a.id); else window.location.href = a.href;
   };
   return (
     <div className="card">
