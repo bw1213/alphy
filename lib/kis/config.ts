@@ -75,16 +75,3 @@ export function tradeCredentials(e: Env = runtimeEnv()): KisCredentials {
   if (!c.cano || !c.acntPrdtCd) throw new Error(`${label} 계좌번호가 없습니다. 설정 화면(/settings)에서 12345678-01 형식으로 넣으세요.`);
   return c;
 }
-
-/** 화면에 보여줄 설정 상태 (키 값은 절대 포함하지 않음) */
-export function kisStatus(e: Env = runtimeEnv()) {
-  const real = credentialsFor("real", e), mock = credentialsFor("mock", e);
-  const q = quoteCredentials(e);
-  return {
-    quotes: q ? q.env : null,
-    real: { keys: !!real, account: !!real?.cano },
-    mock: { keys: !!mock, account: !!mock?.cano },
-    tradeEnv: tradeEnv(e),
-    realOrdersAllowed: realOrdersAllowed(e),
-  };
-}

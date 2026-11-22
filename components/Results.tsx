@@ -19,8 +19,6 @@ export interface HoldCompare {
   tickers: string[];
 }
 import { rollingReturns, splitStats, type SensitivityResult } from "@/lib/engine/validate";
-import { SIGNAL_KEY, type SavedSignal } from "@/lib/trade/plan";
-import { userKey } from "@/lib/client/userStorage";
 import CycleStatusCard from "./CycleStatusCard";
 import { periodReturn, relative, rollingReturn, weakPeriods } from "@/lib/engine/weak";
 import { rebase, useDragZoom, ZoomBar } from "./ChartZoom";
@@ -345,7 +343,7 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
           !res.signal ? <p className="help">데이터가 모자라 계산하지 못했습니다.</p> : (
             <>
               <p className="help">
-                <b>{res.signal.date}</b> 종가 기준<Info>오늘 새로 시작한다면의 종목과 비중입니다. 목록을 확인하고 실행을 눌러야 주문이 나갑니다.</Info>
+                <b>{res.signal.date}</b> 종가 기준<Info>오늘 새로 시작한다면의 종목과 비중입니다.</Info>
                 {res.signal.kept ? " (이번엔 매매 안 함: 지금 보유 그대로)" : res.signal.due === false ? " (리밸런싱 주기상 오늘은 매매하는 날이 아님: 참고용)" : ""}
                 {res.signal.date >= new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10) && " 장중 가격이라 마감 후와 다를 수 있습니다."}
               </p>
@@ -367,16 +365,6 @@ export default function Results({ res, s, names, label, title, hold, onSensitivi
                   </table>
                 </div>
               )}
-              <div className="btns" style={{ marginTop: 10 }}>
-                <button className="primary" onClick={() => {
-                  const sig: SavedSignal = {
-                    date: res.signal!.date, label: title || label, savedAt: new Date().toISOString(),
-                    picks: res.signal!.picks.map((p) => ({ ...p, name: names[p.ticker] ?? p.ticker })),
-                  };
-                  try { localStorage.setItem(userKey(SIGNAL_KEY), JSON.stringify(sig)); } catch { /* 저장 불가 환경 */ }
-                  window.location.href = "/trade#plan";
-                }}>이 비중으로 주문 목록 만들기 →</button>
-              </div>
             </>
           )
         )}
