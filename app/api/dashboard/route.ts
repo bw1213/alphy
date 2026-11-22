@@ -7,6 +7,7 @@ import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { loadAccounts, loadManualLog, loadTrades } from "@/lib/manual/store";
 import { KIS_ID, addFlow, deleteFlow, loadHistory, refreshHistory } from "@/lib/manual/value";
 import { hasKisAccount, kisReader } from "@/lib/manual/kis";
+import { allFills } from "@/lib/accounts/fills";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
       last: pick((logs[a.id] ?? []).find((r) => r.status === "ok")),
     })),
     trades: loadTrades(user.id).slice(0, 30),
+    fills: allFills(user.id),
   }, { headers: { "Cache-Control": "no-store" } });
 }
 

@@ -80,3 +80,32 @@ describe("계좌 목록 하나", () => {
     expect(list[0].ret).toBeCloseTo(10);
   });
 });
+
+describe("자동 매매 손익에서 입출금 빼기", () => {
+  it("기준일 뒤 입출금만 손익에서 뺌", async () => {
+    const { addPoint, flowsAfter } = await import("@/lib/auto/perf");
+    let f = addPoint({ key: "k", budget: 1000, points: [] }, { date: "2026-11-16", total: 1000, strategy: 1000 });
+    const flow = flowsAfter(f.base, [{ date: "2026-11-16", amount: 50 }, { date: "2026-11-18", amount: 500 }]);
+    expect(flow).toBe(500);
+    f = addPoint(f, { date: "2026-11-19", total: 1600, strategy: 1000, flow });
+    expect(f.points.at(-1)!.pnl).toBe(100);
+  });
+});
+
+describe("체결 기록 하나로", () => {
+  it("자동 주문 체결(아침·장중)과 수동 체결을 날짜순으로 함께", async () => {
+    const { allFills } = await import("@/lib/accounts/fills");
+    const { saveDay } = await import("@/lib/auto/morning");
+    const { saveIntradayDay } = await import("@/lib/auto/intraday");
+    saveDay({ date: "2026-11-18", label: "x", market: "US", phase: "done", log: [], items: [
+      { ticker: "AAA", name: "에이", side: "buy", planned: 2, qty: 2, status: "filled", filledQty: 2, avgPrice: 10.5, price: 10 },
+      { ticker: "BBB", name: "비", side: "buy", planned: 1, qty: 1, status: "cancelled", filledQty: 0, avgPrice: 0, price: 5 },
+    ] } as any, "owner", env);
+    saveIntradayDay({ date: "2026-11-19", label: "x", levels: [], log: [], sells: [{ keys: [], ticker: "CCC", name: "씨", kind: "stop_loss", level: 1, seen: 1, qty: 3, status: "filled", filledQty: 3, avgPrice: 900, label: "", at: "10:00" }] } as any, "owner", env);
+    const f = allFills("owner", env);
+    expect(f.map((x) => [x.accountId, x.date, x.ticker, x.qty, x.source, x.market])).toEqual([
+      ["kis", "2026-11-19", "CCC", 3, "intraday", "KR"],
+      ["kis", "2026-11-18", "AAA", 2, "morning", "US"],
+    ]);
+  });
+});

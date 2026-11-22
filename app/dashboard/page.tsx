@@ -10,6 +10,7 @@ import { fetchJob } from "@/lib/client/fetchData";
 import type { AutoOrder } from "@/lib/auto/evening";
 import type { ManualPosition, ManualTrade } from "@/lib/manual/store";
 import type { KisView, PriceBook, Snapshot } from "@/lib/manual/value";
+import type { Fill } from "@/lib/accounts/fills";
 import { accountReturns, combinedReturns, since, type Flow, type ReturnPoint } from "@/lib/manual/returns";
 import { withCode } from "@/lib/strategies/universe";
 import Info from "@/components/Info";
@@ -24,6 +25,7 @@ interface DashState {
   kisId: string;
   manual: { id: string; name: string; broker: string; cash: number; positions: ManualPosition[]; plan: { label: string; budget: number; enabled: boolean } | null; last: Last | null }[];
   trades: ManualTrade[];
+  fills?: Fill[];
 }
 
 /** 화면에서 쓰는 계좌 하나 (한국투자증권·수동 모두 같은 모양) */
@@ -536,8 +538,34 @@ export default function DashboardPage() {
                   ];
                 })}</tbody>
               </table></div>
-              {st.trades.some((t) => accts.some((a) => a.id === t.accountId)) && <p className="help">최근 수동 체결 기록: {st.trades.filter((t) => accts.some((a) => a.id === t.accountId)).slice(0, 5).map((t) => `${t.date} ${t.side === "buy" ? "매수" : "매도"} ${withCode(t.name, t.ticker)} ${t.qty}주`).join(" · ")}</p>}
             </div>
+            <div className="card">
+              <h2>체결 기록<Info>자동: 한국투자증권 아침 주문·장중 매도에서 체결된 것(미국 종목은 달러). 직접: 계좌 화면에 기록한 것.</Info></h2>
+              {(() => {
+                const list = (st.fills ?? []).filter((f) => accts.some((a) => a.id === f.accountId)).slice(0, 30);
+                if (!list.length) return <p className="help">체결 기록이 없습니다.</p>;
+                return (
+                  <div className="tablewrap"><table>
+                    <thead><tr><th>날짜</th><th>계좌</th><th>방식</th><th>구분</th><th>종목</th><th>수량</th><th>체결가</th></tr></thead>
+                    <tbody>{list.map((f, i) => {
+                      const a = accts.find((x) => x.id === f.accountId)!;
+                      return (
+                        <tr key={i}>
+                          <td>{f.date}</td>
+                          <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} />{a.name}</td>
+                          <td>{f.source === "manual" ? "직접" : f.source === "morning" ? "자동 (아침)" : "자동 (장중)"}</td>
+                          <td style={{ color: f.side === "buy" ? "var(--bad)" : "var(--accent)", fontWeight: 600 }}>{f.side === "buy" ? "매수" : "매도"}</td>
+                          <td>{withCode(f.name, f.ticker)}</td>
+                          <td>{f.qty.toLocaleString("ko-KR")}주</td>
+                          <td>{f.market === "US" ? `$${f.price.toFixed(2)}` : won(f.price)}</td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table></div>
+                );
+              })()}
+            </div>
+
             <div className="card">
               <h2>입금·출금 기록<Info>누적 수익률에서 빼는 돈입니다. 수동 계좌는 예수금·보유를 고치면 차이가 &quot;계좌 고침&quot;으로 저절로 들어갑니다(잘못 고친 것을 바로잡은 거면 지우세요). 한국투자증권 계좌는 여기서 직접 넣으세요. 지난 날짜로 넣으면 그날 기록 전에 들어온 돈으로 봅니다.</Info></h2>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>

@@ -2,7 +2,7 @@
  * 매일 성과 기록 (서버 전용): 저녁 계산 때 실제 계좌 평가액과 전략(백테스트) 평가액을 나란히 남긴다.
  *
  * 계좌에는 운용 금액 말고 다른 돈도 있을 수 있어, "운용을 시작한 날의 계좌 총평가액"을 기준(base)으로 잡고
- * 그 뒤 늘거나 준 금액을 자동 매매의 손익으로 본다. 입금·출금을 하면 그만큼 틀어지므로 "기준 다시 잡기"로 맞춘다.
+ * 그 뒤 늘거나 준 금액에서 입금·출금(전체 계좌 화면의 입출금 기록)을 뺀 것을 자동 매매의 손익으로 본다.
  * 운용 전략(이름·시작일·운용 금액)이나 주문 계좌(모의↔실전)가 바뀌면 기록을 새로 시작한다.
  *
  * 저장: users/<사용자>/auto-perf.json
@@ -52,11 +52,16 @@ export function perfFor(prev: PerfFile | null, plan: AutoPlan, env?: "real" | "m
   return { key, env, budget: plan.budget, points: [] };
 }
 
-/** 그날 기록을 더함 (같은 날이면 바꿈). 기준이 없으면 오늘 계좌 평가액을 기준으로 */
-export function addPoint(f: PerfFile, p: { date: string; total?: number; cash?: number; stock?: number; strategy: number }): PerfFile {
+/** 기준일 뒤 입금(+)·출금(−) 합: 손익에서 뺀다 */
+export function flowsAfter(base: PerfFile["base"], flows: { date: string; amount: number }[]): number {
+  return base ? flows.filter((f) => f.date > base.date).reduce((a, f) => a + f.amount, 0) : 0;
+}
+
+/** 그날 기록을 더함 (같은 날이면 바꿈). 기준이 없으면 오늘 계좌 평가액을 기준으로. flow = 기준 뒤 입출금 합 */
+export function addPoint(f: PerfFile, p: { date: string; total?: number; cash?: number; stock?: number; strategy: number; flow?: number }): PerfFile {
   const base = f.base ?? (p.total != null ? { date: p.date, total: p.total } : undefined);
   const pt: PerfPoint = { date: p.date, strategy: Math.round(p.strategy),
-    ...(p.total != null ? { total: Math.round(p.total), cash: Math.round(p.cash ?? 0), stock: Math.round(p.stock ?? 0), ...(base ? { pnl: Math.round(p.total - base.total) } : {}) } : {}) };
+    ...(p.total != null ? { total: Math.round(p.total), cash: Math.round(p.cash ?? 0), stock: Math.round(p.stock ?? 0), ...(base ? { pnl: Math.round(p.total - base.total - (f.base ? p.flow ?? 0 : 0)) } : {}) } : {}) };
   const points = [...f.points.filter((x) => x.date !== p.date), pt].sort((a, b) => a.date.localeCompare(b.date)).slice(-MAX_POINTS);
   return { ...f, base, points };
 }

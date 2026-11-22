@@ -7,7 +7,7 @@ import { formatReport, runEvening, type EveningReport } from "./evening";
 import { appendLog, loadPlan, savePlan } from "./store";
 import { autoLimitFor, kisEnvFor } from "../kis/userkeys";
 import { tradeEnv } from "../kis/config";
-import { addPoint, loadPerf, perfFor, savePerf } from "./perf";
+import { addPoint, flowsAfter, loadPerf, perfFor, savePerf } from "./perf";
 import { notify } from "./telegram";
 import { cleanHm, isWeekday, kst } from "./time";
 import { HOLIDAY, formatDay, loadDay, loadDays, morningFollow, morningStart, saveDay, unfinishedItems, type MorningDay, type MorningLimits } from "./morning";
@@ -244,11 +244,12 @@ export async function eveningFor(u: User, trigger: EveningReport["trigger"], opt
   const unfinished = markets.flatMap((m) => unfinishedItems(days, plan.label, m, clockOf(m).date));
   let seen: KisView | undefined;
   const holdings = async () => { const s = await accountSnapshot(u, markets, e); seen = s.view; return s; };
-  const r = await runEvening(plan, trigger, { holdings, env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base?.total, prevDataDate, unfinished });
+  const flow = flowsAfter(perf.base, loadHistory(u.id, e).flows?.[KIS_ID] ?? []);
+  const r = await runEvening(plan, trigger, { holdings, env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base ? perf.base.total + flow : undefined, prevDataDate, unfinished });
   appendLog(r, u.id, e);
   if (seen) { try { saveHistory({ ...loadHistory(u.id, e), kis: seen }, u.id, e); } catch { } }
   if (r.status === "ok" && r.equity != null) {
-    try { savePerf(addPoint(perf, { date: r.runDate, total: r.accountTotal, cash: r.accountCash, stock: r.accountStock, strategy: r.equity }), u.id, e); }
+    try { savePerf(addPoint(perf, { date: r.runDate, total: r.accountTotal, cash: r.accountCash, stock: r.accountStock, strategy: r.equity, flow }), u.id, e); }
     catch (err) { console.error(`[auto] ${u.id} 성과 기록 실패: ${(err as Error).message}`); }
   }
   if (r.lossStop && plan.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, u.id, e);
