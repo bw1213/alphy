@@ -91,3 +91,23 @@ export async function notify(user: string, text: string, e: Env = process.env, f
   await call(token, "sendMessage", { chat_id: n.chatId, text: text.length > 4000 ? `${text.slice(0, 4000)}\n…(생략)` : text, disable_web_page_preview: true }, f);
   return true;
 }
+
+/** 여러 계좌 결과를 한 번에: 4000자 안에서 묶어 되도록 한 메시지로 보냄 */
+export function packMessages(parts: string[], head = "", max = 4000): string[] {
+  const out: string[] = [];
+  let cur = head;
+  for (const p of parts) {
+    const piece = p.length > max ? `${p.slice(0, max - 10)}\n…(생략)` : p;
+    const next = cur ? `${cur}\n\n────────\n\n${piece}` : piece;
+    if (next.length > max && cur) { out.push(cur); cur = piece; } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+export async function notifyMany(user: string, parts: string[], head = "", e: Env = process.env, f: Fetch = fetch): Promise<boolean> {
+  if (!parts.length) return false;
+  let sent = false;
+  for (const m of packMessages(parts, head)) sent = (await notify(user, m, e, f)) || sent;
+  return sent;
+}

@@ -8,7 +8,7 @@ import { appendLog, loadPlan, savePlan } from "./store";
 import { autoLimitFor, kisEnvFor } from "../kis/userkeys";
 import { tradeEnv } from "../kis/config";
 import { addPoint, flowsAfter, loadPerf, perfFor, savePerf } from "./perf";
-import { notify } from "./telegram";
+import { notify, notifyMany } from "./telegram";
 import { cleanHm, isWeekday, kst } from "./time";
 import { HOLIDAY, formatDay, loadDay, loadDays, morningFollow, morningStart, saveDay, unfinishedItems, type MorningDay, type MorningLimits } from "./morning";
 import { brokerFor } from "./broker";
@@ -16,7 +16,7 @@ import { addUsage, usedToday } from "../kis/limits";
 import { orderLimitFor } from "../kis/userkeys";
 import { loadLog } from "./store";
 import { intradayCheck, intradayStart, loadIntradayDay, saveIntradayDay } from "./intraday";
-import { manualEveningFor } from "../manual/evening";
+import { formatManual, manualEveningFor } from "../manual/evening";
 import { loadAccounts } from "../manual/store";
 import { KIS_ID, kisViewOf, loadHistory, refreshHistory, saveHistory, type KisView } from "../manual/value";
 import { hasKisAccount, kisReader } from "../manual/kis";
@@ -275,8 +275,10 @@ export async function tick(now = Date.now(), e: Env = process.env): Promise<void
       if (u.disabled) continue;
       const user = getUser(u.id, e) ?? u;
       const strategy: Record<string, number | undefined> = {};
+      const parts: string[] = [];
       try {
-        const r = await eveningFor(user, "schedule", { e });
+        const r = await eveningFor(user, "schedule", { e, notify: false });
+        if (r && r.status !== "holiday") parts.push(formatReport(r));
         if (r) {
           if (r.status === "error") fail++; else ok++;
           if (r.status === "ok") strategy[KIS_ID] = r.equity;
@@ -287,11 +289,18 @@ export async function tick(now = Date.now(), e: Env = process.env): Promise<void
         }
       } catch (err) { fail++; console.error(`[auto] ${u.id} 저녁 계산 오류: ${(err as Error).message}`); }
       try {
-        const m = await manualEveningFor(u.id, "schedule", { e });
+        const m = await manualEveningFor(u.id, "schedule", { e, notify: false });
         ok += m.ok; fail += m.fail;
+        const accts = loadAccounts(u.id, e);
+        for (const [id, r] of Object.entries(m.reports)) {
+          const a = accts.find((x) => x.id === id);
+          if (a && r.status !== "holiday") parts.push(formatManual(a, r));
+        }
         for (const [id, r] of Object.entries(m.reports)) if (r.status === "ok") strategy[id] = r.equity;
         if (m.ok + m.fail) console.log(`[manual] ${k.date} 저녁 계산 ${u.id}: ${m.ok + m.fail}개 계좌 (실패 ${m.fail})`);
       } catch (err) { fail++; console.error(`[manual] ${u.id} 저녁 계산 오류: ${(err as Error).message}`); }
+      try { await notifyMany(u.id, parts, parts.length > 1 ? `저녁 계산 ${k.date} · 계좌 ${parts.length}개` : "", e); }
+      catch (err) { console.error(`[auto] ${u.id} 텔레그램 알림 실패: ${(err as Error).message}`); }
       try {
         if (loadAccounts(u.id, e).length || hasKisAccount(user, e)) {
           const h = await refreshHistory(u.id, { e, strategy, kis: hasKisAccount(user, e) ? kisReader(user, e) : undefined });
