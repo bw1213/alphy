@@ -38,7 +38,7 @@ describe("kis config", () => {
   it("주문은 기본 모의, 실전은 잠금 해제가 있어야 함", () => {
     expect(tradeCredentials(mockEnv).env).toBe("mock");
     const realEnv = { ...mockEnv, KIS_REAL_APP_KEY: "rk", KIS_REAL_APP_SECRET: "rs", KIS_REAL_ACCOUNT: "12345678-01", KIS_TRADE_ENV: "real" };
-    expect(() => tradeCredentials(realEnv)).toThrow(/KIS_ALLOW_REAL_ORDERS/);
+    expect(() => tradeCredentials(realEnv)).toThrow(/실전 주문이 잠겨/);
     expect(tradeCredentials({ ...realEnv, KIS_ALLOW_REAL_ORDERS: "yes" }).env).toBe("real");
     expect(() => tradeCredentials({ KIS_MOCK_APP_KEY: "a", KIS_MOCK_APP_SECRET: "b" })).toThrow(/계좌번호/);
   });

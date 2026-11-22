@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { clientIp, requireUser } from "@/lib/settings/auth";
 import { loadSettings, saveSettings, serverRealLock } from "@/lib/settings/store";
-import { secretFromEnv } from "@/lib/settings/secretbox";
 import { OWNER_ID } from "@/lib/settings/userdir";
 import type { User } from "@/lib/settings/users";
 import { recordLogin } from "@/lib/settings/loginlog";
@@ -19,9 +18,9 @@ export const dynamic = "force-dynamic";
 function viewFor(u: User) {
   const owner = u.id === OWNER_ID;
   const lock = realLock(u);
-  const v = owner ? settingsView(loadSettings()) : { ...settingsView(memberSettings(u.id), {}), passwordFromEnv: false, path: "" };
+  const v = owner ? settingsView(loadSettings()) : { ...settingsView(memberSettings(u.id), {}), path: "" };
   const server = owner ? serverRealLock() : undefined;
-  return { ...v, realOrdersAllowed: lock.open, scope: owner ? "owner" as const : "member" as const, realLock: lock, serverLock: server && { env: server.env, screen: server.screen, at: server.at, ownerTotp: server.ownerTotp }, secretFromEnv: secretFromEnv() };
+  return { ...v, realOrdersAllowed: lock.open, scope: owner ? "owner" as const : "member" as const, realLock: lock, serverLock: server && { at: server.at, ownerTotp: server.ownerTotp } };
 }
 
 export async function GET(req: Request) {

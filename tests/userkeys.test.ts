@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hashPassword, setPassword } from "@/lib/settings/auth";
-import { open, seal, secretFromEnv } from "@/lib/settings/secretbox";
+import { open, seal } from "@/lib/settings/secretbox";
 import { updateSettings } from "@/lib/settings/store";
 import { acceptInvite, createInvite, getUser, setRealOrders, updateUser } from "@/lib/settings/users";
 import { applyPatch, settingsView } from "@/lib/settings/view";
@@ -33,16 +33,10 @@ describe("비밀값 암호화", () => {
     expect(open(a, env)).toBe("hello");
     expect(statSync(path.join(dir, "secret.key")).mode & 0o777).toBe(0o600);
     expect(() => open(a.slice(0, -2) + "xx", env)).toThrow();
-    expect(secretFromEnv(env)).toBe(false);
   });
-  it("환경변수 키를 나중에 넣어도 예전 값이 읽히고, 새 값은 환경변수 키로만 풀림", () => {
-    const old = seal("old", env);
+  it("환경변수 ALPHY_SECRET_KEY 는 읽지 않음 (파일 키만)", () => {
     const e2 = { ...env, ALPHY_SECRET_KEY: "my-long-secret" };
-    expect(open(old, e2)).toBe("old");
-    const fresh = seal("new", e2);
-    expect(open(fresh, e2)).toBe("new");
-    expect(() => open(fresh, env)).toThrow(/풀지 못했습니다/);
-    expect(secretFromEnv(e2)).toBe(true);
+    expect(open(seal("new", e2), env)).toBe("new");
   });
 });
 
@@ -70,15 +64,14 @@ describe("사람별 한국투자증권 설정", () => {
     const mom = getUser("mom", env)!;
     expect(quoteCredentials(kisEnvFor(mom, env))).toBeNull();
     expect(() => tradeCredentialsFor(mom, env)).toThrow(/앱키/);
-    // owner 환경변수 키도 다른 사람에게는 안 감
     const e2 = { ...env, KIS_MOCK_APP_KEY: "ENV-KEY", KIS_MOCK_APP_SECRET: "ENV-SECRET", KIS_MOCK_ACCOUNT: "12345678-01" };
     expect(quoteCredentials(kisEnvFor(mom, e2))).toBeNull();
-    expect(quoteCredentials(kisEnvFor(getUser("owner", e2)!, e2))?.appKey).toBe("ENV-KEY");
+    expect(quoteCredentials(kisEnvFor(getUser("owner", e2)!, e2))?.appKey).toBe("OWNER-MOCK-KEY");
   });
   it("보기에는 끝 4자리만, 환경변수 고정 표시는 없음", () => {
     momKeys();
     const v = settingsView(memberSettings("mom", env), {});
-    expect(v.kis.mock.appKey).toEqual({ set: true, fromEnv: false, hint: "…1234" });
+    expect(v.kis.mock.appKey).toEqual({ set: true, hint: "…1234" });
     expect(JSON.stringify(v)).not.toContain("MOM-MOCK-SECRET");
     expect(JSON.stringify(v)).not.toContain("50011111");
   });
@@ -99,7 +92,11 @@ describe("사람별 한국투자증권 설정", () => {
 
 describe("실전 주문 잠금 (owner 가 아닌 사람)", () => {
   const real = () => saveUserKis("mom", { ...loadUserKis("mom", env), tradeEnv: "real" }, env);
-  const on = () => ({ ...env, KIS_ALLOW_REAL_ORDERS: "yes" });
+  const on = () => {
+    if (!getUser("owner", env)?.totpSecret) updateUser("owner", (u) => { u.totpSecret = "JBSWY3DPEHPK3PXP"; }, env);
+    updateSettings((s) => { s.kis.realUnlock = { at: 1 }; }, env);
+    return env;
+  };
 
   it("서버 잠금 + owner 허용 + 본인 2단계 인증이 모두 있어야 열림", () => {
     momKeys(); real();
@@ -109,6 +106,7 @@ describe("실전 주문 잠금 (owner 가 아닌 사람)", () => {
     setRealOrders("mom", true, env);
     expect(() => tradeCredentialsFor(mom(), on())).toThrow(/2단계 인증/);
     updateUser("mom", (u) => { u.totpSecret = "JBSWY3DPEHPK3PXP"; }, env);
+    updateSettings((s) => { delete s.kis.realUnlock; }, env);
     expect(() => tradeCredentialsFor(mom(), env)).toThrow(/서버의 실전 주문 잠금/);
     expect(realLock(mom(), on()).open).toBe(true);
     expect(tradeCredentialsFor(mom(), on())).toMatchObject({ env: "real", cano: "11112222" });
@@ -123,7 +121,7 @@ describe("실전 주문 잠금 (owner 가 아닌 사람)", () => {
     expect(tradeCredentialsFor(getUser("mom", env)!, env)).toMatchObject({ env: "mock", cano: "50011111" });
     updateSettings((s) => { s.kis.real = { appKey: "K", appSecret: "S", account: "12345678-01" }; s.kis.tradeEnv = "real"; }, env);
     const owner = getUser("owner", env)!;
-    expect(() => tradeCredentialsFor(owner, env)).toThrow(/KIS_ALLOW_REAL_ORDERS/);
+    expect(() => tradeCredentialsFor(owner, env)).toThrow(/실전 주문이 잠겨/);
     expect(tradeCredentialsFor(owner, on()).env).toBe("real");
     expect(tradeCredentials).toBeTypeOf("function");
   });

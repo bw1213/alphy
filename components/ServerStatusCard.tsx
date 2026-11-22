@@ -8,7 +8,6 @@ interface Status {
   load: { active: number; queued: number; maxActive: number; maxQueue: number };
   rate: { max: number; minutes: number };
   config: { files: number; bytes: number; newest: string | null };
-  secretFromEnv: boolean;
   memoryMb: number;
 }
 
@@ -30,13 +29,10 @@ export default function ServerStatusCard() {
         <li>지금 시세 받는 요청: {st.load.active}건 실행 중, {st.load.queued}건 대기 (한 번에 {st.load.maxActive}건, 대기 {st.load.maxQueue}건까지) · 메모리 {st.memoryMb}MB</li>
         <li>한 사람이 {st.rate.minutes}분 동안 시세를 받을 수 있는 횟수: {st.rate.max}번</li>
         <li>설정 폴더: 파일 {st.config.files}개, {(st.config.bytes / 1024).toFixed(0)}KB{st.config.newest ? `, 마지막 변경 ${new Date(st.config.newest).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", dateStyle: "short", timeStyle: "short" })}` : ""}</li>
-        <li>다른 사람 앱키 암호화 키: {st.secretFromEnv ? <span className="badge ok">환경변수(ALPHY_SECRET_KEY)</span> : <>자동 생성 파일(<code>secret.key</code>)</>}</li>
       </ul>
       <p className="help" style={{ marginTop: 8 }}>
         <b>백업</b>: <code>docker/alphy/nas/cache/config</code> 폴더를 Hyper Backup으로 암호화해 백업하세요.<Info>계정·초대·전략·한국투자증권 키가 모두 이 폴더에 있습니다.
-        {st.secretFromEnv
-          ? <> 암호화 키는 NAS <code>.env</code> 에 있으므로 <code>.env</code> 도 따로 보관해야 복원할 수 있습니다.</>
-          : <> 이 폴더 안의 <code>secret.key</code> 가 없으면 다른 사람이 넣은 앱키를 풀 수 없으니 함께 백업됩니다.</>}
+        {" "}이 폴더 안의 <code>secret.key</code> 가 없으면 다른 사람이 넣은 앱키를 풀 수 없으니 함께 백업됩니다.
         {" "}시세 캐시는 백업하지 않아도 됩니다.</Info>
       </p>
     </div>

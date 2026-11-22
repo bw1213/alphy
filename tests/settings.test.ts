@@ -21,7 +21,7 @@ describe("settings store", () => {
     expect(loadSettings(env).kis.mock.appKey).toBe("mk");
     expect(statSync(settingsPath(env)).mode & 0o777).toBe(0o600);
   });
-  it("화면 값 위에 환경변수가 우선, 파일에 KIS_ALLOW_REAL_ORDERS 를 넣어도 무시", () => {
+  it("설정 파일 값만 쓰고 환경변수는 읽지 않음", () => {
     updateSettings((s) => {
       s.kis.mock = { appKey: "file-key", appSecret: "file-secret", account: "50012345-01" };
       s.kis.tradeEnv = "real";
@@ -31,17 +31,15 @@ describe("settings store", () => {
     expect(r.KIS_MOCK_APP_KEY).toBe("file-key");
     expect(r.KIS_TRADE_ENV).toBe("real");
     expect(r.KIS_ALLOW_REAL_ORDERS).toBeUndefined();
-    expect(runtimeEnv({ ...env, KIS_MOCK_APP_KEY: "env-key", KIS_TRADE_ENV: "mock" })).toMatchObject({ KIS_MOCK_APP_KEY: "env-key", KIS_TRADE_ENV: "mock" });
-    // 빈 환경변수는 무시
-    expect(runtimeEnv({ ...env, KIS_MOCK_APP_KEY: "" }).KIS_MOCK_APP_KEY).toBe("file-key");
+    expect(runtimeEnv({ ...env, KIS_MOCK_APP_KEY: "env-key", KIS_TRADE_ENV: "mock", KIS_ALLOW_REAL_ORDERS: "yes" })).toMatchObject({ KIS_MOCK_APP_KEY: "file-key", KIS_TRADE_ENV: "real", KIS_ALLOW_REAL_ORDERS: undefined });
   });
   it("화면에서 실전을 골라도 잠금이 안 풀렸으면 실전 주문 불가", () => {
     updateSettings((s) => {
       s.kis.real = { appKey: "rk", appSecret: "rs", account: "12345678-01" };
       s.kis.tradeEnv = "real";
     }, env);
-    expect(() => tradeCredentials(runtimeEnv(env))).toThrow(/KIS_ALLOW_REAL_ORDERS/);
-    expect(tradeCredentials(runtimeEnv({ ...env, KIS_ALLOW_REAL_ORDERS: "yes" })).env).toBe("real");
+    expect(() => tradeCredentials(runtimeEnv(env))).toThrow(/실전 주문이 잠겨/);
+    expect(() => tradeCredentials(runtimeEnv({ ...env, KIS_ALLOW_REAL_ORDERS: "yes" }))).toThrow(/실전 주문이 잠겨/);
     expect(quoteCredentials(runtimeEnv(env))?.env).toBe("real");
   });
 });
@@ -52,10 +50,10 @@ describe("settings view / patch", () => {
     const v = settingsView(loadSettings(env), env);
     const json = JSON.stringify(v);
     expect(json).not.toMatch(/SUPERSECRET|PSabcdefgh|50012345/);
-    expect(v.kis.mock.appKey).toEqual({ set: true, fromEnv: false, hint: "…1234" });
+    expect(v.kis.mock.appKey).toEqual({ set: true, hint: "…1234" });
     expect(v.kis.mock.account.hint).toBe("5001****-01");
     expect(v.kis.real.appKey.set).toBe(false);
-    expect(settingsView(loadSettings(env), { ...env, KIS_REAL_APP_KEY: "zz99" }).kis.real.appKey).toMatchObject({ set: true, fromEnv: true });
+    expect(settingsView(loadSettings(env), { ...env, KIS_REAL_APP_KEY: "zz99" }).kis.real.appKey).toEqual({ set: false });
   });
   it("보낸 항목만 바뀌고 빈 문자열은 지움, 잘못된 값은 거부", () => {
     const s0 = loadSettings(env);
@@ -103,12 +101,11 @@ describe("admin auth", () => {
     setPassword("another-password", env);
     expect(verifySession(s.value, env)).toBe(false);
   });
-  it("환경변수 ADMIN_PASSWORD(또는 예전 TRADE_API_TOKEN)가 있으면 그걸로", () => {
-    const e2 = { ...env, TRADE_API_TOKEN: "legacy-token" };
-    expect(ensureSetupCode(e2)).toBeNull();
-    expect(checkPassword("legacy-token", e2)).toBe(true);
-    expect(checkPassword("x", { ...env, ADMIN_PASSWORD: "admin-pass" })).toBe(false);
-    expect(requireAdmin(withCookie(issueSession(e2).value), e2)).toBeNull();
+  it("환경변수 ADMIN_PASSWORD·TRADE_API_TOKEN 은 읽지 않음", () => {
+    const e2 = { ...env, ADMIN_PASSWORD: "admin-pass", TRADE_API_TOKEN: "legacy-token" };
+    expect(ensureSetupCode(e2)).toMatch(/^[0-9A-F]{8}$/);
+    expect(checkPassword("admin-pass", e2)).toBe(false);
+    expect(checkPassword("legacy-token", e2)).toBe(false);
   });
   it("깨진 설정 파일이면 기본값으로 동작", () => {
     saveSettings(loadSettings(env), env);

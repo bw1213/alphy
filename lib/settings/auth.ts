@@ -1,6 +1,6 @@
 /**
  * 로그인 (서버 전용). 사람마다 계정(lib/settings/users.ts)이 있고, 로그인 쿠키에 누구인지가 서명돼 들어갑니다.
- * - 비밀번호: scrypt 해시. owner 계정은 환경변수 ADMIN_PASSWORD(선택)로 고정할 수도 있음
+ * - 비밀번호: scrypt 해시
  * - 로그인하면 서명된 httpOnly 쿠키(30일): "사용자.세션버전.만료.서명"
  *   비밀번호를 바꾸거나 "모든 기기 로그아웃"을 누르면 그 사람의 세션버전만 바뀌어 그 사람 로그인만 풀림
  * - 같은 주소(IP)에서 5번, 또는 같은 아이디로 5번 틀리면 10분간 로그인 차단
@@ -11,7 +11,7 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual, createHash } from "crypto";
 import fs from "fs";
 import path from "path";
-import { clearSetupCode, configDir, envPassword, loadSettings, updateSettings } from "./store";
+import { clearSetupCode, configDir, loadSettings, updateSettings } from "./store";
 import { verifyTotp } from "./totp";
 import { OWNER_ID } from "./userdir";
 import { ensureOwner, getUser, listUsers, rotateSession, updateUser, type User } from "./users";
@@ -41,7 +41,7 @@ export function verifyHash(pw: string, stored: string): boolean {
 
 /** 관리자(owner) 비밀번호가 정해졌는지. 아니면 처음 설치 상태 */
 export function passwordConfigured(e: Env = process.env): boolean {
-  return !!envPassword(e) || !!getUser(OWNER_ID, e)?.passwordHash;
+  return !!getUser(OWNER_ID, e)?.passwordHash;
 }
 
 /** 아이디 정리: 비우면 owner (예전처럼 비밀번호만 넣고 로그인) */
@@ -51,8 +51,6 @@ export const loginId = (v: unknown) => String(v ?? "").trim().toLowerCase() || O
 const DUMMY_HASH = hashPassword(randomBytes(8).toString("hex"));
 
 export function checkPassword(pw: string, e: Env = process.env, user: string = OWNER_ID): boolean {
-  const fixed = user === OWNER_ID ? envPassword(e) : undefined;
-  if (fixed) return sameString(pw, fixed);
   const u = getUser(user, e);
   if (!u?.passwordHash || u.disabled) { verifyHash(pw, DUMMY_HASH); return false; }
   return verifyHash(pw, u.passwordHash);

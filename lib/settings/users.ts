@@ -11,7 +11,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import fs from "fs";
 import path from "path";
-import { configDir, envPassword, loadSettings, updateSettings } from "./store";
+import { configDir, loadSettings, updateSettings } from "./store";
 import { OWNER_ID, validUserId } from "./userdir";
 
 type Env = Record<string, string | undefined>;
@@ -84,7 +84,7 @@ function writeFile(f: UsersFile, e: Env) {
  */
 function migrate(e: Env): UsersFile | null {
   const a = loadSettings(e).auth;
-  if (!a.passwordHash && !envPassword(e)) return null;
+  if (!a.passwordHash) return null;
   const owner: User = {
     id: OWNER_ID, name: "관리자", role: "admin", sessionVersion: newVersion(), createdAt: Date.now(),
     ...(a.passwordHash ? { passwordHash: a.passwordHash } : {}),
@@ -175,7 +175,7 @@ export function deleteUser(id: string, by: string, e: Env = process.env) {
 
 /** 실전 주문 허용·취소 (owner 가) */
 export function setRealOrders(id: string, allow: boolean, e: Env = process.env) {
-  if (id === OWNER_ID) throw new Error("owner 는 서버 잠금(KIS_ALLOW_REAL_ORDERS)만 따릅니다.");
+  if (id === OWNER_ID) throw new Error("owner 는 서버 실전 주문 잠금만 따릅니다.");
   updateUser(id, (u) => { if (allow) u.realOrders = true; else delete u.realOrders; }, e);
 }
 

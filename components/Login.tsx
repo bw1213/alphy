@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 export interface AuthUser { id: string; name: string; role: "admin" | "member"; owner: boolean }
-export interface AuthState { setupNeeded: boolean; loggedIn: boolean; passwordFromEnv: boolean; minPassword: number; otpRequired?: boolean; multiUser?: boolean; user?: AuthUser | null }
+export interface AuthState { setupNeeded: boolean; loggedIn: boolean; minPassword: number; otpRequired?: boolean; multiUser?: boolean; user?: AuthUser | null }
 
 export async function fetchAuth(): Promise<AuthState> {
   const r = await fetch("/api/auth", { cache: "no-store" });

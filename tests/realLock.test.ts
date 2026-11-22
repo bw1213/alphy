@@ -69,13 +69,14 @@ describe("서버 실전 주문 잠금 (화면)", () => {
     expect(runtimeEnv().KIS_ALLOW_REAL_ORDERS).toBeUndefined();
   });
 
-  it("환경변수 yes 는 늘 풀림, no 는 화면에서도 못 풂", async () => {
-    expect(serverRealLock({ ...process.env, KIS_ALLOW_REAL_ORDERS: "yes" }).open).toBe(true);
+  it("환경변수 KIS_ALLOW_REAL_ORDERS 는 읽지 않음", async () => {
+    process.env.KIS_ALLOW_REAL_ORDERS = "yes";
+    expect(serverRealLock().open).toBe(false);
+    expect(runtimeEnv().KIS_ALLOW_REAL_ORDERS).toBeUndefined();
     const secret = withTotp();
     process.env.KIS_ALLOW_REAL_ORDERS = "no";
-    expect((await lock({ on: true, code: totpNow(secret) })).status).toBe(409);
-    updateSettings((s) => { s.kis.realUnlock = { at: 1 }; });
-    expect(serverRealLock().open).toBe(false);
+    expect((await lock({ on: true, code: totpNow(secret) })).status).toBe(200);
+    expect(serverRealLock().open).toBe(true);
   });
 
   it("설정 저장(PUT)으로는 잠금을 풀 수 없음", async () => {

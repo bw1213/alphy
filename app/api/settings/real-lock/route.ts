@@ -18,9 +18,7 @@ export async function POST(req: Request) {
   let b: { on?: unknown; code?: unknown };
   try { b = await req.json(); } catch { return NextResponse.json({ error: "요청 형식 오류" }, { status: 400 }); }
   const ip = clientIp(req);
-  const lock = serverRealLock();
   if (b.on === true) {
-    if (lock.env === "no") return NextResponse.json({ error: "NAS .env 의 KIS_ALLOW_REAL_ORDERS=no 로 잠겨 있어 화면에서 풀 수 없습니다." }, { status: 409 });
     const err = stepUpError(req, user.id, b.code);
     if (err) return NextResponse.json({ error: err }, { status: 400 });
     updateSettings((s) => { s.kis.realUnlock = { at: Date.now(), ip }; });

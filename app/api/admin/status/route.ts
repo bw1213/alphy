@@ -4,7 +4,6 @@ import { NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/settings/auth";
 import { usersSummary } from "@/lib/diag/report";
 import { dataGate, RATE_MAX, RATE_WINDOW_MS } from "@/lib/server/limiter";
-import { secretFromEnv } from "@/lib/settings/secretbox";
 import { configDir } from "@/lib/settings/store";
 
 export const runtime = "nodejs";
@@ -34,7 +33,6 @@ export async function GET(req: Request) {
     load: dataGate.stats(),
     rate: { max: RATE_MAX, minutes: RATE_WINDOW_MS / 60000 },
     config: configSummary(),
-    secretFromEnv: secretFromEnv(),
     memoryMb: Math.round(process.memoryUsage().rss / 1048576),
   }, { headers: { "Cache-Control": "no-store" } });
 }

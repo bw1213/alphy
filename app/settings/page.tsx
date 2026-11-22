@@ -10,8 +10,8 @@ import StockListCard from "@/components/StockListCard";
 import Info from "@/components/Info";
 import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
 
-type ServerLock = { env: "yes" | "no" | null; screen: boolean; at?: number; ownerTotp: boolean };
-type SettingsView = BaseView & { scope?: "owner" | "member"; realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean }; serverLock?: ServerLock; secretFromEnv?: boolean };
+type ServerLock = { at?: number; ownerTotp: boolean };
+type SettingsView = BaseView & { scope?: "owner" | "member"; realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean }; serverLock?: ServerLock };
 import type { DataSource } from "@/lib/settings/store";
 
 type Env = "real" | "mock";
@@ -19,7 +19,6 @@ type KeyForm = { appKey: string; appSecret: string; account: string };
 const emptyKeys = (): KeyForm => ({ appKey: "", appSecret: "", account: "" });
 
 function FieldState({ f }: { f: FieldView }) {
-  if (f.fromEnv) return <span className="fieldline">🔒 환경변수로 고정{f.hint ? ` (${f.hint})` : ""}</span>;
   if (f.set) return <span className="fieldline"><span className="badge ok">설정됨</span>{f.hint ? ` ${f.hint}` : ""}</span>;
   return <span className="fieldline"><span className="badge no">없음</span></span>;
 }
@@ -115,11 +114,10 @@ export default function SettingsPage() {
 
   if (!auth) return <>{header}<main className="settings"><p className="help">확인 중…</p></main></>;
   if (!auth.loggedIn) return <>{header}<main className="settings"><Login auth={auth} onDone={refresh} /></main></>;
-  const pwCard = (fromEnv: boolean) => (
+  const pwCard = () => (
     <div className="card">
       <h2>{auth.user?.owner === false ? "내 비밀번호" : "관리자 비밀번호"}</h2>
-      {fromEnv ? <div className="lock">.env 의 ADMIN_PASSWORD 로 고정돼 있습니다. 화면에서 관리하려면 .env 에서 지우세요.</div> : (
-        <>
+      <>
           <label className="f">현재 비밀번호<input type="password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} autoComplete="current-password" /></label>
           <div className="row" style={{ marginTop: 8 }}>
             <label className="f">새 비밀번호<input type="password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} autoComplete="new-password" /></label>
@@ -129,8 +127,7 @@ export default function SettingsPage() {
           {auth.user?.owner === false
             ? <p className="help">잊어버렸으면 관리자에게 계정을 지우고 새 초대 링크를 달라고 하세요.</p>
             : <p className="help">잊어버렸으면<Info>NAS의 <code>nas/cache/config/users.json</code> 에서 owner 의 <code>passwordHash</code> 줄을 지우고 컨테이너를 다시 시작하세요. 새 설정 코드가 로그에 나옵니다.</Info></p>}
-        </>
-      )}
+      </>
     </div>
   );
 
@@ -145,26 +142,21 @@ export default function SettingsPage() {
     const k = keys[env];
     const set = (f: keyof KeyForm, val: string) => setKeys({ ...keys, [env]: { ...k, [f]: val } });
     const any = v.appKey.set || v.appSecret.set || v.account.set;
-    const locked = v.appKey.fromEnv && v.appSecret.fromEnv && v.account.fromEnv;
     return (
       <div className="card">
         <h2>한국투자증권 · {label}<Info>{env === "mock" ? "모의투자 주문·잔고·시세용" : "선택 · 시세를 더 빠르게 받습니다"}</Info></h2>
         {(["appKey", "appSecret", "account"] as const).map((f) => (
           <label className="f" key={f} style={{ marginTop: 8 }}>
             {f === "appKey" ? "앱키 (App Key)" : f === "appSecret" ? "앱시크릿 (App Secret)" : "계좌번호 (12345678-01)"}
-            {v[f].fromEnv ? <div className="lock">.env 값 사용 중 — 여기서 바꾸려면 .env 에서 지우세요</div> : (
-              <input type={f === "account" ? "text" : "password"} value={k[f]} onChange={(e) => set(f, e.target.value)}
-                placeholder={v[f].set ? "저장됨 · 바꿀 때만 입력" : ""} autoComplete="off" spellCheck={false} />
-            )}
+            <input type={f === "account" ? "text" : "password"} value={k[f]} onChange={(e) => set(f, e.target.value)}
+              placeholder={v[f].set ? "저장됨 · 바꿀 때만 입력" : ""} autoComplete="off" spellCheck={false} />
             <FieldState f={v[f]} />
           </label>
         ))}
-        {!locked && (
-          <div className="btns" style={{ marginTop: 12 }}>
-            <button onClick={() => saveKeys(env)}>저장</button>
-            {any && <button onClick={() => clearKeys(env)}>모두 지우기</button>}
-          </div>
-        )}
+        <div className="btns" style={{ marginTop: 12 }}>
+          <button onClick={() => saveKeys(env)}>저장</button>
+          {any && <button onClick={() => clearKeys(env)}>모두 지우기</button>}
+        </div>
       </div>
     );
   };
@@ -174,11 +166,9 @@ export default function SettingsPage() {
     <div style={{ marginTop: 12 }}>
       <p className="help" style={{ margin: 0 }}>
         실전 주문 잠금: {view.realOrdersAllowed ? <span className="badge ok">해제됨</span> : <span className="badge no">잠김</span>}
-        <Info>실전 주문은 &apos;실전&apos; 선택과 잠금 해제가 모두 있어야 나갑니다. 풀 때는 2단계 인증 코드가 필요하고, 잠글 때는 코드 없이 바로 잠깁니다. 2단계 인증을 끄면 자동으로 다시 잠깁니다. NAS .env 에 KIS_ALLOW_REAL_ORDERS=yes 를 넣으면 늘 풀림, =no 를 넣으면 화면에서도 못 풉니다.</Info>
+        <Info>실전 주문은 &apos;실전&apos; 선택과 잠금 해제가 모두 있어야 나갑니다. 풀 때는 2단계 인증 코드가 필요하고, 잠글 때는 코드 없이 바로 잠깁니다. 2단계 인증을 끄면 자동으로 다시 잠깁니다.</Info>
       </p>
-      {sl?.env === "yes" && <div className="lock">.env 의 KIS_ALLOW_REAL_ORDERS=yes 로 풀려 있습니다. 화면에서 잠그려면 .env 에서 지우세요.</div>}
-      {sl?.env === "no" && <div className="lock">.env 의 KIS_ALLOW_REAL_ORDERS=no 로 잠겨 있습니다.</div>}
-      {!sl?.env && (view.realOrdersAllowed ? (
+      {view.realOrdersAllowed ? (
         <div className="btns" style={{ marginTop: 8 }}>
           <button onClick={() => setServerLock(false)}>실전 주문 잠그기</button>
           {sl?.at ? <span className="help" style={{ margin: 0 }}>{new Date(sl.at).toLocaleString("ko-KR")} 에 풂</span> : null}
@@ -198,19 +188,17 @@ export default function SettingsPage() {
             <button onClick={() => { setUnlockOpen(false); setUnlockOtp(""); }}>취소</button>
           </div>
         </div>
-      ))}
+      )}
     </div>
   );
 
   const tradeCard = (
     <div className="card">
       <h2>주문 대상</h2>
-      {trade.fromEnv ? <div className="lock">.env 의 KIS_TRADE_ENV={trade.value} 로 고정돼 있습니다</div> : (
-        <div className="seg">
-          <button className={trade.value === "mock" ? "on" : ""} onClick={() => { setRealConfirm(false); save({ kis: { tradeEnv: "mock" } }, "모의투자로 바꿨습니다"); }}>모의투자</button>
-          <button className={trade.value === "real" ? "on" : ""} onClick={() => setRealConfirm(true)}>실전</button>
-        </div>
-      )}
+      <div className="seg">
+        <button className={trade.value === "mock" ? "on" : ""} onClick={() => { setRealConfirm(false); save({ kis: { tradeEnv: "mock" } }, "모의투자로 바꿨습니다"); }}>모의투자</button>
+        <button className={trade.value === "real" ? "on" : ""} onClick={() => setRealConfirm(true)}>실전</button>
+      </div>
       {realConfirm && trade.value !== "real" && (
         <div className="error" style={{ marginTop: 10 }}>
           실전으로 바꾸면 주문 화면의 주문이 <b>실제 돈으로 체결</b>됩니다.
@@ -271,7 +259,7 @@ export default function SettingsPage() {
         {keyCard("mock")}
         {keyCard("real")}
         {tradeCard}
-        {pwCard(false)}
+        {pwCard()}
         <SecurityCard />
         {auth.user.role === "admin" && (<>
         <div className="wide section"><h2>관리<Info>모든 사용자에게 적용됩니다.</Info></h2></div>
@@ -295,7 +283,7 @@ export default function SettingsPage() {
 
         {tradeCard}
 
-        {pwCard(view.passwordFromEnv)}
+        {pwCard()}
 
         <SecurityCard />
 
@@ -339,16 +327,16 @@ export default function SettingsPage() {
           <table style={{ marginTop: 8 }}>
             <thead><tr><th>항목</th><th>어디서</th><th>이유</th></tr></thead>
             <tbody>
-              <tr><td>앱키·앱시크릿·계좌번호</td><td>화면</td><td>NAS 안의 파일(<code>nas/cache/config/settings.json</code>, 권한 600)에 저장되어 .env 파일과 보안 수준이 같습니다. 화면에는 다시 보여주지 않고(끝 4자리만) 바꾸거나 지우기만 됩니다.</td></tr>
+              <tr><td>앱키·앱시크릿·계좌번호</td><td>화면</td><td>NAS 안의 파일(<code>nas/cache/config/settings.json</code>, 권한 600)에 저장됩니다. 화면에는 다시 보여주지 않고(끝 4자리만) 바꾸거나 지우기만 됩니다.</td></tr>
               <tr><td>주문 대상(모의/실전), 실전 주문 금액 상한, 백테스트 기본값</td><td>화면</td><td>자주 바꾸고 비밀값이 아닙니다.</td></tr>
               <tr><td>관리자 비밀번호</td><td>화면</td><td>scrypt 해시로만 저장합니다. 처음 만들 때는 컨테이너 로그에 나온 설정 코드가 있어야 해서, 남이 먼저 접속해 비밀번호를 정할 수 없습니다.</td></tr>
               <tr><td>2단계 인증</td><td>화면</td><td>인증 앱 키는 NAS 설정 파일에만 저장됩니다. 휴대폰을 잃어버리면 NAS 파일(<code>disable-2fa.txt</code>)로만 끌 수 있습니다.</td></tr>
               <tr><td>점검 키</td><td>화면</td><td>읽기 전용 점검 API(/api/diag)에만 쓰이고 주문·설정 변경에는 쓸 수 없습니다. 해시만 저장하고 기간이 지나면 저절로 막힙니다.</td></tr>
-              <tr><td><b>실전 주문 잠금 해제</b>, 주문 대상을 실전으로</td><td>화면 + 2단계 인증</td><td>비밀번호만 새서는 실제 돈이 나가지 않게, 켤 때마다 인증 앱 코드를 다시 확인합니다. 2단계 인증이 꺼지면 잠금이 다시 걸립니다. .env 의 KIS_ALLOW_REAL_ORDERS=no 로 화면 해제를 막을 수 있습니다.</td></tr>
+              <tr><td><b>실전 주문 잠금 해제</b>, 주문 대상을 실전으로</td><td>화면 + 2단계 인증</td><td>비밀번호만 새서는 실제 돈이 나가지 않게, 켤 때마다 인증 앱 코드를 다시 확인합니다. 2단계 인증이 꺼지면 잠금이 다시 걸립니다.</td></tr>
               <tr><td>포트, 실행 사용자(PUID/PGID)</td><td>docker-compose</td><td>컨테이너가 뜨기 전에 정해져야 하는 값이라 앱이 바꿀 수 없습니다.</td></tr>
             </tbody>
           </table>
-          <p className="help">.env 값(🔒)이 화면 값보다 우선합니다.</p>
+          <p className="help">환경변수(.env)는 읽지 않습니다. 모든 설정은 이 화면에서 합니다.</p>
           </details>
         </div>
       </main>
