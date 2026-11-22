@@ -109,3 +109,13 @@ describe("체결 기록 하나로", () => {
     ]);
   });
 });
+
+describe("저녁 알림 한 번에", () => {
+  it("계좌 결과를 한 메시지로 묶고, 길면 나눔", async () => {
+    const { packMessages } = await import("@/lib/auto/telegram");
+    expect(packMessages(["가", "나"], "머리")).toEqual(["머리\n\n────────\n\n가\n\n────────\n\n나"]);
+    const big = "x".repeat(3000);
+    expect(packMessages([big, big], "머리").length).toBe(2);
+    expect(packMessages(["y".repeat(5000)])[0].length).toBeLessThanOrEqual(4000);
+  });
+});
