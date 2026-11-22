@@ -10,6 +10,7 @@ import { fetchJob } from "@/lib/client/fetchData";
 import type { AutoOrder } from "@/lib/auto/evening";
 import type { ManualPosition, ManualTrade } from "@/lib/manual/store";
 import type { KisView, PriceBook, Snapshot } from "@/lib/manual/value";
+import { accountReturns, combinedReturns, since, type Flow, type ReturnPoint } from "@/lib/manual/returns";
 import { withCode } from "@/lib/strategies/universe";
 import Info from "@/components/Info";
 
@@ -18,6 +19,7 @@ interface DashState {
   today: string;
   prices: PriceBook | null;
   points: Record<string, Snapshot[]>;
+  flows: Record<string, Flow[]>;
   kis: { view: KisView | null; plan: { label: string; budget: number; enabled: boolean; market: "KR" | "US" } | null; last: Last | null } | null;
   kisId: string;
   manual: { id: string; name: string; broker: string; cash: number; positions: ManualPosition[]; plan: { label: string; budget: number; enabled: boolean } | null; last: Last | null }[];
@@ -111,6 +113,8 @@ export default function DashboardPage() {
   const [warn, setWarn] = useState<string[]>([]);
   const [range, setRange] = useState<"1M" | "3M" | "1Y" | "ALL">("3M");
   const [table, setTable] = useState(false);
+  const [flowForm, setFlowForm] = useState({ accountId: "", date: "", amount: "", side: "in" as "in" | "out", note: "" });
+  const [flowBusy, setFlowBusy] = useState(false);
   // 고른 계좌 (null = 전체). 이 브라우저에만 기억
   const [pick, setPick] = useState<string[] | null>(null);
   useEffect(() => { try { const v = JSON.parse(localStorage.getItem(PICK_KEY) ?? "null"); if (Array.isArray(v)) setPick(v); } catch { /* 없음 */ } }, []);
@@ -130,6 +134,24 @@ export default function DashboardPage() {
       setWarn(r?.warnings ?? []);
       await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+
+  const flowPost = async (body: Record<string, unknown>) => {
+    setFlowBusy(true); setError("");
+    try {
+      const r = await fetch("/api/dashboard", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j?.error ?? "저장하지 못했습니다.");
+      await load();
+      return true;
+    } catch (e) { setError((e as Error).message); return false; } finally { setFlowBusy(false); }
+  };
+  const addFlowNow = async () => {
+    const amount = Math.round(Number(flowForm.amount.replace(/[,\s원]/g, "")));
+    if (!(amount > 0)) return setError("입출금 금액을 넣으세요.");
+    const accountId = flowForm.accountId || all[0]?.id;
+    const ok = await flowPost({ action: "flow", accountId, date: flowForm.date || st?.today, amount: flowForm.side === "in" ? amount : -amount, note: flowForm.note });
+    if (ok) setFlowForm((f) => ({ ...f, amount: "", note: "" }));
   };
 
   const all = useMemo<Acct[]>(() => {
@@ -206,6 +228,30 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [st, accts, range]);
 
+  const rets = useMemo(() => {
+    const m: Record<string, ReturnPoint[]> = {};
+    if (st) for (const a of all) m[a.id] = accountReturns(st.points[a.id] ?? [], st.flows?.[a.id] ?? []);
+    return m;
+  }, [st, all]);
+  const combined = useMemo(() => (st ? combinedReturns(accts.map((a) => ({ points: st.points[a.id] ?? [], flows: st.flows?.[a.id] ?? [] }))) : []), [st, accts]);
+  const fromDate = useMemo(() => {
+    if (!st || range === "ALL") return "";
+    const d = new Date(`${st.today}T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() - (range === "1M" ? 1 : range === "3M" ? 3 : 12));
+    return d.toISOString().slice(0, 10);
+  }, [st, range]);
+  const retChart = useMemo(() => {
+    const cut = (l: ReturnPoint[]) => (fromDate ? since(l, fromDate) : l);
+    const rows = new Map<string, Record<string, number | string>>();
+    const put = (key: string, l: ReturnPoint[]) => { for (const p of cut(l)) { const r = rows.get(p.date) ?? { date: p.date }; r[key] = p.ret; rows.set(p.date, r); } };
+    put("_all", combined);
+    if (accts.length > 1) for (const a of accts) put(a.id, rets[a.id] ?? []);
+    return [...rows.values()].sort((x, y) => String(x.date).localeCompare(String(y.date)));
+  }, [combined, rets, accts, fromDate]);
+  const flowList = useMemo(() => (st ? accts.flatMap((a) => (st.flows?.[a.id] ?? []).map((f) => ({ a, f }))).sort((x, y) => y.f.at.localeCompare(x.f.at)) : []), [st, accts]);
+  const lastRet = combined.at(-1);
+  const retColor = (v: number) => (v >= 0 ? "var(--bad)" : "var(--accent)");
+
   // 2) 종목별 비중 (모든 계좌 합침, 상위 10 + 기타 + 현금)
   const weights = useMemo(() => {
     const m = new Map<string, { name: string; value: number; where: Set<string> }>();
@@ -281,6 +327,9 @@ export default function DashboardPage() {
           <>
             <div className="kpis">
               <div className="kpi"><div className="k">전체 평가액</div><div className="v">{won(total)}</div><div className="s">계좌 {accts.length}개{picked ? ` (전체 ${all.length}개 중)` : ""}</div></div>
+              <div className="kpi"><div className="k">누적 수익률<Info>입금·출금을 뺀 시간가중 수익률입니다. 첫 기록일의 평가액에서 출발해 매일 평가액 변화를 이어 곱합니다. 수동 계좌의 예수금·보유를 고치면 그 차이가 입출금으로 저절로 기록되고, 한국투자증권 계좌의 입출금은 아래 &quot;입금·출금 기록&quot;에 직접 넣으세요.</Info></div>
+                <div className="v" style={{ color: lastRet && combined.length > 1 ? retColor(lastRet.ret) : undefined }}>{lastRet && combined.length > 1 ? pct(lastRet.ret) : "–"}</div>
+                <div className="s">{combined.length > 1 ? `${combined[0].date}부터` : "기록이 이틀 이상 쌓이면 계산"}</div></div>
               <div className="kpi"><div className="k">보유 종목 평가 손익</div><div className="v" style={{ color: pnl >= 0 ? "var(--bad)" : "var(--accent)" }}>{signed(pnl)}</div><div className="s">{pnlBase > 0 ? `매입 원가 대비 ${pct((pnl / pnlBase) * 100)}` : "시세를 아는 종목이 없음"}</div></div>
               <div className="kpi"><div className="k">현금(예수금)</div><div className="v">{won(cash)}</div><div className="s">{total > 0 ? `현금 비중 ${((cash / total) * 100).toFixed(1)}%` : ""}</div></div>
               <div className="kpi"><div className="k">다음 거래일 할 일</div><div className="v">{todo.length}건</div><div className="s">자동 {todo.filter((x) => x.a.kind === "auto").length} · 직접 {todo.filter((x) => x.a.kind === "manual").length}</div></div>
@@ -310,6 +359,41 @@ export default function DashboardPage() {
                         <Area key={k} dataKey={k} name={seriesName(k)} stackId="1" type="linear" stroke={c.surface} strokeWidth={2} fill={c.s[slotOf(k)]} fillOpacity={0.85} isAnimationActive={false} />
                       ))}
                     </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            <div className="card">
+              <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>누적 수익률
+                <Info>입금·출금 효과를 뺀 수익률입니다. 기간을 바꾸면 그 기간 첫날을 0%로 다시 맞춥니다.</Info>
+                <span role="group" aria-label="기간" style={{ marginLeft: "auto", display: "flex", gap: 4, fontWeight: 400 }}>
+                  {(["1M", "3M", "1Y", "ALL"] as const).map((r) => (
+                    <button key={r} aria-pressed={range === r} onClick={() => setRange(r)}
+                      style={{ width: "auto", whiteSpace: "nowrap", padding: "4px 10px", fontSize: 12, ...(range === r ? { borderColor: "var(--accent)", color: "var(--accent)", fontWeight: 600 } : {}) }}>
+                      {({ "1M": "1개월", "3M": "3개월", "1Y": "1년", ALL: "전체" } as const)[r]}
+                    </button>
+                  ))}
+                </span>
+              </h2>
+              <div className="legend">
+                <span><i style={{ background: "var(--text)", height: 3, width: 14, borderRadius: 2 }} />{accts.length > 1 ? "고른 계좌 합계" : accts[0]?.name}</span>
+                {accts.length > 1 && accts.map((a) => <span key={a.id}><i style={{ background: c.s[a.slot], height: 8, width: 8, borderRadius: 2 }} />{a.name}</span>)}
+              </div>
+              {retChart.length < 2 ? <p className="help">기록이 쌓이면 그려집니다.</p> : (
+                <div style={{ height: 280 }}>
+                  <ResponsiveContainer>
+                    <LineChart data={retChart} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                      <CartesianGrid stroke={c.grid} vertical={false} />
+                      <XAxis dataKey="date" {...axis} minTickGap={50} tickFormatter={(d: string) => d.slice(5)} />
+                      <YAxis {...axis} width={52} domain={["auto", "auto"]} tickFormatter={(v: number) => `${v.toFixed(0)}%`} />
+                      <ReferenceLine y={0} stroke={c.t3} />
+                      <Tooltip content={<Tip fmt={pct} />} />
+                      {accts.length > 1 && accts.map((a) => (
+                        <Line key={a.id} dataKey={a.id} name={a.name} stroke={c.s[a.slot]} strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
+                      ))}
+                      <Line dataKey="_all" name={accts.length > 1 ? "합계" : accts[0]?.name} stroke={c.t2} strokeWidth={2.5} dot={retChart.length < 3 ? { r: 4 } : false} connectNulls isAnimationActive={false} />
+                    </LineChart>
                   </ResponsiveContainer>
                 </div>
               )}
@@ -428,7 +512,7 @@ export default function DashboardPage() {
                 <button style={{ marginLeft: "auto", fontWeight: 400 }} onClick={() => setTable(!table)}>{table ? "종목까지 접기" : "종목까지 펼치기"}</button>
               </h2>
               <div className="tablewrap"><table>
-                <thead><tr><th>계좌</th><th>증권사</th><th>전략</th><th>평가액</th><th>예수금</th><th>평가 손익</th><th>비중</th></tr></thead>
+                <thead><tr><th>계좌</th><th>증권사</th><th>전략</th><th>평가액</th><th>예수금</th><th>평가 손익</th><th>누적 수익률</th><th>비중</th></tr></thead>
                 <tbody>{accts.map((a) => {
                   const known = a.holdings.filter((h) => h.price != null);
                   const p = known.reduce((s, h) => s + h.value - h.qty * h.avgPrice, 0);
@@ -437,6 +521,7 @@ export default function DashboardPage() {
                       <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} /><b>{a.name}</b></td>
                       <td>{a.broker}</td><td>{a.plan ?? "–"}</td><td>{won(a.total)}</td><td>{won(a.cash)}</td>
                       <td style={{ color: p >= 0 ? "var(--bad)" : "var(--accent)" }}>{known.length ? signed(p) : "–"}</td>
+                      {(() => { const r = rets[a.id] ?? []; const l = r.at(-1); return <td style={{ color: l && r.length > 1 ? retColor(l.ret) : undefined }}>{l && r.length > 1 ? <>{pct(l.ret)} <span className="help">{r[0].date.slice(2)}~</span></> : "–"}</td>; })()}
                       <td>{total > 0 ? `${((a.total / total) * 100).toFixed(1)}%` : "–"}</td>
                     </tr>,
                     ...(table ? a.holdings.map((h) => (
@@ -444,6 +529,7 @@ export default function DashboardPage() {
                         <td style={{ paddingLeft: 24 }}>{h.name} <span className="help">{h.ticker}</span></td><td>{h.qty.toLocaleString("ko-KR")}주</td><td>평균 {won(h.avgPrice)}</td>
                         <td>{won(h.value)}</td><td>{h.price != null ? `종가 ${won(h.price)}` : "시세 없음"}</td>
                         <td>{h.price != null ? `${signed(h.value - h.qty * h.avgPrice)} (${pct((h.price / h.avgPrice - 1) * 100)})` : "–"}</td>
+                        <td></td>
                         <td>{total > 0 ? `${((h.value / total) * 100).toFixed(1)}%` : ""}</td>
                       </tr>
                     )) : []),
@@ -451,6 +537,35 @@ export default function DashboardPage() {
                 })}</tbody>
               </table></div>
               {st.trades.some((t) => accts.some((a) => a.id === t.accountId)) && <p className="help">최근 수동 체결 기록: {st.trades.filter((t) => accts.some((a) => a.id === t.accountId)).slice(0, 5).map((t) => `${t.date} ${t.side === "buy" ? "매수" : "매도"} ${withCode(t.name, t.ticker)} ${t.qty}주`).join(" · ")}</p>}
+            </div>
+            <div className="card">
+              <h2>입금·출금 기록<Info>누적 수익률에서 빼는 돈입니다. 수동 계좌는 예수금·보유를 고치면 차이가 &quot;계좌 고침&quot;으로 저절로 들어갑니다(잘못 고친 것을 바로잡은 거면 지우세요). 한국투자증권 계좌는 여기서 직접 넣으세요. 지난 날짜로 넣으면 그날 기록 전에 들어온 돈으로 봅니다.</Info></h2>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <select aria-label="계좌" style={{ width: "auto" }} value={flowForm.accountId || all[0]?.id || ""} onChange={(e) => setFlowForm({ ...flowForm, accountId: e.target.value })}>
+                  {all.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+                <select aria-label="구분" style={{ width: "auto" }} value={flowForm.side} onChange={(e) => setFlowForm({ ...flowForm, side: e.target.value as "in" | "out" })}>
+                  <option value="in">입금</option><option value="out">출금</option>
+                </select>
+                <input aria-label="날짜" type="date" style={{ width: "auto" }} max={st.today} value={flowForm.date || st.today} onChange={(e) => setFlowForm({ ...flowForm, date: e.target.value })} />
+                <input aria-label="금액(원)" inputMode="numeric" placeholder="금액(원)" style={{ width: 140 }} value={flowForm.amount} onChange={(e) => setFlowForm({ ...flowForm, amount: e.target.value })} />
+                <input aria-label="메모" placeholder="메모 (선택)" style={{ width: 160 }} value={flowForm.note} onChange={(e) => setFlowForm({ ...flowForm, note: e.target.value })} />
+                <button className="primary" style={{ width: "auto" }} disabled={flowBusy} onClick={addFlowNow}>기록</button>
+              </div>
+              {!flowList.length ? <p className="help">입출금 기록이 없습니다.</p> : (
+                <div className="tablewrap" style={{ marginTop: 8 }}><table>
+                  <thead><tr><th>날짜</th><th>계좌</th><th>금액</th><th>메모</th><th></th></tr></thead>
+                  <tbody>{flowList.slice(0, 50).map(({ a, f }) => (
+                    <tr key={f.id}>
+                      <td>{f.date}</td>
+                      <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} />{a.name}</td>
+                      <td style={{ fontWeight: 600 }}>{f.amount >= 0 ? `입금 ${won(f.amount)}` : `출금 ${won(-f.amount)}`}</td>
+                      <td>{f.note ?? ""}{f.auto ? <span className="help"> (자동)</span> : null}</td>
+                      <td><button style={{ width: "auto", padding: "2px 8px", fontSize: 12 }} disabled={flowBusy} onClick={() => flowPost({ action: "deleteFlow", id: f.id })}>지우기</button></td>
+                    </tr>
+                  ))}</tbody>
+                </table></div>
+              )}
             </div>
           </>
         )}
