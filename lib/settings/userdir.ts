@@ -14,13 +14,10 @@ import { configDir } from "./store";
 
 type Env = Record<string, string | undefined>;
 
-/** 지금의 단일 관리자 계정. 기존 데이터는 모두 이 사용자 것이 됨 */
 export const OWNER_ID = "owner";
 
-/** 사용자별로 저장하는 파일 (예전에는 설정 폴더 바로 아래에 있었음) */
 export const USER_FILES = ["strategies.json", "last-state.json", "order-usage.json"] as const;
-/** 새로 생긴 사용자 파일 (예전 위치가 없어 옮길 필요 없음) */
-export const NEW_USER_FILES = ["auto.json", "auto-log.json", "notify.json", "auto-orders.json", "auto-intraday.json", "auto-perf.json", "manual.json", "manual-log.json", "manual-trades.json", "manual-history.json", "daytrade.json"] as const;
+export const NEW_USER_FILES = ["auto.json", "auto-log.json", "notify.json", "auto-orders.json", "auto-intraday.json", "auto-perf.json", "manual.json", "manual-log.json", "manual-trades.json", "manual-history.json"] as const;
 export type UserFileName = (typeof USER_FILES)[number] | (typeof NEW_USER_FILES)[number];
 export type UserFile = (typeof USER_FILES)[number];
 
@@ -65,7 +62,6 @@ export function userFile(name: UserFileName, user: string = OWNER_ID, e: Env = p
   return path.join(userDir(user, e), name);
 }
 
-/** 임시 파일 → 이름 바꾸기로 저장(권한 600) */
 export function writeUserFile(name: UserFileName, data: string, user: string = OWNER_ID, e: Env = process.env): void {
   const file = userFile(name, user, e);
   ensureUserDir(user, e);
