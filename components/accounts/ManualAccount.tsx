@@ -218,7 +218,7 @@ export default function ManualAccount({ onSwitch }: { onSwitch?: (id: string) =>
             try { window.history.replaceState(null, "", `/accounts?id=${id}`); } catch { /* 주소만 못 바꿈 */ }
           }}
             onAdd={st ? () => { setForm(emptyForm(st.today)); setDelAsk(false); setBrokerText(null); } : undefined} />
-          {sel && <AccountReturn id={sel} reload={reloadKey} />}
+          {sel && <AccountReturn id={sel} reload={reloadKey} onChange={load} />}
 
           {form && (
             <div className="card">

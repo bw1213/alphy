@@ -15,6 +15,8 @@ export interface Flow {
   note?: string;
   /** 수동 계좌를 고쳐서 저절로 생긴 기록 */
   auto?: boolean;
+  /** 수동 계좌 예수금에 더한 기록 (고치거나 지우면 예수금도 되돌림) */
+  cash?: boolean;
 }
 
 export interface ValuePoint { date: string; total: number; at?: string }
