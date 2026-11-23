@@ -478,7 +478,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
                   <div key={r.runDate + r.trigger + i} style={{ borderTop: i ? "1px solid var(--border)" : "none", paddingTop: i ? 8 : 0 }}>
                     <button style={{ width: "100%", textAlign: "left", display: "flex", gap: 8 }} onClick={() => setOpen(open === i ? -1 : i)}>
                       <b>{r.runDate}</b> {r.trigger === "manual" ? "직접" : "자동"} · {r.label} ·{" "}
-                      {r.status === "ok" ? `주문 ${r.orders.length}건, 매도 기준 ${r.sellLevels.length}개` : r.status === "holiday" ? "휴장" : "오류"}
+                      {r.status === "ok" ? `주문 ${r.orders.length}건, 매도 기준 ${r.sellLevels.length}개` : r.status === "holiday" ? (r.noData ? "새 시세 없음" : "휴장") : "오류"}
                     </button>
                     {open === i && <div style={{ marginTop: 8 }}><Report r={r} /></div>}
                   </div>

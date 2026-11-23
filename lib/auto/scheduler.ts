@@ -23,7 +23,7 @@ import { hasKisAccount, kisReader } from "../manual/kis";
 import { clockOf, isMixed, krSession, planMarket, planMarkets, US_SESSION, type Market, type Session } from "./session";
 import { withCode } from "../strategies/universe";
 import { sessionOn } from "./calendar";
-import { detectLateOpen, krTradingStarted, refreshKrCalendar } from "../market/holidays";
+import { addDays, detectLateOpen, krTradingStarted, refreshKrCalendar, tradingDay } from "../market/holidays";
 
 type Env = Record<string, string | undefined>;
 
@@ -191,10 +191,12 @@ export function eveningDue(now: number, st: SchedState, time: string): boolean {
 export const MIX_TIME = "07:00";
 const MIX_UNTIL = "22:00";
 
-// 섞은 운용: 미국 장 마감 뒤 한국 아침에 계산 (월~토, 미국 장 시작 전까지 다시 시도)
-export function mixDue(now: number, st: SchedState): boolean {
+// 섞은 운용: 전날 어느 한 시장이라도 열렸으면 한국 아침에 계산 (미국 장 시작 전까지 다시 시도)
+export function mixDue(now: number, st: SchedState, e: Env = process.env): boolean {
   const k = kst(now);
-  if (k.dow === 0 || k.hm < MIX_TIME || k.hm >= MIX_UNTIL) return false;
+  if (k.hm < MIX_TIME || k.hm >= MIX_UNTIL) return false;
+  const y = addDays(k.date, -1);
+  if (!tradingDay("KR", y, e).open && !tradingDay("US", y, e).open) return false;
   return slotDue(now, st.mix);
 }
 
@@ -319,7 +321,7 @@ let mixRunning = false;
 export async function mixTick(now = Date.now(), e: Env = process.env): Promise<void> {
   if (mixRunning) return;
   const st = loadState(e);
-  if (!mixDue(now, st)) return;
+  if (!mixDue(now, st, e)) return;
   mixRunning = true;
   const k = kst(now);
   const prev = st.mix?.date === k.date ? st.mix : undefined;

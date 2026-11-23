@@ -46,12 +46,16 @@ describe("섞은 운용 구분", () => {
     expect(cleanPlan({ strategy: "saved:반반", tickers: "SPY, 069500", budget: 1_000_000 }, "owner", "2026-11-17", [half]).tickers).toEqual(["SPY", "069500"]);
   });
 
-  it("섞은 운용 계산은 한국 아침 07:00~22:00, 일요일 빼고, 실패하면 10분 뒤 3번까지", () => {
+  it("섞은 운용 계산은 한국 아침 07:00~22:00, 전날 두 시장이 다 쉬었으면 빼고, 실패하면 10분 뒤 3번까지", () => {
     expect(mixDue(kstAt("2026-11-17", "06:59"), {})).toBe(false);
     expect(mixDue(kstAt("2026-11-17", "07:00"), {})).toBe(true);
     expect(mixDue(kstAt("2026-11-17", "22:00"), {})).toBe(false);
     expect(mixDue(kstAt("2026-11-15", "08:00"), {})).toBe(false);
     expect(mixDue(kstAt("2026-11-21", "08:00"), {})).toBe(true);
+    expect(mixDue(kstAt("2026-11-23", "07:00"), {})).toBe(false);
+    expect(mixDue(kstAt("2026-11-27", "07:00"), {})).toBe(true);
+    expect(mixDue(kstAt("2026-09-26", "07:00"), {})).toBe(true);
+    expect(mixDue(kstAt("2026-12-26", "07:00"), {})).toBe(false);
     const done = { mix: { date: "2026-11-17", attempts: 1, lastTry: kstAt("2026-11-17", "07:00"), done: true } };
     expect(mixDue(kstAt("2026-11-17", "09:00"), done)).toBe(false);
     const failed = { mix: { ...done.mix, done: false } };

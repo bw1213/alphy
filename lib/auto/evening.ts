@@ -67,6 +67,8 @@ export interface EveningReport {
   account?: "real" | "mock" | "manual";
   warnings: string[];
   error?: string;
+  /** 휴장이 아니라 지난 계산 뒤로 새 시세가 없어 건너뜀 */
+  noData?: boolean;
 }
 
 interface Prepared { fn: (ctx: any, p: Params) => any; p: Params; warmup: number; rebalance: Rebalance; stopLoss: number | null; takeProfit: number | null }
@@ -165,7 +167,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     const newest = [kr, us].sort().at(-1) ?? "";
     r.dataDate = newest || dataDate;
     if (!newest || (deps.prevDataDate && newest <= deps.prevDataDate)) {
-      return { ...r, status: "holiday", warnings: [`지난 계산 뒤로 새 시세가 없어 건너뜁니다. 마지막 시세 한국 ${kr || "없음"}, 미국 ${us || "없음"}.`] };
+      return { ...r, status: "holiday", noData: true, warnings: [`지난 계산 뒤로 새 시세가 없어 건너뜁니다. 마지막 시세 한국 ${kr || "없음"}, 미국 ${us || "없음"}.`] };
     }
     if (kr && us && kr !== us) r.warnings.push(`${kr < us ? "한국" : "미국"} 시장이 ${kr < us ? us : kr}에 쉬어 그 시장 종목은 ${kr < us ? kr : us} 종가로 계산했습니다.`);
     r.fx = d.fx?.at(-1)?.close;
@@ -176,7 +178,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     r.dataDate = us || dataDate;
     // 새 미국 시세가 없으면(미국 휴장) 같은 신호로 두 번 주문하지 않게 건너뜀
     if (!us || (deps.prevDataDate && us <= deps.prevDataDate)) {
-      return { ...r, status: "holiday", warnings: [`지난 계산 뒤로 새 미국 시세가 없어 건너뜁니다. 마지막 시세 ${us || "없음"}.`] };
+      return { ...r, status: "holiday", noData: true, warnings: [`지난 계산 뒤로 새 미국 시세가 없어 건너뜁니다. 마지막 시세 ${us || "없음"}.`] };
     }
     r.fx = d.fx?.at(-1)?.close;
   } else if (dataDate < r.runDate) {
@@ -359,7 +361,7 @@ export function formatReport(r: EveningReport): string {
   const mixed = (r.markets?.length ?? 0) > 1;
   const head = `[알피] ${r.runDate} ${mixed ? "" : "저녁 "}계산 · ${r.label}`;
   if (r.status === "error") return `${head}\n계산하지 못했습니다: ${r.error}`;
-  if (r.status === "holiday") return `${head}\n오늘은 휴장일로 보고 건너뜁니다.`;
+  if (r.status === "holiday") return `${head}\n${r.noData ? "지난 계산 뒤로 새 시세가 없어 건너뜁니다." : "오늘은 휴장일로 보고 건너뜁니다."}`;
   const lines = [head];
   if (r.lossStop) lines.push(`!! 손실 한도 도달: 운용 금액 대비 -${r.lossStop.loss.toFixed(1)}% (한도 -${r.lossStop.limit}%). 자동 매매를 멈췄습니다.`);
   if (r.accountTotal != null) lines.push(`계좌 평가액 ${won(r.accountTotal)} (예수금 ${won(r.accountCash ?? 0)} · 주식 ${won(r.accountStock ?? 0)})`);
