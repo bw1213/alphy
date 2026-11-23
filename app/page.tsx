@@ -31,6 +31,7 @@ import type { BackfillNote } from "@/lib/data/backfillApply";
 import BackfillPicker from "@/components/BackfillPicker";
 import { backfillRequest, cleanBackfillState, DEFAULT_BACKFILL, type BackfillState } from "@/lib/data/backfillPick";
 import Info from "@/components/Info";
+import AppNav from "@/components/AppNav";
 import CompareResults from "@/components/CompareResults";
 import { buildCompare, MAX_COMPARE, mergeIndices, prepareCompare, savedId, type CompareReport, type CompareRun, type CompareStrategy } from "@/lib/compare/compare";
 // 브라우저 저장 이름은 사람마다 다름 (같은 기기를 여럿이 써도 섞이지 않게)
@@ -373,8 +374,23 @@ export default function Page() {
     return { costs, div };
   }
 
+  const resultsRef = useRef<HTMLElement>(null);
+  const jumpPending = useRef(false);
+  const jumpToResults = () => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const showResults = () => {
+    if (!window.matchMedia("(max-width: 759px)").matches) return;
+    jumpPending.current = true;
+    requestAnimationFrame(jumpToResults);
+  };
+  useEffect(() => {
+    if (busy || !jumpPending.current) return;
+    jumpPending.current = false;
+    requestAnimationFrame(jumpToResults);
+  }, [busy]);
+
   async function run() {
     setError(null); setWarnings([]);
+    showResults();
     setCmpFirst(false);
     if (restored) saveNow();
     try {
@@ -466,6 +482,7 @@ export default function Page() {
 
   async function runCompare() {
     setError(null); setWarnings([]);
+    showResults();
     if (restored) saveNow();
     try {
       if (picked.length < 2) throw new Error("비교할 전략을 2개 이상 고르세요.");
@@ -536,6 +553,7 @@ export default function Page() {
 
   async function findStrategy() {
     setError(null); setWarnings([]);
+    showResults();
     if (restored) saveNow();
     try {
       if (!finderReady) throw new Error("전략 찾기는 '기간 · 종목'에서 '종목 직접 입력'으로 종목을 1~3개 넣어야 합니다.");
@@ -599,11 +617,7 @@ export default function Page() {
 
   return (
     <>
-      <header className="top">
-        <h1>백테스트 (한국·미국)</h1>
-        <p>목표 연 {target.cagr}% · 최대 낙폭 -{target.mdd}%</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/accounts">계좌</a><a href="/settings">설정</a></span>
-      </header>
+      <AppNav title="백테스트" sub={<>목표 연 {target.cagr}% · 최대 낙폭 -{target.mdd}%</>} />
       <main className="app">
         <section className="stack">
           <div className="card">
@@ -845,7 +859,7 @@ export default function Page() {
           </div>
         </section>
 
-        <section className="stack">
+        <section className="stack results" ref={resultsRef}>
           {busy && <div className="card"><span className="spin" />{busy}</div>}
           {error && <div className="error">{error}</div>}
           {warnings.length > 0 && (

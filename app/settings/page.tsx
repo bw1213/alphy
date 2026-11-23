@@ -8,6 +8,7 @@ import UsersCard from "@/components/UsersCard";
 import ServerStatusCard from "@/components/ServerStatusCard";
 import StockListCard from "@/components/StockListCard";
 import Info from "@/components/Info";
+import AppNav from "@/components/AppNav";
 import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
 
 type ServerLock = { at?: number; ownerTotp: boolean };
@@ -102,14 +103,8 @@ export default function SettingsPage() {
   const logout = async () => { await fetch("/api/auth", { method: "DELETE" }); window.location.href = "/login"; };
 
   const header = (
-    <header className="top">
-      <h1>알피 설정</h1>
-      {auth?.user && auth.multiUser ? <p>{auth.user.name}({auth.user.id})</p> : null}
-      <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}>
-        <a href="/">백테스트</a><a href="/accounts">계좌</a><a href="/dashboard">전체 계좌</a>
-        {auth?.loggedIn && <button className="link" onClick={logout}>로그아웃</button>}
-      </span>
-    </header>
+    <AppNav title="설정" sub={auth?.user && auth.multiUser ? `${auth.user.name}(${auth.user.id})` : undefined}
+      extra={auth?.loggedIn ? <button className="link" onClick={logout}>로그아웃</button> : undefined} />
   );
 
   if (!auth) return <>{header}<main className="settings"><p className="help">확인 중…</p></main></>;

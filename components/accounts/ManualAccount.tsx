@@ -11,6 +11,7 @@ import type { ManualPosition, ManualTrade, FeeRates } from "@/lib/manual/store";
 import type { PriceBook } from "@/lib/manual/value";
 import { fetchJob } from "@/lib/client/fetchData";
 import Info from "@/components/Info";
+import AppNav from "@/components/AppNav";
 import AccountList from "@/components/AccountList";
 import AccountReturn from "@/components/accounts/AccountReturn";
 
@@ -208,11 +209,7 @@ export default function ManualAccount({ onSwitch }: { onSwitch?: (id: string) =>
 
   return (
     <>
-      <header className="top">
-        <h1>계좌</h1>
-        <p>직접 주문 · 평일 저녁 매매 안내</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
-      </header>
+      <AppNav title="계좌" sub="직접 주문 · 평일 저녁 매매 안내" />
       <main className="app">
         <section className="stack">
           <AccountList current={sel} reload={reloadKey} onPick={(id) => {
