@@ -56,7 +56,7 @@ export const PROXIES: ProxyInfo[] = [
     ["LQD", "미국 회사채 (LQD)"], ["HYG", "미국 하이일드 (HYG)"], ["TIP", "미국 물가연동채 (TIP)"],
     ["GLD", "금 (GLD)"], ["SLV", "은 (SLV)"], ["USO", "원유 (USO)"], ["DBC", "원자재 (DBC)"],
     ["VUSTX", "미국 장기 국채 펀드 (VUSTX, 1986~)"], ["VFITX", "미국 중기 국채 펀드 (VFITX, 1991~)"], ["VFISX", "미국 단기 국채 펀드 (VFISX, 1991~)"],
-    ["VBMFX", "미국 종합채권 펀드 (VBMFX, 1986~)"], ["GC=F", "금 선물 (2000~)"], ["SI=F", "은 선물 (2000~)"], ["CL=F", "원유 선물 (2000~)"],
+    ["VBMFX", "미국 종합채권 펀드 (VBMFX, 1986~)"], ["VEIEX", "신흥국 주식 펀드 (VEIEX, 1994~)"], ["VGSIX", "미국 리츠 펀드 (VGSIX, 1996~)"], ["GC=F", "금 선물 (2000~)"], ["SI=F", "은 선물 (2000~)"], ["CL=F", "원유 선물 (2000~)"],
   ] as const).map(([id, name]) => ({ id, name, group: "채권·원자재", currency: "USD" as Currency })),
   { id: "RATE:KR", name: "한국 기준금리 (현금성)", group: "금리", currency: "KRW" },
   { id: "RATE:US", name: "미국 3개월 국채 금리 (^IRX)", group: "금리", currency: "USD" },
@@ -91,6 +91,8 @@ export const KNOWN: Record<string, BackfillSpec> = {
   TNA: C(["IWM", "^RUT"], 3, 1.08), TZA: C(["IWM", "^RUT"], -3, 1.0), UWM: C(["IWM", "^RUT"], 2, 0.95),
   UDOW: C(["DIA", "^DJI"], 3, 0.95), DDM: C(["DIA", "^DJI"], 2, 0.95), SDOW: C(["DIA", "^DJI"], -3, 0.95),
   TECL: C(["XLK"], 3, 0.94), FAS: C(["XLF"], 3, 0.93), UGL: C(AU, 2, 0.95), AGQ: C(AG, 2, 0.95),
+  EEM: C(["VEIEX"], 1, 0.7), EDC: C(["EEM", "VEIEX"], 3, 1.08), EET: C(["EEM", "VEIEX"], 2, 0.95),
+  ERX: C(["XLE"], 2, 0.95), VNQ: C(["VGSIX"], 1, 0.13), DRN: C(["VNQ", "VGSIX"], 3, 0.99),
   // 한국
   "069500": C(["^KS11"], 1, 0.15), "102110": C(K200, 1, 0.05), "498400": C(K200, 1, 0.39),
   "122630": C(K200, 2, 0.64), "114800": C(K200, -1, 0.64), "252670": C(K200, -2, 0.64),

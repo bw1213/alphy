@@ -60,6 +60,7 @@ describe("기본 대용", () => {
   it("잘 알려진 ETF", () => {
     expect(suggestSpec("498400")!.chain).toEqual(["069500", "^KS11"]);
     expect(suggestSpec("UPRO")).toMatchObject({ chain: ["SPY", "^GSPC"], lev: 3 });
+    expect(suggestSpec("EDC")).toMatchObject({ chain: ["EEM", "VEIEX"], lev: 3 });
     expect(suggestSpec("453010")!.chain).toEqual(["RATE:KR"]);
     // 채권·금 ETF 는 상장 전을 국채 펀드·금 선물로
     expect(suggestSpec("IEF")!.chain).toEqual(["VFITX"]);
