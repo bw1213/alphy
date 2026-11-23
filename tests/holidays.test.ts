@@ -142,3 +142,13 @@ describe("늦은 개장 (수능일 등)", () => {
     expect(await krTradingStarted(env, { now: at("10:01") + 1000, client: quote(5).client })).toBe(true);
   });
 });
+
+describe("주말 뒤 섞은 운용 주문", () => {
+  it("월요일 아침 계산을 건너뛰어도 토요일 계산으로 한국·미국 모두 주문", () => {
+    const plan: any = { label: "L", enabled: true, tickers: ["SPY", "069500"] };
+    const sat: any = { status: "ok", label: "L", runDate: "2026-11-21", ranAt: "2026-11-20T22:00:00Z", dataDate: "2026-11-20", markets: ["KR", "US"], orders: [] };
+    const mon: any = { ...sat, status: "holiday", noData: true, runDate: "2026-11-23", ranAt: "2026-11-22T22:00:00Z" };
+    expect(pickReport([mon, sat], plan, "2026-11-23", true, "KR").report?.runDate).toBe("2026-11-21");
+    expect(pickReport([mon, sat], plan, "2026-11-23", true, "US").report?.runDate).toBe("2026-11-21");
+  });
+});
