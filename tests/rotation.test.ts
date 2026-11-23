@@ -75,6 +75,14 @@ describe("모멘텀 회전 (조절 많은 버전)", () => {
     const d = { A: walk(0.003, 0.02), B: walk(0.002, 0.02), C: walk(0.001, 0.02) };
     expect(sum(run("rotation_plus", d, { ...defaults("rotation_plus"), volT: 10 }))).toBeLessThan(sum(run("rotation_plus", d)) - 0.2);
   });
+  it("변동성 목표 기간을 늘리면 그 전의 큰 출렁임도 반영", () => {
+    const sum = (res: ReturnType<typeof run>) => Object.values(firstBuys(res)).reduce((a, b) => a + b, 0);
+    let px = 100;
+    const calmLate = dates.map((date, i) => { if (i) px *= 1.002 + (i % 2 ? 1 : -1) * (i < 190 ? 0.03 : 0.003); return { date, open: px, high: px, low: px, close: px, volume: 1e6 }; });
+    const d = { A: calmLate };
+    const p = { ...defaults("rotation_plus"), topK: 1, volT: 20 };
+    expect(sum(run("rotation_plus", d, { ...p, volDays: 120 }))).toBeLessThan(sum(run("rotation_plus", d, p)) - 0.2);
+  });
   it("여러 설정 평균: 종목 수 N·N-1 로 고른 비중의 평균", () => {
     const w = firstBuys(run("rotation_plus", data(), { ...defaults("rotation_plus"), topK: 2, ens: 1 }));
     expect(w.A).toBeCloseTo(0.75, 1);
