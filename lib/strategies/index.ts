@@ -181,7 +181,7 @@ const rotationPlusCode = `// 모멘텀 회전 (조절 많은 버전): 매달 말
 // p.wmode 0 = 고른 종목마다 1/topK 씩, 1 = 고른 종목 안에서 덜 출렁이는 종목에 더 많이 (합계는 같음)
 // p.safe  1 = 현금으로 남는 몫을 '피난처'(60일 변동성이 가장 낮은 종목, 3개월 수익률이 0보다 클 때만)에 넣음
 // p.canary 0보다 크면: 모멘텀이 0보다 큰 종목이 전체의 p.canary% 미만일 때 주식 몫을 p.cut% 로 줄임
-// p.volT  0보다 크면: 고른 비중의 최근 60일 변동성이 연 p.volT% 를 넘으면 그만큼 줄임
+// p.volT  0보다 크면: 고른 비중의 최근 p.volDays일(기본 60) 변동성이 연 p.volT% 를 넘으면 그만큼 줄임
 // p.ens   1 = 설정 하나 대신 네 가지(모멘텀 재는 법 0·2 × 보유 종목 수 topK·topK-1)로 각각 고른 비중의 평균 (p.lb 는 안 씀)
 const R = (t, n, skip = 0) => ctx.ret(t, n, skip);
 const score = (t, lb) => {
@@ -212,7 +212,7 @@ const one = (lb, K) => {
     if (up < p.canary) scale = p.cut / 100;
   }
   if (p.volT > 0 && picks.length) {
-    const n = 60, h = picks.map((t) => ctx.history(t, n + 1));
+    const n = p.volDays > 1 ? p.volDays : 60, h = picks.map((t) => ctx.history(t, n + 1));
     if (h.every((x) => x.length === n + 1)) {
       const r = [];
       for (let i = 1; i <= n; i++) r.push(picks.reduce((s, t, k) => s + w[t] * (h[k][i] / h[k][i - 1] - 1), 0));
@@ -419,6 +419,7 @@ export const STRATEGIES: StrategyDef[] = [
       { key: "canary", label: "오르는 종목 비율 기준(%, 0 = 끔)", default: 0, min: 0, max: 100, step: 5 },
       { key: "cut", label: "기준 밑일 때 주식 몫(%)", default: 50, min: 0, max: 100, step: 10 },
       { key: "volT", label: "변동성 목표(연 %, 0 = 끔)", default: 0, min: 0, max: 200, step: 5 },
+      { key: "volDays", label: "변동성 목표에 쓰는 기간(일)", default: 60, min: 20, max: 250, step: 5 },
       { key: "ens", label: "여러 설정 평균(0 끔, 1 켬: 재는 법 0·2 × 종목 수 N·N-1)", default: 0, min: 0, max: 1 },
     ],
     rebalance: "M", stopLoss: null, takeProfit: null,
