@@ -14,6 +14,7 @@ import type { Fill } from "@/lib/accounts/fills";
 import { accountReturns, combinedReturns, since, type Flow, type ReturnPoint } from "@/lib/manual/returns";
 import { withCode } from "@/lib/strategies/universe";
 import Info from "@/components/Info";
+import FlowEditor from "@/components/accounts/FlowEditor";
 
 interface Last { runDate: string; orders: AutoOrder[]; equity: number | null; label: string }
 interface DashState {
@@ -115,8 +116,6 @@ export default function DashboardPage() {
   const [warn, setWarn] = useState<string[]>([]);
   const [range, setRange] = useState<"1M" | "3M" | "1Y" | "ALL">("3M");
   const [table, setTable] = useState(false);
-  const [flowForm, setFlowForm] = useState({ accountId: "", date: "", amount: "", side: "in" as "in" | "out", note: "" });
-  const [flowBusy, setFlowBusy] = useState(false);
   // 고른 계좌 (null = 전체). 이 브라우저에만 기억
   const [pick, setPick] = useState<string[] | null>(null);
   useEffect(() => { try { const v = JSON.parse(localStorage.getItem(PICK_KEY) ?? "null"); if (Array.isArray(v)) setPick(v); } catch { /* 없음 */ } }, []);
@@ -136,24 +135,6 @@ export default function DashboardPage() {
       setWarn(r?.warnings ?? []);
       await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
-  };
-
-  const flowPost = async (body: Record<string, unknown>) => {
-    setFlowBusy(true); setError("");
-    try {
-      const r = await fetch("/api/dashboard", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j?.error ?? "저장하지 못했습니다.");
-      await load();
-      return true;
-    } catch (e) { setError((e as Error).message); return false; } finally { setFlowBusy(false); }
-  };
-  const addFlowNow = async () => {
-    const amount = Math.round(Number(flowForm.amount.replace(/[,\s원]/g, "")));
-    if (!(amount > 0)) return setError("입출금 금액을 넣으세요.");
-    const accountId = flowForm.accountId || all[0]?.id;
-    const ok = await flowPost({ action: "flow", accountId, date: flowForm.date || st?.today, amount: flowForm.side === "in" ? amount : -amount, note: flowForm.note });
-    if (ok) setFlowForm((f) => ({ ...f, amount: "", note: "" }));
   };
 
   const all = useMemo<Acct[]>(() => {
@@ -250,7 +231,6 @@ export default function DashboardPage() {
     if (accts.length > 1) for (const a of accts) put(a.id, rets[a.id] ?? []);
     return [...rows.values()].sort((x, y) => String(x.date).localeCompare(String(y.date)));
   }, [combined, rets, accts, fromDate]);
-  const flowList = useMemo(() => (st ? accts.flatMap((a) => (st.flows?.[a.id] ?? []).map((f) => ({ a, f }))).sort((x, y) => y.f.at.localeCompare(x.f.at)) : []), [st, accts]);
   const lastRet = combined.at(-1);
   const retColor = (v: number) => (v >= 0 ? "var(--bad)" : "var(--accent)");
 
@@ -567,33 +547,8 @@ export default function DashboardPage() {
             </div>
 
             <div className="card">
-              <h2>입금·출금 기록<Info>누적 수익률에서 빼는 돈입니다. 수동 계좌는 예수금·보유를 고치면 차이가 &quot;계좌 고침&quot;으로 저절로 들어갑니다(잘못 고친 것을 바로잡은 거면 지우세요). 한국투자증권 계좌는 여기서 직접 넣으세요. 지난 날짜로 넣으면 그날 기록 전에 들어온 돈으로 봅니다.</Info></h2>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                <select aria-label="계좌" style={{ width: "auto" }} value={flowForm.accountId || all[0]?.id || ""} onChange={(e) => setFlowForm({ ...flowForm, accountId: e.target.value })}>
-                  {all.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
-                <select aria-label="구분" style={{ width: "auto" }} value={flowForm.side} onChange={(e) => setFlowForm({ ...flowForm, side: e.target.value as "in" | "out" })}>
-                  <option value="in">입금</option><option value="out">출금</option>
-                </select>
-                <input aria-label="날짜" type="date" style={{ width: "auto" }} max={st.today} value={flowForm.date || st.today} onChange={(e) => setFlowForm({ ...flowForm, date: e.target.value })} />
-                <input aria-label="금액(원)" inputMode="numeric" placeholder="금액(원)" style={{ width: 140 }} value={flowForm.amount} onChange={(e) => setFlowForm({ ...flowForm, amount: e.target.value })} />
-                <input aria-label="메모" placeholder="메모 (선택)" style={{ width: 160 }} value={flowForm.note} onChange={(e) => setFlowForm({ ...flowForm, note: e.target.value })} />
-                <button className="primary" style={{ width: "auto" }} disabled={flowBusy} onClick={addFlowNow}>기록</button>
-              </div>
-              {!flowList.length ? <p className="help">입출금 기록이 없습니다.</p> : (
-                <div className="tablewrap" style={{ marginTop: 8 }}><table>
-                  <thead><tr><th>날짜</th><th>계좌</th><th>금액</th><th>메모</th><th></th></tr></thead>
-                  <tbody>{flowList.slice(0, 50).map(({ a, f }) => (
-                    <tr key={f.id}>
-                      <td>{f.date}</td>
-                      <td><i style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: c.s[a.slot], marginRight: 6 }} />{a.name}</td>
-                      <td style={{ fontWeight: 600 }}>{f.amount >= 0 ? `입금 ${won(f.amount)}` : `출금 ${won(-f.amount)}`}</td>
-                      <td>{f.note ?? ""}{f.auto ? <span className="help"> (자동)</span> : null}</td>
-                      <td><button style={{ width: "auto", padding: "2px 8px", fontSize: 12 }} disabled={flowBusy} onClick={() => flowPost({ action: "deleteFlow", id: f.id })}>지우기</button></td>
-                    </tr>
-                  ))}</tbody>
-                </table></div>
-              )}
+              <h2>입금·출금 기록<Info>누적 수익률에서 빼는 돈입니다. 수동 계좌에 넣으면 그 계좌 예수금도 함께 늘거나 줄고, 고치거나 지우면 예수금도 되돌립니다. 한국투자증권 계좌는 기록만 합니다(잔고는 증권사에서 읽음). 지난 날짜로 넣으면 그날 기록 전에 들어온 돈으로 봅니다. 수동 계좌 예수금·보유를 직접 고친 차이는 &quot;계좌 고침&quot;(자동)으로 들어갑니다.</Info></h2>
+              <FlowEditor accounts={all.map((a) => ({ id: a.id, name: a.name, color: c.s[a.slot] }))} flows={Object.fromEntries(accts.map((a) => [a.id, st.flows?.[a.id] ?? []]))} today={st.today} onChanged={load} />
             </div>
           </>
         )}

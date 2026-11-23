@@ -14,8 +14,8 @@ import { loadData, type DataRequest, type DataResponse } from "../data/server";
 import { loadSettings } from "../settings/store";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import { kst, minusDays } from "../auto/time";
-import { accountValue, loadAccounts, type ManualAccount } from "./store";
-import type { Flow } from "./returns";
+import { accountValue, loadAccounts, saveAccounts, type ManualAccount } from "./store";
+import { flowIndex, type Flow } from "./returns";
 
 type Env = Record<string, string | undefined>;
 
@@ -191,34 +191,89 @@ export const MAX_FLOWS = 500;
 
 const flowId = () => Math.random().toString(36).slice(2, 10);
 
-/** 입금·출금 넣기. 지난 날짜는 그날 기록 전에 한 것으로 본다 */
-export function addFlow(user: string, accountId: string, x: { date: string; amount: number; note?: string; auto?: boolean }, e: Env = process.env, now = Date.now()): Flow {
+function makeFlow(x: { date: string; amount: number; note?: string; auto?: boolean; cash?: boolean }, now: number, id = flowId()): Flow {
   const amount = Math.round(Number(x.amount));
   if (!Number.isFinite(amount) || amount === 0 || Math.abs(amount) > 100_000_000_000) throw new Error("금액을 넣으세요 (입금은 +, 출금은 −).");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(x.date)) throw new Error("날짜 형식이 맞지 않습니다.");
   const today = kst(now).date;
   if (x.date > today) throw new Error("앞으로의 날짜는 넣을 수 없습니다.");
-  const h = loadHistory(user, e);
   const at = x.date < today ? `${minusDays(x.date, 1)}T15:00:00.000Z` : new Date(now).toISOString();
   const note = String(x.note ?? "").trim().slice(0, 40);
-  const f: Flow = { id: flowId(), date: x.date, amount, at, ...(note ? { note } : {}), ...(x.auto ? { auto: true } : {}) };
-  const flows = { ...(h.flows ?? {}) };
-  flows[accountId] = [...(flows[accountId] ?? []), f].sort((a, b) => a.at.localeCompare(b.at)).slice(-MAX_FLOWS);
-  saveHistory({ ...h, flows }, user, e);
+  return { id, date: x.date, amount, at, ...(note ? { note } : {}), ...(x.auto ? { auto: true } : {}), ...(x.cash ? { cash: true } : {}) };
+}
+
+const withFlow = (list: Flow[], f: Flow) => [...list, f].sort((a, b) => a.at.localeCompare(b.at)).slice(-MAX_FLOWS);
+
+/** 지난 날짜로 넣은 입출금: 그 뒤 기록에도 그 돈이 있었던 것으로 고침 */
+function shiftPoints(list: Snapshot[], f: Pick<Flow, "date" | "at">, amount: number): Snapshot[] {
+  const ps = [...list].sort((a, b) => a.date.localeCompare(b.date));
+  const i = flowIndex(ps, f);
+  return i < 0 ? ps : ps.map((p, k) => (k >= i ? { ...p, total: p.total + amount, cash: p.cash + amount } : p));
+}
+
+/** 입금·출금 넣기 (예수금은 건드리지 않음). 지난 날짜는 그날 기록 전에 한 것으로 본다 */
+export function addFlow(user: string, accountId: string, x: { date: string; amount: number; note?: string; auto?: boolean }, e: Env = process.env, now = Date.now()): Flow {
+  const f = makeFlow(x, now);
+  const h = loadHistory(user, e);
+  saveHistory({ ...h, flows: { ...(h.flows ?? {}), [accountId]: withFlow(h.flows?.[accountId] ?? [], f) } }, user, e);
   return f;
 }
 
-export function deleteFlow(user: string, id: string, e: Env = process.env): void {
+/**
+ * 화면에서 넣는 입금·출금 (id 를 주면 고치기). 수동 계좌는 예수금에도 더하고,
+ * 그 뒤 기록과 오늘 기록을 고쳐 누적 수익률이 흔들리지 않게 한다.
+ */
+export function putFlow(user: string, accountId: string, x: { date: string; amount: number; note?: string }, id?: string, e: Env = process.env, now = Date.now()): { flow: Flow; account: ManualAccount | null } {
   const h = loadHistory(user, e);
-  const flows: NonNullable<History["flows"]> = {};
-  let found = false;
-  for (const [k, v] of Object.entries(h.flows ?? {})) {
-    const left = v.filter((f) => f.id !== id);
-    if (left.length !== v.length) found = true;
-    flows[k] = left;
+  const old = id ? (h.flows?.[accountId] ?? []).find((f) => f.id === id) : undefined;
+  if (id && !old) throw new Error("그 입출금 기록을 찾지 못했습니다.");
+  const accounts = loadAccounts(user, e);
+  const ai = accounts.findIndex((a) => a.id === accountId);
+  const useCash = old ? !!old.cash && ai >= 0 : ai >= 0;
+  const f = makeFlow({ ...x, cash: useCash }, now, old?.id);
+  const left = (h.flows?.[accountId] ?? []).filter((g) => g.id !== id);
+  let account: ManualAccount | null = null;
+  if (useCash) {
+    let points = h.points[accountId] ?? [];
+    let cash = accounts[ai].cash;
+    if (old) { cash -= old.amount; points = shiftPoints(points, old, -old.amount); }
+    cash += f.amount;
+    if (cash < 0) throw new Error(`예수금(${Math.round(cash - f.amount).toLocaleString("ko-KR")}원)보다 많이 출금할 수 없습니다.`);
+    points = shiftPoints(points, f, f.amount);
+    account = { ...accounts[ai], cash, updatedAt: new Date(now).toISOString() };
+    accounts[ai] = account;
+    saveAccounts(accounts, user, e);
+    h.points = { ...h.points, [accountId]: todayPoint(points, account, h.prices, now) };
   }
-  if (!found) throw new Error("그 입출금 기록을 찾지 못했습니다.");
-  saveHistory({ ...h, flows }, user, e);
+  saveHistory({ ...h, flows: { ...(h.flows ?? {}), [accountId]: withFlow(left, f) } }, user, e);
+  return { flow: f, account };
+}
+
+/** 기록이 있는 계좌의 오늘 점을 지금 계좌로 바꿈 */
+function todayPoint(list: Snapshot[], a: ManualAccount, prices: PriceBook | null, now: number): Snapshot[] {
+  if (!list.length) return list;
+  const date = kst(now).date;
+  return addSnapshot(list, snapshotOf(a, date, prices, list.find((p) => p.date === date)?.strategy, new Date(now).toISOString()));
+}
+
+export function deleteFlow(user: string, id: string, e: Env = process.env, now = Date.now()): ManualAccount | null {
+  const h = loadHistory(user, e);
+  const owner = Object.keys(h.flows ?? {}).find((k) => h.flows![k].some((f) => f.id === id));
+  if (!owner) throw new Error("그 입출금 기록을 찾지 못했습니다.");
+  const f = h.flows![owner].find((g) => g.id === id)!;
+  let account: ManualAccount | null = null;
+  const accounts = f.cash ? loadAccounts(user, e) : [];
+  const ai = accounts.findIndex((a) => a.id === owner);
+  if (ai >= 0) {
+    const cash = accounts[ai].cash - f.amount;
+    if (cash < 0) throw new Error("이 입금을 지우면 예수금이 0보다 작아집니다. 그 돈으로 산 체결을 먼저 고치세요.");
+    account = { ...accounts[ai], cash, updatedAt: new Date(now).toISOString() };
+    accounts[ai] = account;
+    saveAccounts(accounts, user, e);
+    h.points = { ...h.points, [owner]: todayPoint(shiftPoints(h.points[owner] ?? [], f, -f.amount), account, h.prices, now) };
+  }
+  saveHistory({ ...h, flows: { ...h.flows, [owner]: h.flows![owner].filter((g) => g.id !== id) } }, user, e);
+  return account;
 }
 
 /**

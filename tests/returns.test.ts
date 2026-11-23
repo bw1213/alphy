@@ -3,8 +3,8 @@ import { tmpdir } from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { accountReturns, combinedReturns, since } from "@/lib/manual/returns";
-import { saveAccounts, type ManualAccount } from "@/lib/manual/store";
-import { addFlow, deleteFlow, loadHistory, recordEdit, refreshHistory, saveHistory } from "@/lib/manual/value";
+import { loadAccounts, saveAccounts, type ManualAccount } from "@/lib/manual/store";
+import { addFlow, deleteFlow, loadHistory, putFlow, recordEdit, refreshHistory, saveHistory } from "@/lib/manual/value";
 
 let dir: string;
 let env: Record<string, string | undefined>;
@@ -65,6 +65,44 @@ describe("입출금 기록", () => {
     expect(() => addFlow("owner", "kis", { date: "2026-11-21", amount: 1 }, env, at("2026-11-20", "10:00"))).toThrow();
     await refreshHistory("owner", { e: env, now: at("2026-11-20", "19:00") });
     expect(Object.keys(loadHistory("owner", env).flows!)).toEqual(["kis"]);
+  });
+
+  it("수동 계좌 입금은 예수금에 더하고, 지난 날짜면 그 뒤 기록도 고쳐 수익률이 그대로", async () => {
+    saveAccounts([acct(1000)], "owner", env);
+    const noPx = async () => { throw new Error("x"); };
+    await refreshHistory("owner", { e: env, load: noPx, now: at("2026-11-16", "19:00") });
+    await refreshHistory("owner", { e: env, load: noPx, now: at("2026-11-17", "19:00") });
+    const { flow, account } = putFlow("owner", "a1", { date: "2026-11-17", amount: 500 }, undefined, env, at("2026-11-18", "10:00"));
+    expect(flow).toMatchObject({ amount: 500, cash: true });
+    expect(account!.cash).toBe(1500);
+    let h = loadHistory("owner", env);
+    expect(h.points.a1.map((p) => p.total)).toEqual([1000, 1500, 1500]);
+    expect(accountReturns(h.points.a1, h.flows!.a1).at(-1)!.ret).toBeCloseTo(0);
+
+    putFlow("owner", "a1", { date: "2026-11-18", amount: -200, note: "생활비" }, flow.id, env, at("2026-11-18", "11:00"));
+    expect(loadAccounts("owner", env)[0].cash).toBe(800);
+    h = loadHistory("owner", env);
+    expect(h.points.a1.map((p) => p.total)).toEqual([1000, 1000, 800]);
+    expect(h.flows!.a1).toHaveLength(1);
+    expect(accountReturns(h.points.a1, h.flows!.a1).at(-1)!.ret).toBeCloseTo(0);
+
+    expect(() => putFlow("owner", "a1", { date: "2026-11-18", amount: -5000 }, undefined, env, at("2026-11-18", "12:00"))).toThrow(/예수금/);
+    expect(deleteFlow("owner", h.flows!.a1[0].id, env, at("2026-11-18", "12:00"))!.cash).toBe(1000);
+    h = loadHistory("owner", env);
+    expect(h.flows!.a1).toEqual([]);
+    expect(h.points.a1.map((p) => p.total)).toEqual([1000, 1000, 1000]);
+  });
+
+  it("한국투자증권·계좌 고침 기록은 고쳐도 예수금을 건드리지 않음", async () => {
+    saveAccounts([acct(1000)], "owner", env);
+    await refreshHistory("owner", { e: env, load: async () => { throw new Error("x"); }, now: at("2026-11-16", "19:00") });
+    const auto = recordEdit("owner", acct(1000), acct(1300), env, at("2026-11-17", "11:00"))!;
+    saveAccounts([acct(1300)], "owner", env);
+    const r = putFlow("owner", "a1", { date: "2026-11-17", amount: 200 }, auto.id, env, at("2026-11-17", "12:00"));
+    expect(r.account).toBeNull();
+    expect(r.flow.auto).toBeUndefined();
+    expect(loadAccounts("owner", env)[0].cash).toBe(1300);
+    expect(putFlow("owner", "kis", { date: "2026-11-17", amount: 100 }, undefined, env, at("2026-11-17", "12:00")).flow.cash).toBeUndefined();
   });
 });
 
