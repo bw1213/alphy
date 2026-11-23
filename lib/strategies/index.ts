@@ -182,52 +182,68 @@ const rotationPlusCode = `// 모멘텀 회전 (조절 많은 버전): 매달 말
 // p.safe  1 = 현금으로 남는 몫을 '피난처'(60일 변동성이 가장 낮은 종목, 3개월 수익률이 0보다 클 때만)에 넣음
 // p.canary 0보다 크면: 모멘텀이 0보다 큰 종목이 전체의 p.canary% 미만일 때 주식 몫을 p.cut% 로 줄임
 // p.volT  0보다 크면: 고른 비중의 최근 60일 변동성이 연 p.volT% 를 넘으면 그만큼 줄임
+// p.ens   1 = 설정 하나 대신 네 가지(모멘텀 재는 법 0·2 × 보유 종목 수 topK·topK-1)로 각각 고른 비중의 평균 (p.lb 는 안 씀)
 const R = (t, n, skip = 0) => ctx.ret(t, n, skip);
-const score = (t) => {
+const score = (t, lb) => {
   const a = [R(t, 21), R(t, 63), R(t, 126), R(t, 252)];
   if (!a.every(Number.isFinite)) return NaN;
-  const m = p.lb === 1 ? (12 * a[0] + 4 * a[1] + 2 * a[2] + a[3]) / 19
-    : p.lb === 2 ? (a[1] + a[2] + a[3]) / 3
-    : p.lb === 3 ? a[2]
-    : p.lb === 4 ? R(t, 252, 21)
+  const m = lb === 1 ? (12 * a[0] + 4 * a[1] + 2 * a[2] + a[3]) / 19
+    : lb === 2 ? (a[1] + a[2] + a[3]) / 3
+    : lb === 3 ? a[2]
+    : lb === 4 ? R(t, 252, 21)
     : (a[0] + a[1] + a[2] + a[3]) / 4;
   return Number.isFinite(m) ? m * 100 : NaN;
 };
-const ok = ctx.tickers.filter((t) => ctx.close(t) > 0 && Number.isFinite(score(t)));
-if (!ok.length) return {};
-const ranked = [...ok].sort((a, b) => score(b) - score(a));
-const picks = ranked.slice(0, p.topK).filter((t) => score(t) > p.minMom);
 const vol = (t) => ctx.volatility(t, 60);
-const w = {};
-const slot = 1 / p.topK;
-if (p.wmode === 1 && picks.length > 1 && picks.every((t) => Number.isFinite(vol(t)) && vol(t) > 0)) {
-  const iv = picks.map((t) => 1 / vol(t)), s = iv.reduce((x, y) => x + y, 0);
-  picks.forEach((t, k) => { w[t] = (iv[k] / s) * slot * picks.length; });
-} else for (const t of picks) w[t] = slot;
-let scale = 1;
-if (p.canary > 0) {
-  const up = ok.filter((t) => score(t) > 0).length / ok.length * 100;
-  if (up < p.canary) scale = p.cut / 100;
-}
-if (p.volT > 0 && picks.length) {
-  const n = 60, h = picks.map((t) => ctx.history(t, n + 1));
-  if (h.every((x) => x.length === n + 1)) {
-    const r = [];
-    for (let i = 1; i <= n; i++) r.push(picks.reduce((s, t, k) => s + w[t] * (h[k][i] / h[k][i - 1] - 1), 0));
-    const m = r.reduce((a, b) => a + b, 0) / n;
-    const sd = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1)) * Math.sqrt(252) * 100;
-    if (sd > p.volT) scale = Math.min(scale, p.volT / sd);
+const one = (lb, K) => {
+  const ok = ctx.tickers.filter((t) => ctx.close(t) > 0 && Number.isFinite(score(t, lb)));
+  const w = {};
+  if (!ok.length) return { w, ranked: [], picks: [], scale: 1, safe: null };
+  const ranked = [...ok].sort((a, b) => score(b, lb) - score(a, lb));
+  const picks = ranked.slice(0, K).filter((t) => score(t, lb) > p.minMom);
+  const slot = 1 / K;
+  if (p.wmode === 1 && picks.length > 1 && picks.every((t) => Number.isFinite(vol(t)) && vol(t) > 0)) {
+    const iv = picks.map((t) => 1 / vol(t)), s = iv.reduce((x, y) => x + y, 0);
+    picks.forEach((t, k) => { w[t] = (iv[k] / s) * slot * picks.length; });
+  } else for (const t of picks) w[t] = slot;
+  let scale = 1;
+  if (p.canary > 0) {
+    const up = ok.filter((t) => score(t, lb) > 0).length / ok.length * 100;
+    if (up < p.canary) scale = p.cut / 100;
   }
+  if (p.volT > 0 && picks.length) {
+    const n = 60, h = picks.map((t) => ctx.history(t, n + 1));
+    if (h.every((x) => x.length === n + 1)) {
+      const r = [];
+      for (let i = 1; i <= n; i++) r.push(picks.reduce((s, t, k) => s + w[t] * (h[k][i] / h[k][i - 1] - 1), 0));
+      const m = r.reduce((a, b) => a + b, 0) / n;
+      const sd = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1)) * Math.sqrt(252) * 100;
+      if (sd > p.volT) scale = Math.min(scale, p.volT / sd);
+    }
+  }
+  for (const t of Object.keys(w)) w[t] *= scale;
+  let safe = null;
+  if (p.safe === 1) {
+    const rest = 1 - Object.values(w).reduce((a, b) => a + b, 0);
+    const s = ok.filter((t) => Number.isFinite(vol(t)) && vol(t) > 0).sort((a, b) => vol(a) - vol(b))[0];
+    if (s && rest > 0.01 && R(s, 63) > 0) { w[s] = (w[s] ?? 0) + rest; safe = { t: s, rest }; }
+  }
+  return { w, ranked, picks, scale, safe };
+};
+if (p.ens === 1) {
+  const ks = [...new Set([p.topK, Math.max(1, p.topK - 1)])];
+  const runs = [0, 2].flatMap((lb) => ks.map((K) => one(lb, K)));
+  const w = {};
+  for (const r of runs) for (const t of Object.keys(r.w)) w[t] = (w[t] ?? 0) + r.w[t] / runs.length;
+  for (const t of Object.keys(w)) ctx.notes[t] = \`여러 설정 평균 \${(w[t] * 100).toFixed(0)}% (\${runs.filter((r) => r.w[t]).length}/\${runs.length}개 설정에서 고름)\`;
+  for (const t of ctx.held()) if (!w[t]) ctx.notes[t] = "어느 설정에서도 고르지 않음";
+  return w;
 }
-for (const t of Object.keys(w)) w[t] *= scale;
-for (const t of picks) ctx.notes[t] = \`모멘텀 \${score(t).toFixed(1)}% (\${ranked.indexOf(t) + 1}위)\${scale < 1 ? \` · 비중 \${(scale * 100).toFixed(0)}%로 줄임\` : ""}\`;
-if (p.safe === 1) {
-  const rest = 1 - Object.values(w).reduce((a, b) => a + b, 0);
-  const cands = ok.filter((t) => Number.isFinite(vol(t)) && vol(t) > 0).sort((a, b) => vol(a) - vol(b));
-  const s = cands[0];
-  if (s && rest > 0.01 && R(s, 63) > 0) { w[s] = (w[s] ?? 0) + rest; ctx.notes[s] = \`피난처(가장 덜 출렁임) \${(rest * 100).toFixed(0)}%\`; }
-}
-for (const t of ctx.held()) if (!w[t]) ctx.notes[t] = Number.isFinite(score(t)) && score(t) <= p.minMom ? \`모멘텀 \${score(t).toFixed(1)}% → 현금\` : \`상위 \${p.topK}에서 빠짐\`;
+const { w, ranked, picks, scale, safe } = one(p.lb, p.topK);
+if (!ranked.length) return {};
+for (const t of picks) ctx.notes[t] = \`모멘텀 \${score(t, p.lb).toFixed(1)}% (\${ranked.indexOf(t) + 1}위)\${scale < 1 ? \` · 비중 \${(scale * 100).toFixed(0)}%로 줄임\` : ""}\`;
+if (safe) ctx.notes[safe.t] = \`피난처(가장 덜 출렁임) \${(safe.rest * 100).toFixed(0)}%\`;
+for (const t of ctx.held()) if (!w[t]) ctx.notes[t] = Number.isFinite(score(t, p.lb)) && score(t, p.lb) <= p.minMom ? \`모멘텀 \${score(t, p.lb).toFixed(1)}% → 현금\` : \`상위 \${p.topK}에서 빠짐\`;
 return w;`;
 
 const trendParityCode = `// 추세 + 위험 균형: 매달 말, 각 종목을 덜 출렁이는 만큼 더 많이(60일 변동성의 역수) 나눠 담되,
@@ -393,7 +409,7 @@ export const STRATEGIES: StrategyDef[] = [
   {
     id: "rotation_plus",
     name: "모멘텀 회전 (조절 많은 버전)",
-    description: "모멘텀 상위 N 회전에 조절 장치를 더한 것. 모멘텀 재는 법, 고른 종목 비중(같게·덜 출렁이는 쪽 더), 남는 몫을 가장 덜 출렁이는 종목(피난처)에 넣기, 오르는 종목이 적을 때 줄이기, 변동성 목표를 고를 수 있음. 기본값은 '모멘텀 상위 N 회전'과 같음. 종목은 직접 입력.",
+    description: "모멘텀 상위 N 회전에 조절 장치를 더한 것. 모멘텀 재는 법, 고른 종목 비중(같게·덜 출렁이는 쪽 더), 남는 몫을 가장 덜 출렁이는 종목(피난처)에 넣기, 오르는 종목이 적을 때 줄이기, 변동성 목표, 여러 설정 평균을 고를 수 있음. 기본값은 '모멘텀 상위 N 회전'과 같음. 종목은 직접 입력.",
     params: [
       { key: "topK", label: "보유 종목 수", default: 3, min: 1, max: 10 },
       { key: "minMom", label: "이 모멘텀(%) 이하는 현금", default: 0, min: -20, max: 20, step: 1 },
@@ -403,6 +419,7 @@ export const STRATEGIES: StrategyDef[] = [
       { key: "canary", label: "오르는 종목 비율 기준(%, 0 = 끔)", default: 0, min: 0, max: 100, step: 5 },
       { key: "cut", label: "기준 밑일 때 주식 몫(%)", default: 50, min: 0, max: 100, step: 10 },
       { key: "volT", label: "변동성 목표(연 %, 0 = 끔)", default: 0, min: 0, max: 200, step: 5 },
+      { key: "ens", label: "여러 설정 평균(0 끔, 1 켬: 재는 법 0·2 × 종목 수 N·N-1)", default: 0, min: 0, max: 1 },
     ],
     rebalance: "M", stopLoss: null, takeProfit: null,
     warmup: () => 253,

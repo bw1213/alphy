@@ -75,4 +75,10 @@ describe("모멘텀 회전 (조절 많은 버전)", () => {
     const d = { A: walk(0.003, 0.02), B: walk(0.002, 0.02), C: walk(0.001, 0.02) };
     expect(sum(run("rotation_plus", d, { ...defaults("rotation_plus"), volT: 10 }))).toBeLessThan(sum(run("rotation_plus", d)) - 0.2);
   });
+  it("여러 설정 평균: 종목 수 N·N-1 로 고른 비중의 평균", () => {
+    const w = firstBuys(run("rotation_plus", data(), { ...defaults("rotation_plus"), topK: 2, ens: 1 }));
+    expect(w.A).toBeCloseTo(0.75, 1);
+    expect(w.B).toBeCloseTo(0.25, 1);
+    expect(w.C).toBeUndefined();
+  });
 });
