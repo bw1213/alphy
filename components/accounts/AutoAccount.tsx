@@ -15,6 +15,7 @@ import type { KisView } from "@/lib/manual/value";
 import type { DayOrder } from "@/lib/kis/orders";
 import type { DayInfo } from "@/lib/market/holidays";
 import Info from "@/components/Info";
+import AppNav from "@/components/AppNav";
 import AccountList from "@/components/AccountList";
 import AccountReturn from "@/components/accounts/AccountReturn";
 import { marketOf, planMarkets } from "@/lib/auto/session";
@@ -345,11 +346,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
 
   return (
     <>
-      <header className="top">
-        <h1>계좌</h1>
-        <p>평일 {st?.eveningTime ?? "18:00"} 계산 · 텔레그램 알림</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/dashboard">전체 계좌</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
-      </header>
+      <AppNav title="계좌" sub={<>평일 {st?.eveningTime ?? "18:00"} 계산 · 텔레그램 알림</>} />
       <main className="app">
         <section className="stack">
           <AccountList current="kis" onPick={onSwitch} />

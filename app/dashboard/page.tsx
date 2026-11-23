@@ -14,6 +14,7 @@ import type { Fill } from "@/lib/accounts/fills";
 import { accountReturns, combinedReturns, since, type Flow, type ReturnPoint } from "@/lib/manual/returns";
 import { withCode } from "@/lib/strategies/universe";
 import Info from "@/components/Info";
+import AppNav from "@/components/AppNav";
 import FlowEditor from "@/components/accounts/FlowEditor";
 
 interface Last { runDate: string; orders: AutoOrder[]; equity: number | null; label: string }
@@ -269,12 +270,8 @@ export default function DashboardPage() {
 
   return (
     <>
-      <header className="top">
-        <h1>전체 계좌</h1>
-        <p>자동·수동 계좌 한눈에 보기</p>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 14, fontSize: 13 }}><a href="/accounts">계좌</a><a href="/">백테스트</a><a href="/settings">설정</a></span>
-      </header>
-      <main style={{ padding: 16, maxWidth: 1500, margin: "0 auto", display: "grid", gap: 16 }}>
+      <AppNav title="전체 계좌" sub="자동·수동 계좌 한눈에 보기" />
+      <main className="page">
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button className="primary" style={{ width: "auto" }} disabled={busy || !st} onClick={refresh}>{busy ? "받는 중…" : "시세·잔고 새로 받기"}</button>
           <span className="help" style={{ margin: 0 }}>
