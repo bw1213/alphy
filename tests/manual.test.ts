@@ -57,7 +57,7 @@ describe("수동 계좌 저장", () => {
   it("검사: 이름·수량·코드 전략 권한", () => {
     expect(() => cleanAccount({ name: "", cash: 0 }, null, "owner", today, [])).toThrow(/이름/);
     expect(() => cleanAccount({ name: "a", positions: [{ ticker: "069500", qty: 1.5, avgPrice: 1 }] }, null, "owner", today, [])).toThrow(/정수/);
-    expect(() => cleanAccount({ name: "a", plan: { strategy: "saved:내 코드", budget: 1_000_000 } }, null, "kim", today, [customStrategy])).toThrow(/관리자/);
+    expect(cleanAccount({ name: "a", plan: { strategy: "saved:내 코드", budget: 1_000_000 } }, null, "kim", today, [customStrategy]).plan?.label).toBe("내 코드");
     // 전략 없이 계좌만
     expect(cleanAccount({ name: "a", plan: { strategy: "" } }, null, "kim", today, []).plan).toBeNull();
   });

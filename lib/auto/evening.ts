@@ -8,7 +8,8 @@ import { generate, normalizeSpec } from "../strategies/builder";
 import { cycle, cycleParams, cycleStatus, cycleWarmup, normalizeCycleSpec } from "../strategies/cycle";
 import { compileStrategy, STRATEGIES, type Params } from "../strategies";
 import { loadSettings } from "../settings/store";
-import { CODE_OWNER_ONLY, intradayOn, mayRunCode, planKind, type AutoPlan } from "./store";
+import { intradayOn, planKind, type AutoPlan } from "./store";
+import { runStrategyCode } from "../sandbox";
 import { kst, minusDays } from "./time";
 import { isMixed, marketOf, planMarket, planMarkets, type Market } from "./session";
 import { backfillRequest } from "../data/backfillPick";
@@ -71,11 +72,12 @@ export interface EveningReport {
   noData?: boolean;
 }
 
-interface Prepared { fn: (ctx: any, p: Params) => any; p: Params; warmup: number; rebalance: Rebalance; stopLoss: number | null; takeProfit: number | null }
+interface Prepared { fn?: (ctx: any, p: Params) => any; code?: string; p: Params; warmup: number; rebalance: Rebalance; stopLoss: number | null; takeProfit: number | null }
 
+const BUILTIN_CODES = new Set(STRATEGIES.map((s) => s.code));
 const pctFrac = (t: string) => (t.trim() === "" ? null : Number(t) / 100);
 
-export function preparePlan(plan: AutoPlan, user?: string): Prepared {
+export function preparePlan(plan: AutoPlan): Prepared {
   if (!plan.strategy) {
     const b = STRATEGIES.find((x) => x.id === plan.builtin);
     if (!b) throw new Error(`'${plan.builtin}' 기본 전략이 없습니다.`);
@@ -92,10 +94,10 @@ export function preparePlan(plan: AutoPlan, user?: string): Prepared {
     const g = generate(normalizeSpec(s.builder));
     return { ...common, fn: compileStrategy(g.code), p: g.params, warmup: g.warmup, rebalance: s.rebalance };
   }
-  if (!mayRunCode(user)) throw new Error(CODE_OWNER_ONLY);
   let p: Params = {};
   try { p = JSON.parse(s.params); } catch { }
-  return { ...common, fn: compileStrategy(s.code), p, warmup: s.warmup, rebalance: s.rebalance };
+  const base = { ...common, p, warmup: s.warmup, rebalance: s.rebalance };
+  return BUILTIN_CODES.has(s.code) ? { ...base, fn: compileStrategy(s.code) } : { ...base, code: s.code };
 }
 
 export interface EveningDeps {
@@ -146,7 +148,7 @@ export async function runEvening(plan: AutoPlan, trigger: EveningReport["trigger
 }
 
 async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Promise<EveningReport> {
-  const st = preparePlan(plan, deps.user);
+  const st = preparePlan(plan);
   const def = loadSettings(deps.env).backtest;
   // 한국투자증권 시세는 호출 한도를 아끼려고 계산에선 쓰지 않음
   const source = def.source === "kis" ? "naver" : def.source;
@@ -190,15 +192,17 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   }
   // 운용 시작일 저녁에 첫 계산 → 다음 거래일이 첫 매매
   const startDate = minusDays(plan.startDate, -1);
-  const res = runBacktest({
+  const runOpts = {
     data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate, initialCash: plan.budget, monthlyDeposit: 0,
-    dividends: d.dividends, dividendTax: dividendTaxFn(KR_DIVIDEND_TAX),
+    dividends: d.dividends,
     settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: BAND, warmup: st.warmup, intraday: intradayOn(plan),
       // 운용 시작일에 바로 전략 비중대로 (월 전략이 다음 달까지 현금으로 기다리지 않게)
       rebalanceAtStart: true },
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
-    strategy: (ctx) => st.fn(ctx, st.p),
-  });
+  };
+  const res = st.code != null
+    ? await runStrategyCode({ opts: runOpts, taxKr: KR_DIVIDEND_TAX, code: st.code, params: st.p })
+    : runBacktest({ ...runOpts, dividendTax: dividendTaxFn(KR_DIVIDEND_TAX), strategy: (ctx) => st.fn!(ctx, st.p) });
   r.warnings.push(...d.warnings, ...staleWarnings(d, end));
   const last = res.equity.at(-1);
   const E = last?.equity ?? plan.budget;

@@ -181,7 +181,6 @@ export default function ManualAccount({ onSwitch }: { onSwitch?: (id: string) =>
 
   const picked = form?.strategy.startsWith("saved:") ? lib.find((s) => `saved:${s.name}` === form.strategy) : null;
   const nameOf = useNameOf(picked?.universe?.mode === "list" ? splitCodes(picked.universe.tickers) : []);
-  const isCustom = !!picked && !picked.cycle && !picked.builder;
 
   const saveForm = () => form && act("save", async () => {
     const r: any = await post({
@@ -276,7 +275,6 @@ export default function ManualAccount({ onSwitch }: { onSwitch?: (id: string) =>
                   <optgroup label="기본 전략">{STRATEGIES.map((s) => <option key={s.id} value={`builtin:${s.id}`}>{s.name}</option>)}</optgroup>
                 </select>
               </label>
-              {isCustom && !auth?.user?.owner && <p className="help">코드 전략은 관리자만 쓸 수 있습니다.</p>}
               {form.strategy && (
                 <>
                   {picked?.universe ? (

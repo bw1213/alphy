@@ -66,7 +66,7 @@ export function loadAccounts(user: string = OWNER_ID, e: Env = process.env): Man
   const accounts = loadFile(user, e).accounts;
   if (!accounts.some((a) => a.plan?.strategy)) return accounts;
   const lib = loadStrategies(e, user);
-  return accounts.map((a) => (a.plan?.strategy ? { ...a, plan: { ...syncPlan(a.plan, lib, user), intraday: false } } : a));
+  return accounts.map((a) => (a.plan?.strategy ? { ...a, plan: { ...syncPlan(a.plan, lib), intraday: false } } : a));
 }
 
 export function saveAccounts(list: ManualAccount[], user: string = OWNER_ID, e: Env = process.env): void {

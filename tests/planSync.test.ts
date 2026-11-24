@@ -43,18 +43,12 @@ describe("내 전략을 매매에 그대로", () => {
   });
   it("보관함에서 지운 전략은 복사본 그대로", () => {
     const plan = cleanPlan({ strategy: "saved:내 비중", budget: 1_000_000 }, "owner", today, [mix()]);
-    expect(syncPlan(plan, [], "owner")).toBe(plan);
+    expect(syncPlan(plan, [])).toBe(plan);
   });
-  it("다른 사람이 조건 고르기 전략을 같은 이름의 코드 전략으로 바꿔도 서버에서 그 코드를 실행하지 않음", async () => {
-    const built = mix({ builder: { marketMa: 0, filters: [], rank: { metric: "ret", n: 60, m: 0, dir: "desc" }, topK: 1 } });
-    const plan = cleanPlan({ strategy: "saved:내 비중", budget: 1_000_000 }, "mom", today, [built]);
-    const evil = mix({ code: "globalThis.__ran = true; return {};" });
-    expect(syncPlan(plan, [evil], "mom")).toBe(plan);
-    expect(syncPlan(plan, [evil], "owner").strategy?.code).toBe(evil.code);
-    const forced: AutoPlan = { ...plan, strategy: evil };
-    const r = await runEvening(forced, "manual", { load: async () => { throw new Error("stop"); }, env, user: "mom" });
-    expect(r.error).toMatch(/관리자만/);
-    expect((globalThis as any).__ran).toBeUndefined();
+  it("누구나 코드 전략으로 운용할 수 있고, 다시 저장하면 따라감", () => {
+    const plan = cleanPlan({ strategy: "saved:내 비중", budget: 1_000_000 }, "mom", today, [mix()]);
+    const next = mix({ code: "return { AAPL: 1 };" });
+    expect(syncPlan(plan, [next]).strategy?.code).toBe(next.code);
   });
   it("수동 계좌도 따라감", () => {
     upsertStrategy(mix(), env);

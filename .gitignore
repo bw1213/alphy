@@ -2,6 +2,8 @@ node_modules
 .next
 .cache
 next-env.d.ts
+lib/sandbox/bundle.gen.ts
+sandbox-runner.js
 *.tsbuildinfo
 python/data/
 python/results/
