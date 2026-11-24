@@ -38,6 +38,11 @@ export type StrategyKind = "builtin" | "cycle" | "builder" | "custom";
 export const planKind = (p: Pick<AutoPlan, "strategy" | "builtin">): StrategyKind =>
   !p.strategy ? "builtin" : p.strategy.cycle ? "cycle" : p.strategy.builder ? "builder" : "custom";
 
+const isCodeStrategy = (s: SavedStrategy) => !s.cycle && !s.builder;
+/** 직접 쓴 코드 전략은 서버에서 매일 실행되므로 관리자(owner) 것만 */
+export const mayRunCode = (user: string | undefined) => user === OWNER_ID;
+export const CODE_OWNER_ONLY = "직접 작성한 코드 전략은 서버에서 매일 실행되므로 관리자만 운용할 수 있습니다. 조건 고르기·적립 전략으로 만들어 주세요.";
+
 export function cleanPlan(x: any, user: string, today: string, lib: SavedStrategy[], real?: { cap: number }): AutoPlan {
   const key = String(x?.strategy ?? "").trim();
   if (!key) throw new Error("운용할 전략을 고르세요.");
@@ -52,10 +57,7 @@ export function cleanPlan(x: any, user: string, today: string, lib: SavedStrateg
     const s = lib.find((v) => v.name === name);
     if (!s) throw new Error(`'${name}' 전략이 보관함에 없습니다. 백테스트 화면에서 먼저 저장하세요.`);
     strategy = cleanStrategy(s); label = s.name;
-    // 코드 전략은 서버에서 실행되므로 다른 사람 것은 막음 (서버 비밀값·파일 보호)
-    if (!s.cycle && !s.builder && user !== OWNER_ID) {
-      throw new Error("직접 작성한 코드 전략은 서버에서 매일 실행되므로 관리자만 운용할 수 있습니다. 조건 고르기·적립 전략으로 만들어 주세요.");
-    }
+    if (isCodeStrategy(s) && !mayRunCode(user)) throw new Error(CODE_OWNER_ONLY);
   }
   const own = strategy ? strategyTickers(strategy) : null;
   const raw = own ?? (Array.isArray(x?.tickers) ? x.tickers.map(String) : String(x?.tickers ?? "").split(/[\s,]+/));
@@ -82,12 +84,13 @@ export function strategyTickers(s: SavedStrategy): string[] | null {
 
 const stratKey = (s?: SavedStrategy) => (s ? JSON.stringify({ ...s, updatedAt: undefined }) : "");
 
-export function syncPlan(plan: AutoPlan, lib: SavedStrategy[]): AutoPlan {
+export function syncPlan(plan: AutoPlan, lib: SavedStrategy[], user: string): AutoPlan {
   if (!plan.strategy) return plan;
   const found = lib.find((v) => v.name === plan.strategy!.name);
   if (!found) return plan;
   let fresh: SavedStrategy;
   try { fresh = cleanStrategy(found); } catch { return plan; }
+  if (isCodeStrategy(fresh) && !mayRunCode(user)) return plan;
   const own = strategyTickers(fresh);
   const tickers = own ?? plan.tickers;
   const intraday = typeof fresh.intraday === "boolean" ? fresh.intraday : plan.intraday;
@@ -100,7 +103,7 @@ export function loadPlan(user: string = OWNER_ID, e: Env = process.env): AutoPla
   try {
     const j = JSON.parse(fs.readFileSync(userFile("auto.json", user, e), "utf8"));
     if (!(j && typeof j === "object" && j.plan && typeof j.plan === "object")) return null;
-    return syncPlan(j.plan as AutoPlan, loadStrategies(e, user));
+    return syncPlan(j.plan as AutoPlan, loadStrategies(e, user), user);
   } catch { return null; }
 }
 

@@ -21,7 +21,7 @@ export const manualHoldings = (a: ManualAccount, price: (t: string) => number | 
 });
 
 /** 한 계좌 계산 (기록·알림은 하지 않음) */
-export async function runManual(a: ManualAccount, trigger: EveningReport["trigger"], deps: Omit<EveningDeps, "holdings" | "manual"> & { prevDataDate?: string; user?: string } = {}): Promise<EveningReport | null> {
+export async function runManual(a: ManualAccount, trigger: EveningReport["trigger"], deps: Omit<EveningDeps, "holdings" | "manual"> = {}): Promise<EveningReport | null> {
   if (!a.plan) return null;
   // 전략 밖 종목의 가격은 대시보드가 받아 둔 종가 (없으면 평균단가)
   const book = loadHistory(deps.user ?? "owner", deps.env).prices;

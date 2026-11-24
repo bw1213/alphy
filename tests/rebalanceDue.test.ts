@@ -54,7 +54,7 @@ describe("자동 매매 저녁 계산: 주기가 매일이 아닌 전략", () =>
   const plan: AutoPlan = { strategy: monthly, label: "반반", tickers: ["000001", "000002"], budget: 10_000_000, startDate: "2025-09-01", enabled: true, updatedAt: "" };
 
   it("월중에는 비중이 틀어져도 주문을 내지 않음", async () => {
-    const r = await runEvening(plan, "manual", { load, now: Date.parse(`${today}T18:00:00+09:00`), env });
+    const r = await runEvening(plan, "manual", { load, now: Date.parse(`${today}T18:00:00+09:00`), env, user: "owner" });
     expect(r.status).toBe("ok");
     expect(r.kept).toBe(true);
     expect(r.orders).toHaveLength(0);
@@ -63,7 +63,7 @@ describe("자동 매매 저녁 계산: 주기가 매일이 아닌 전략", () =>
   it("달의 마지막 거래일에는 비중을 다시 맞춤", async () => {
     const end = "2026-10-30";
     const cut = Object.fromEntries(Object.entries(data).map(([t, b]) => [t, b.filter((x) => x.date <= end)]));
-    const r = await runEvening(plan, "manual", { load: async () => ({ data: cut, names: {}, benchmark: null, warnings: [] }), now: Date.parse(`${end}T18:00:00+09:00`), env });
+    const r = await runEvening(plan, "manual", { load: async () => ({ data: cut, names: {}, benchmark: null, warnings: [] }), now: Date.parse(`${end}T18:00:00+09:00`), env, user: "owner" });
     expect(r.kept).toBe(false);
     expect(r.orders.length).toBeGreaterThan(0);
   });

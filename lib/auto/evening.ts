@@ -8,7 +8,7 @@ import { generate, normalizeSpec } from "../strategies/builder";
 import { cycle, cycleParams, cycleStatus, cycleWarmup, normalizeCycleSpec } from "../strategies/cycle";
 import { compileStrategy, STRATEGIES, type Params } from "../strategies";
 import { loadSettings } from "../settings/store";
-import { intradayOn, planKind, type AutoPlan } from "./store";
+import { CODE_OWNER_ONLY, intradayOn, mayRunCode, planKind, type AutoPlan } from "./store";
 import { kst, minusDays } from "./time";
 import { isMixed, marketOf, planMarket, planMarkets, type Market } from "./session";
 import { backfillRequest } from "../data/backfillPick";
@@ -75,7 +75,7 @@ interface Prepared { fn: (ctx: any, p: Params) => any; p: Params; warmup: number
 
 const pctFrac = (t: string) => (t.trim() === "" ? null : Number(t) / 100);
 
-export function preparePlan(plan: AutoPlan): Prepared {
+export function preparePlan(plan: AutoPlan, user?: string): Prepared {
   if (!plan.strategy) {
     const b = STRATEGIES.find((x) => x.id === plan.builtin);
     if (!b) throw new Error(`'${plan.builtin}' 기본 전략이 없습니다.`);
@@ -92,6 +92,7 @@ export function preparePlan(plan: AutoPlan): Prepared {
     const g = generate(normalizeSpec(s.builder));
     return { ...common, fn: compileStrategy(g.code), p: g.params, warmup: g.warmup, rebalance: s.rebalance };
   }
+  if (!mayRunCode(user)) throw new Error(CODE_OWNER_ONLY);
   let p: Params = {};
   try { p = JSON.parse(s.params); } catch { }
   return { ...common, fn: compileStrategy(s.code), p, warmup: s.warmup, rebalance: s.rebalance };
@@ -107,6 +108,7 @@ export interface EveningDeps {
   manual?: { others: "sell" | "keep"; feeRate?: number };
   prevDataDate?: string;
   unfinished?: Unfinished[];
+  user?: string;
 }
 
 export interface Unfinished { ticker: string; side: "buy" | "sell"; qty: number; retry: number }
@@ -144,7 +146,7 @@ export async function runEvening(plan: AutoPlan, trigger: EveningReport["trigger
 }
 
 async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Promise<EveningReport> {
-  const st = preparePlan(plan);
+  const st = preparePlan(plan, deps.user);
   const def = loadSettings(deps.env).backtest;
   // 한국투자증권 시세는 호출 한도를 아끼려고 계산에선 쓰지 않음
   const source = def.source === "kis" ? "naver" : def.source;
