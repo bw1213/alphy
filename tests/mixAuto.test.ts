@@ -73,7 +73,7 @@ describe("섞은 운용 계산", () => {
   it("어제까지 두 시장 종가로 계산하고 주문을 시장별로 나눠 알림", async () => {
     const seen: DataRequest[] = [];
     const data = { "069500": bars("2026-11-16", 300, 40_000), SPY: bars("2026-11-16", 300, 700_000) };
-    const r = await runEvening(mixPlan(), "schedule", { load: load(data, seen), now: kstAt("2026-11-17", "07:00"), env });
+    const r = await runEvening(mixPlan(), "schedule", { load: load(data, seen), now: kstAt("2026-11-17", "07:00"), env, user: "owner" });
     expect(seen[0].end).toBe("2026-11-16");
     expect(r).toMatchObject({ status: "ok", markets: ["KR", "US"], fx: 1400, dataDate: "2026-11-16" });
     expect(r.orders.map((o) => `${o.side} ${o.ticker}`).sort()).toEqual(["buy 069500", "buy SPY"]);
@@ -85,11 +85,11 @@ describe("섞은 운용 계산", () => {
 
   it("한쪽 시장이 쉬었으면 직전 종가로 채워 계산, 새 시세가 없으면 건너뜀", async () => {
     const data = { "069500": bars("2026-11-16", 300, 40_000), SPY: bars("2026-11-13", 300, 700_000) };
-    const r = await runEvening(mixPlan(), "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env });
+    const r = await runEvening(mixPlan(), "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env, user: "owner" });
     expect(r.status).toBe("ok");
     expect(r.orders.some((o) => o.ticker === "SPY")).toBe(true);
     expect(r.warnings.join(" ")).toContain("미국 시장이 2026-11-16에 쉬어");
-    const again = await runEvening(mixPlan(), "schedule", { load: load(data), now: kstAt("2026-11-18", "07:00"), env, prevDataDate: "2026-11-16" });
+    const again = await runEvening(mixPlan(), "schedule", { load: load(data), now: kstAt("2026-11-18", "07:00"), env, user: "owner", prevDataDate: "2026-11-16" });
     expect(again.status).toBe("holiday");
   });
 
@@ -106,14 +106,14 @@ describe("섞은 운용 계산", () => {
     const data = { "069500": bars("2026-11-16", 300, 40_000), SPY: bars("2026-11-16", 300, 700_000) };
     const plan = mixPlan({ startDate: "2026-10-27", strategy: { ...half, rebalance: "M" } });
     const holdings = async () => ({ env: "mock" as const, holdings: [{ code: "SPY", name: "SPY", qty: 7, avgPrice: 0, price: 0, value: 0, pnl: 0, pnlRate: 0 }] });
-    const r = await runEvening(plan, "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env, holdings,
+    const r = await runEvening(plan, "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env, user: "owner", holdings,
       unfinished: [{ ticker: "069500", side: "buy", qty: 500, retry: 0 }, { ticker: "SPY", side: "buy", qty: 3, retry: 0 }] });
     const kr = r.orders.find((o) => o.ticker === "069500")!;
     expect(kr).toMatchObject({ side: "buy", retry: 1 });
     expect(kr.qty).toBe(124);
     expect(kr.note).toContain("지난번에 못 한 주문 다시");
     expect(r.orders.find((o) => o.ticker === "SPY")).toBeUndefined();
-    const again = await runEvening(plan, "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env, holdings,
+    const again = await runEvening(plan, "schedule", { load: load(data), now: kstAt("2026-11-17", "07:00"), env, user: "owner", holdings,
       unfinished: [{ ticker: "069500", side: "buy", qty: 50, retry: 5 }] });
     expect(again.orders.find((o) => o.ticker === "069500")).toMatchObject({ side: "buy", qty: 124, retry: 6 });
   });

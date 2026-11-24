@@ -151,7 +151,7 @@ describe("저녁 안내", () => {
   it("기록한 보유와 예수금 기준으로 다음 거래일 할 일을 계산", async () => {
     const data = { "069500": bars(today, 300, () => 40_000) };
     const a = account();
-    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner" }))!;
     expect(r.status).toBe("ok");
     expect(r.account).toBe("manual");
     expect(r.holdingsFrom).toBe("account");
@@ -164,7 +164,7 @@ describe("저녁 안내", () => {
     expect(text).toContain("체결을 기록");
     // 이미 1주 샀다고 기록했으면 살 것이 없음
     const b = applyTrade(a, { ticker: "069500", side: "buy", qty: 1, price: 40000, fee: 0 });
-    const r2 = (await runManual(b, "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    const r2 = (await runManual(b, "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner" }))!;
     expect(r2.orders).toHaveLength(0);
     expect(r2.accountTotal).toBe(1_000_000);
   });
@@ -268,7 +268,7 @@ describe("수동 계좌: 이미 있는 보유와 예수금", () => {
     plan: { strategy: "saved:전부", tickers: "069500", budget: 1_500_000, startDate: "2026-11-02" } }, null, "owner", today, [allIn]);
 
   it("전략 밖 보유는 팔아서 쓰고, 수량은 계좌 평가액 기준, 매수는 돈 안에서", async () => {
-    const r = (await runManual(acct(), "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    const r = (await runManual(acct(), "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner" }))!;
     expect(r.status).toBe("ok");
     expect(r.accountTotal).toBe(1_500_000);
     const sell = r.orders.find((o) => o.side === "sell")!;
@@ -280,7 +280,7 @@ describe("수동 계좌: 이미 있는 보유와 예수금", () => {
   });
 
   it("그대로 두기: 전략 밖 보유를 뺀 금액만 전략으로", async () => {
-    const r = (await runManual(acct("keep"), "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    const r = (await runManual(acct("keep"), "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner" }))!;
     expect(r.orders.filter((o) => o.side === "sell")).toHaveLength(0);
     expect(r.orders[0]).toMatchObject({ ticker: "069500", side: "buy", qty: 2 });
     expect(r.warnings.join(" ")).toContain("그대로 두고");
@@ -289,7 +289,7 @@ describe("수동 계좌: 이미 있는 보유와 예수금", () => {
   it("돈이 모자라면 매수 수량을 줄임", async () => {
     const a = cleanAccount({ name: "x", cash: 200_000, plan: { strategy: "saved:전부", tickers: "069500", budget: 1_000_000, startDate: "2026-11-02" } }, null, "owner", today, [allIn]);
     // 기록한 평가액은 20만 원뿐 → 4주 (예전에는 운용 금액 100만 원 기준 25주를 안내)
-    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner" }))!;
     expect(r.orders[0]).toMatchObject({ side: "buy", qty: 4 });
   });
 });
@@ -300,7 +300,7 @@ describe("수동 계좌: 목표 보유 기준", () => {
     // 11-03 에 적립 매수(5%)를 한 전략: 오늘은 신호 없음(유지). 계좌에는 10주가 있음
     const a = cleanAccount({ name: "x", cash: 600_000, positions: [{ ticker: "069500", qty: 10, avgPrice: 40_000 }],
       plan: { strategy: "saved:적립", tickers: "069500", budget: 1_000_000, startDate: "2026-11-02" } }, null, "owner", today, [cycleStrategy]);
-    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env }))!;
+    const r = (await runManual(a, "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner" }))!;
     expect(r.status).toBe("ok");
     const t = r.targets!.find((x) => x.ticker === "069500")!;
     expect(t.curQty).toBe(10);

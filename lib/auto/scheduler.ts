@@ -247,7 +247,7 @@ export async function eveningFor(u: User, trigger: EveningReport["trigger"], opt
   let seen: KisView | undefined;
   const holdings = async () => { const s = await accountSnapshot(u, markets, e); seen = s.view; return s; };
   const flow = flowsAfter(perf.base, loadHistory(u.id, e).flows?.[KIS_ID] ?? []);
-  const r = await runEvening(plan, trigger, { holdings, env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base ? perf.base.total + flow : undefined, prevDataDate, unfinished });
+  const r = await runEvening(plan, trigger, { user: u.id, holdings, env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base ? perf.base.total + flow : undefined, prevDataDate, unfinished });
   appendLog(r, u.id, e);
   if (seen) { try { saveHistory({ ...loadHistory(u.id, e), kis: seen }, u.id, e); } catch { } }
   if (r.status === "ok" && r.equity != null) {

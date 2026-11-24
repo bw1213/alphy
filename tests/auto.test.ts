@@ -103,28 +103,28 @@ describe("저녁 계산: 목표 보유에 맞춰 매매", () => {
   const held = (qty: number) => async () => ({ env: "mock" as const, holdings: qty ? [{ code: "069500", name: "KODEX 200", qty, avgPrice: 40_000, price: 40_000, value: qty * 40_000, pnl: 0, pnlRate: 0 }] : [] });
 
   it("월 전략도 운용 첫날 바로 비중대로 매수 (다음 달까지 현금으로 기다리지 않음)", async () => {
-    const r = await runEvening(plan(today), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(0) });
+    const r = await runEvening(plan(today), "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings: held(0) });
     expect(r.orders[0]).toMatchObject({ ticker: "069500", side: "buy", curQty: 0 });
     expect(r.orders[0].qty).toBeGreaterThan(20);
   });
 
   it("매매할 날이 아니어도 실제 보유가 목표보다 적으면 모자란 만큼, 많으면 넘치는 만큼", async () => {
-    const r = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(10) });
+    const r = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings: held(10) });
     const tq = r.targets!.find((t) => t.ticker === "069500")!.targetQty;
     expect(tq).toBeGreaterThan(20);
     expect(r.orders).toEqual([expect.objectContaining({ ticker: "069500", side: "buy", qty: tq - 10, curQty: 10, targetQty: tq })]);
-    const over = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq + 5) });
+    const over = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings: held(tq + 5) });
     expect(over.orders).toEqual([expect.objectContaining({ side: "sell", qty: 5 })]);
-    const same = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq) });
+    const same = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings: held(tq) });
     expect(same.orders).toHaveLength(0);
     expect(same.kept).toBe(true);
     // 차이가 평가액의 2%보다 작으면 넘어감 (백테스트와 같은 기준)
     const big = { ...plan("2026-11-12"), budget: 10_000_000 };
-    const bq = (await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(0) })).targets![0].targetQty;
-    const small = await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(bq - 4) });
+    const bq = (await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings: held(0) })).targets![0].targetQty;
+    const small = await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings: held(bq - 4) });
     expect(small.orders).toHaveLength(0);
     expect(small.kept).toBe(true);
-    const gap = await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(bq - 6) });
+    const gap = await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings: held(bq - 6) });
     expect(gap.orders).toEqual([expect.objectContaining({ side: "buy", qty: 6 })]);
   });
 });
@@ -135,7 +135,7 @@ describe("저녁 계산", () => {
 
   it("첫날: 적립 매수 주문을 내일 아침 목록으로", async () => {
     const data = { "069500": bars(today, 300, () => 40_000) };
-    const r = await runEvening(plan(today), "manual", { load: loader(data), now: at(today, "18:00"), env });
+    const r = await runEvening(plan(today), "manual", { load: loader(data), now: at(today, "18:00"), env, user: "owner" });
     expect(r.status).toBe("ok");
     expect(r.orders).toHaveLength(1);
     expect(r.orders[0]).toMatchObject({ ticker: "069500", side: "buy", note: "적립 매수", curQty: 0 });
@@ -164,7 +164,7 @@ describe("저녁 계산", () => {
     expect(lv.qty).toBeGreaterThan(0);
     expect(formatReport(r)).toContain("바로 시장가로");
     // 끄면 알림용 가격 하나만 (수량 없음)
-    const off = await runEvening({ ...plan("2026-10-01"), intraday: false }, "schedule", { load: loader(data), now: at(today, "18:00"), env });
+    const off = await runEvening({ ...plan("2026-10-01"), intraday: false }, "schedule", { load: loader(data), now: at(today, "18:00"), env, user: "owner" });
     expect(off.intraday).toBe(false);
     expect(off.sellLevels.filter((s) => s.kind === "drop")).toHaveLength(1);
     expect(off.sellLevels[0].qty).toBeUndefined();
@@ -175,24 +175,24 @@ describe("저녁 계산", () => {
     const data = { AAPL: bars("2026-11-13", 300, () => 280_000) };
     const usLoad = async (): Promise<DataResponse> => ({ data, names: { AAPL: "애플" }, benchmark: null, warnings: [], fx: [{ date: "2026-11-13", close: 1400 }] });
     const usPlan: AutoPlan = { ...plan(today), tickers: ["AAPL"], budget: 10_000_000 };
-    const r = await runEvening(usPlan, "schedule", { load: usLoad, now: at(today, "18:00"), env });
+    const r = await runEvening(usPlan, "schedule", { load: usLoad, now: at(today, "18:00"), env, user: "owner" });
     expect(r).toMatchObject({ status: "ok", market: "US", fx: 1400, dataDate: "2026-11-13" });
     expect(r.orders[0]).toMatchObject({ ticker: "AAPL", side: "buy" });
     expect(formatReport(r)).toContain("오늘 밤 미국 장 시작 주문");
     // 화요일 저녁인데 시세가 그대로(미국 휴장) → 같은 신호로 또 주문하지 않게 건너뜀
-    const r2 = await runEvening(usPlan, "schedule", { load: usLoad, now: at("2026-11-17", "18:00"), env, prevDataDate: "2026-11-13" });
+    const r2 = await runEvening(usPlan, "schedule", { load: usLoad, now: at("2026-11-17", "18:00"), env, user: "owner", prevDataDate: "2026-11-13" });
     expect(r2.status).toBe("holiday");
   });
 
   it("오늘 시세가 없으면 휴장으로 건너뜀", async () => {
     const data = { "069500": bars("2026-11-13", 300, () => 50_000) };
-    const r = await runEvening(plan(today), "schedule", { load: loader(data), now: at(today, "18:00"), env });
+    const r = await runEvening(plan(today), "schedule", { load: loader(data), now: at(today, "18:00"), env, user: "owner" });
     expect(r.status).toBe("holiday");
     expect(formatReport(r)).toContain("휴장");
   });
 
   it("오류는 기록으로 남김, 같은 날 같은 종류 기록은 바꿈", async () => {
-    const r = await runEvening(plan(today), "manual", { load: async () => { throw new Error("네트워크"); }, now: at(today, "18:00"), env });
+    const r = await runEvening(plan(today), "manual", { load: async () => { throw new Error("네트워크"); }, now: at(today, "18:00"), env, user: "owner" });
     expect(r.status).toBe("error");
     appendLog(r, "owner", env);
     appendLog({ ...r, status: "ok" }, "owner", env);
@@ -240,7 +240,7 @@ describe("자동 매매 평가액: 실제 계좌와 전략 계산 구분", () =>
     const data = { "069500": bars(today, 300, () => 40_000) };
     const plan: AutoPlan = { strategy: cycleStrategy, label: "적립", tickers: ["069500"], budget: 1_000_000, startDate: "2026-10-26", enabled: true, updatedAt: "" };
     const holdings = async () => ({ env: "mock" as const, holdings: [], total: 12_345_000, cash: 2_345_000, stock: 10_000_000, note: "미국 잔고를 읽지 못했습니다" });
-    const r = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, holdings, accountBase: 12_000_000 });
+    const r = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, user: "owner", holdings, accountBase: 12_000_000 });
     expect(r.accountTotal).toBe(12_345_000);
     expect(r.accountPnl).toBe(345_000);
     const text = formatReport(r);
@@ -264,17 +264,17 @@ describe("계정별 자동 매매 한도", () => {
     // 시작 뒤 30% 하락: 적립 전략이 사 둔 만큼 손실. 한도를 아주 낮게(0.1%) 잡아 확인
     const data = { "069500": bars(today, 300, (i) => (i < 290 ? 40_000 : 40_000 - (i - 289) * 1200)) };
     const plan: AutoPlan = { strategy: cycleStrategy, label: "적립", tickers: ["069500"], budget: 1_000_000, startDate: "2026-10-26", enabled: true, updatedAt: "" };
-    const r = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 0.1 });
+    const r = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, user: "owner", maxLoss: 0.1 });
     expect(r.lossStop?.limit).toBe(0.1);
     expect(formatReport(r)).toContain("손실 한도 도달");
-    const r2 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 0 });
+    const r2 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, user: "owner", maxLoss: 0 });
     // 실제 계좌 손익이 있으면 그걸로 손실 한도를 봄
     const acct = (total: number) => async () => ({ env: "mock" as const, holdings: [], total, cash: total, stock: 0 });
-    const r3 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 10, holdings: acct(9_850_000), accountBase: 10_000_000 });
+    const r3 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, user: "owner", maxLoss: 10, holdings: acct(9_850_000), accountBase: 10_000_000 });
     expect(r3.accountPnl).toBe(-150_000);
     expect(r3.lossStop).toMatchObject({ basis: "account", limit: 10 });
     expect(r3.lossStop!.loss).toBeCloseTo(15);
-    const r4 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, maxLoss: 10, holdings: acct(9_990_000), accountBase: 10_000_000 });
+    const r4 = await runEvening(plan, "schedule", { load: loader(data), now: at(today, "18:00"), env, user: "owner", maxLoss: 10, holdings: acct(9_990_000), accountBase: 10_000_000 });
     expect(r4.lossStop).toBeUndefined();
     expect(r2.lossStop).toBeUndefined();
   });
