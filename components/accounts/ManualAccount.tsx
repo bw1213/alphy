@@ -68,7 +68,7 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
       {r.targets && r.targets.length > 0 && (
         <>
           <b style={{ fontSize: 13 }}>전략상 목표 보유</b>
-          <Info>목표 수량 = 지금 계좌 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 1주라도 다르면 안내합니다.</Info>
+          <Info>목표 수량 = 지금 계좌 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 차이가 평가액의 2% 이상이면 안내합니다(전부 팔기·새로 사기는 작아도 안내). 백테스트와 같은 기준입니다.</Info>
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>지금</th><th>목표</th><th>차이</th><th>목표 비중</th><th>오늘 종가</th></tr></thead>
             <tbody>{r.targets.map((t) => {
