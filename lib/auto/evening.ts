@@ -256,8 +256,6 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     for (const t of btQty.keys()) if (!weights.has(t)) weights.set(t, 0);
     if (real) for (const [t, q] of real) if (q > 0 && plan.tickers.includes(t) && !weights.has(t)) weights.set(t, 0);
     const notes = sig.notes ?? {};
-    // 너무 작은 차이(전략 평가액의 1% 미만)는 매일 조금씩 사고팔지 않게 건너뜀 (다 파는 건 작아도 함)
-    const minAmount = base * 0.01;
     r.targets = [];
     for (const [t, w] of weights) {
       const px = close(t);
@@ -266,7 +264,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const tq = Math.max(0, Math.floor((base * w) / px));
       if (tq > 0 || cur > 0) r.targets.push({ ticker: t, name: name(t), targetQty: tq, curQty: cur, price: px, weight: w });
       const diff = tq - cur;
-      if (!diff || (Math.abs(diff) * px < minAmount && tq > 0)) continue;
+      if (!diff) continue;
       r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq,
         note: notes[t] ?? (diff > 0 ? "목표 보유보다 적어 매수" : "목표 보유보다 많아 매도") });
     }
@@ -286,7 +284,6 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
     for (const t of btQty.keys()) if (!weights.has(t)) weights.set(t, 0);
     for (const [t, q] of real!) if (q > 0 && strategyTickers.has(t) && !weights.has(t)) weights.set(t, 0);
     const notes = sig.notes ?? {};
-    const minAmount = base * 0.01;
     r.targets = [];
     for (const [t, w] of weights) {
       const px = close(t);
@@ -295,7 +292,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const tq = Math.max(0, Math.floor((base * w) / px));
       if (tq > 0 || cur > 0) r.targets.push({ ticker: t, name: name(t), targetQty: tq, curQty: cur, price: px, weight: w });
       const diff = tq - cur;
-      if (!diff || (Math.abs(diff) * px < minAmount && tq > 0)) continue;
+      if (!diff) continue;
       r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq,
         note: notes[t] ?? (diff > 0 ? "목표 보유보다 적어 매수" : "목표 보유보다 많아 매도") });
     }

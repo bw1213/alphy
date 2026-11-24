@@ -115,10 +115,11 @@ describe("저녁 계산: 목표 보유에 맞춰 매매", () => {
     expect(r.orders).toEqual([expect.objectContaining({ ticker: "069500", side: "buy", qty: tq - 10, curQty: 10, targetQty: tq })]);
     const over = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq + 5) });
     expect(over.orders).toEqual([expect.objectContaining({ side: "sell", qty: 5 })]);
-    // 1% 미만 차이는 건너뜀
-    const near = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq - 0) });
-    expect(near.orders).toHaveLength(0);
-    expect(near.kept).toBe(true);
+    const same = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq) });
+    expect(same.orders).toHaveLength(0);
+    expect(same.kept).toBe(true);
+    const one = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq - 1) });
+    expect(one.orders).toEqual([expect.objectContaining({ side: "buy", qty: 1 })]);
   });
 });
 
