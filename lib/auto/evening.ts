@@ -128,6 +128,8 @@ export function padTrailing(data: Bars, maxDays = 7): Bars {
   return out;
 }
 
+/** 백테스트와 같은 리밸런싱 무시 폭: 목표와의 차이가 평가액의 이 비율보다 작으면 사고팔지 않음 (전부 팔기·새로 사기는 예외) */
+const BAND = 0.02;
 const won = (n: number) => `${Math.round(n).toLocaleString("ko-KR")}원`;
 
 export async function runEvening(plan: AutoPlan, trigger: EveningReport["trigger"], deps: EveningDeps = {}): Promise<EveningReport> {
@@ -189,7 +191,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
   const res = runBacktest({
     data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate, initialCash: plan.budget, monthlyDeposit: 0,
     dividends: d.dividends, dividendTax: dividendTaxFn(KR_DIVIDEND_TAX),
-    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup, intraday: intradayOn(plan),
+    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: BAND, warmup: st.warmup, intraday: intradayOn(plan),
       // 운용 시작일에 바로 전략 비중대로 (월 전략이 다음 달까지 현금으로 기다리지 않게)
       rebalanceAtStart: true },
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
@@ -264,7 +266,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const tq = Math.max(0, Math.floor((base * w) / px));
       if (tq > 0 || cur > 0) r.targets.push({ ticker: t, name: name(t), targetQty: tq, curQty: cur, price: px, weight: w });
       const diff = tq - cur;
-      if (!diff) continue;
+      if (!diff || (tq > 0 && cur > 0 && Math.abs(diff) * px < base * BAND)) continue;
       r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq,
         note: notes[t] ?? (diff > 0 ? "목표 보유보다 적어 매수" : "목표 보유보다 많아 매도") });
     }
@@ -292,7 +294,7 @@ async function evening(plan: AutoPlan, r: EveningReport, deps: EveningDeps): Pro
       const tq = Math.max(0, Math.floor((base * w) / px));
       if (tq > 0 || cur > 0) r.targets.push({ ticker: t, name: name(t), targetQty: tq, curQty: cur, price: px, weight: w });
       const diff = tq - cur;
-      if (!diff) continue;
+      if (!diff || (tq > 0 && cur > 0 && Math.abs(diff) * px < base * BAND)) continue;
       r.orders.push({ ticker: t, name: name(t), side: diff > 0 ? "buy" : "sell", qty: Math.abs(diff), price: px, amount: Math.abs(diff) * px, curQty: cur, targetQty: tq,
         note: notes[t] ?? (diff > 0 ? "목표 보유보다 적어 매수" : "목표 보유보다 많아 매도") });
     }

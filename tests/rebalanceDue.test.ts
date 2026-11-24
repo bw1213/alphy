@@ -46,10 +46,10 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }));
 describe("자동 매매 저녁 계산: 주기가 매일이 아닌 전략", () => {
   const today = "2026-11-17"; // 화요일
   const ds = days("2025-06-02", today);
-  const mk = (k: number) => ds.map((date, i) => { const c = 10_000 * (1 + k * 0.001 * i); return { date, open: c, high: c, low: c, close: c, volume: 1000 }; });
-  const data: Record<string, Bar[]> = { "000001": mk(1), "000002": mk(-0.3) };
+  const mk = (k: number) => ds.map((date, i) => { const c = 10_000 * Math.exp(k * 0.001 * i); return { date, open: c, high: c, low: c, close: c, volume: 1000 }; });
+  const data: Record<string, Bar[]> = { "000001": mk(3), "000002": mk(-3) };
   const load = async (_q: DataRequest): Promise<DataResponse> => ({ data, names: {}, benchmark: null, warnings: [] });
-  // 매월 두 종목을 반반: 가격이 갈라져 매일 비중이 틀어짐
+  // 매월 두 종목을 반반: 가격이 갈라져 매일 비중이 틀어짐 (한 달에 2%p 넘게)
   const monthly: SavedStrategy = { name: "반반", code: "return { '000001': 0.5, '000002': 0.5 }", params: "{}", rebalance: "M", stopLoss: "", takeProfit: "", warmup: 1 };
   const plan: AutoPlan = { strategy: monthly, label: "반반", tickers: ["000001", "000002"], budget: 10_000_000, startDate: "2025-09-01", enabled: true, updatedAt: "" };
 
@@ -72,7 +72,7 @@ describe("자동 매매 저녁 계산: 주기가 매일이 아닌 전략", () =>
 describe("비중 고정 (종목별 비중)", () => {
   const def = STRATEGIES.find((s) => s.id === "cc_mix")!;
   const ds2 = days("2025-01-02", "2025-12-31");
-  const mk = (k: number) => ds2.map((date, i) => { const c = 10_000 * (1 + k * 0.001 * i); return { date, open: c, high: c, low: c, close: c, volume: 1000 }; });
+  const mk = (k: number) => ds2.map((date, i) => { const c = 10_000 * Math.exp(k * 0.001 * i); return { date, open: c, high: c, low: c, close: c, volume: 1000 }; });
   const first = (p: Record<string, number>) => {
     const res = runBacktest({ data: { AAA: mk(1), BBB: mk(0.5), CCC: mk(0.1) }, strategy: (c) => def.targetWeights(c, p),
       settings: { rebalance: def.rebalance, stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: def.warmup(p) }, costs: { commission: 0, slippage: 0, sellTax: 0 }, initialCash: 1e8 });

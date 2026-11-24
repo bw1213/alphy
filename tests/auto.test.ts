@@ -118,8 +118,14 @@ describe("저녁 계산: 목표 보유에 맞춰 매매", () => {
     const same = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq) });
     expect(same.orders).toHaveLength(0);
     expect(same.kept).toBe(true);
-    const one = await runEvening(plan("2026-11-12"), "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(tq - 1) });
-    expect(one.orders).toEqual([expect.objectContaining({ side: "buy", qty: 1 })]);
+    // 차이가 평가액의 2%보다 작으면 넘어감 (백테스트와 같은 기준)
+    const big = { ...plan("2026-11-12"), budget: 10_000_000 };
+    const bq = (await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(0) })).targets![0].targetQty;
+    const small = await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(bq - 4) });
+    expect(small.orders).toHaveLength(0);
+    expect(small.kept).toBe(true);
+    const gap = await runEvening(big, "manual", { load: loader(data), now: at(today, "18:00"), env, holdings: held(bq - 6) });
+    expect(gap.orders).toEqual([expect.objectContaining({ side: "buy", qty: 6 })]);
   });
 });
 
