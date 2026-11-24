@@ -259,7 +259,7 @@ function Report({ r }: { r: EveningReport }) {
       {r.targets && r.targets.length > 0 && (
         <>
           <b style={{ fontSize: 13 }}>전략상 목표 보유</b>
-          <Info>목표 수량 = 전략 계산 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 차이만큼 사고팔고, 차이가 1%보다 작으면 건너뜁니다. 전략에 없는 종목은 건드리지 않습니다.</Info>
+          <Info>목표 수량 = 전략 계산 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 1주라도 다르면 차이만큼 사고팝니다. 전략에 없는 종목은 건드리지 않습니다.</Info>
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>지금</th><th>목표</th><th>차이</th><th>목표 비중</th><th>오늘 종가</th></tr></thead>
             <tbody>{r.targets.map((t) => {

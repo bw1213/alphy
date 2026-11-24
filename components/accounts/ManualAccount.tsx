@@ -45,13 +45,12 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
   const sell = r.orders.filter((o) => o.side === "sell").reduce((s, o) => s + o.amount, 0);
   const short = buy > (r.accountCash ?? 0) + sell;
   const ordered = new Set(r.orders.map((o) => o.ticker));
-  const small = (r.targets ?? []).filter((t) => !t.outside && t.targetQty !== t.curQty && !ordered.has(t.ticker) && Math.abs(t.targetQty - t.curQty) * t.price < (r.accountTotal ?? 0) * 0.01);
   return (
     <div style={{ display: "grid", gap: 10 }}>
       <div className="kpis">
         <div className="kpi"><div className="k">기록한 계좌 평가액</div><div className="v">{won(r.accountTotal ?? 0)}</div><div className="s">예수금 {won(r.accountCash ?? 0)} · 시세 {r.dataDate}</div></div>
         <div className="kpi"><div className="k">전략 계산 평가액 (가상)</div><div className="v">{won(r.equity ?? 0)}</div><div className="s">운용 금액에서 출발한 백테스트</div></div>
-        <div className="kpi"><div className="k">할 일</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? (small.length ? "목표와 차이가 작아 보유 유지" : "목표 보유와 같음 (보유 유지)") : "직접 주문할 것"}</div></div>
+        <div className="kpi"><div className="k">할 일</div><div className="v">{r.orders.length}건</div><div className="s">{r.kept ? "목표 보유와 같음 (보유 유지)" : "직접 주문할 것"}</div></div>
       </div>
       {r.orders.length > 0 && (
         <div className="tablewrap"><table>
@@ -69,7 +68,7 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
       {r.targets && r.targets.length > 0 && (
         <>
           <b style={{ fontSize: 13 }}>전략상 목표 보유</b>
-          <Info>목표 수량 = 지금 계좌 평가액 × 전략 비중 ÷ 오늘 종가. 차이가 평가액의 1%보다 작으면 사고팔지 않습니다.</Info>
+          <Info>목표 수량 = 지금 계좌 평가액 × 전략 비중 ÷ 오늘 종가. 매일 실제 보유와 비교해 1주라도 다르면 안내합니다.</Info>
           <div className="tablewrap"><table>
             <thead><tr><th>종목</th><th>지금</th><th>목표</th><th>차이</th><th>목표 비중</th><th>오늘 종가</th></tr></thead>
             <tbody>{r.targets.map((t) => {
@@ -78,7 +77,7 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
                 <tr key={t.ticker}>
                   <td>{t.name} <span className="help">{t.ticker}</span>{t.outside ? <span className="help"> · 전략에 없는 종목</span> : null}</td>
                   <td>{t.curQty.toLocaleString("ko-KR")}주</td><td><b>{t.targetQty.toLocaleString("ko-KR")}주</b></td>
-                  <td style={{ color: d > 0 ? "var(--bad)" : d < 0 ? "var(--accent)" : undefined }}>{d > 0 ? `+${d}` : d}주{small.includes(t) ? <span className="help"> · 작아서 건너뜀</span> : null}</td>
+                  <td style={{ color: d > 0 ? "var(--bad)" : d < 0 ? "var(--accent)" : undefined }}>{d > 0 ? `+${d}` : d}주</td>
                   <td>{t.outside ? "–" : `${(t.weight * 100).toFixed(1)}%`}</td><td>{t.price > 0 ? won(t.price) : "–"}</td>
                 </tr>
               );
@@ -86,7 +85,6 @@ function Guide({ r, onRecord, done }: { r: EveningReport; onRecord: (o: AutoOrde
           </table></div>
         </>
       )}
-      {small.length > 0 && <p className="help">※ {small.map((t) => `${t.name}(${t.ticker}) ${Math.abs(t.targetQty - t.curQty)}주`).join(", ")}는 금액이 계좌 평가액의 1%({won((r.accountTotal ?? 0) * 0.01)})보다 작아 사고팔지 않았습니다. 매일 조금씩 사고팔아 비용이 쌓이지 않게 하려는 것이고, 차이가 1%를 넘으면 안내합니다.</p>}
       {short && <p className="help" style={{ color: "var(--bad)" }}>매수에 약 {won(buy)}이 필요한데 예수금과 매도 대금을 합쳐 약 {won((r.accountCash ?? 0) + sell)}입니다. 입금하거나 수량을 줄이세요.</p>}
       {r.sellLevels.length > 0 && (
         <>
