@@ -11,6 +11,7 @@ import { accountReturns } from "../manual/returns";
 import { accountValue, loadAccounts, loadManualLog } from "../manual/store";
 import { KIS_ID, loadHistory } from "../manual/value";
 import type { User } from "../settings/users";
+import { mergedHistory } from "./ledgerStore";
 
 type Env = Record<string, string | undefined>;
 
@@ -37,8 +38,9 @@ const planOf = (p: AutoPlan | null, markets: ("KR" | "US")[]) => (p ? { label: p
 
 export function listAccounts(u: User, e: Env = process.env): AccountSummary[] {
   const h = loadHistory(u.id, e);
+  const m = mergedHistory(u.id, h, e);
   const retOf = (id: string) => {
-    const r = accountReturns(h.points[id] ?? [], h.flows?.[id] ?? []);
+    const r = accountReturns(m.points[id] ?? [], m.flows[id] ?? []);
     return r.length > 1 ? { ret: r.at(-1)!.ret, since: r[0].date } : { ret: null, since: null };
   };
   const out: AccountSummary[] = [];

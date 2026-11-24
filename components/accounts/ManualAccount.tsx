@@ -14,6 +14,7 @@ import Info from "@/components/Info";
 import AppNav from "@/components/AppNav";
 import AccountList from "@/components/AccountList";
 import AccountReturn from "@/components/accounts/AccountReturn";
+import Ledger from "@/components/accounts/Ledger";
 
 interface PlanView { label: string; kind: string; strategyName: string | null; builtin: string | null; tickers: string[]; budget: number; startDate: string; enabled: boolean; updatedAt: string }
 interface AccountView { id: string; name: string; broker: string; cash: number; others?: "sell" | "keep"; positions: ManualPosition[]; plan: PlanView | null; log: EveningReport[]; updatedAt: string }
@@ -448,6 +449,7 @@ export default function ManualAccount({ onSwitch }: { onSwitch?: (id: string) =>
               </div>
             </>
           )}
+          {sel && <Ledger key={sel} id={sel} onChanged={load} />}
         </section>
       </main>
     </>

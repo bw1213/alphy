@@ -35,7 +35,7 @@ export interface PerfFile {
   points: PerfPoint[];
 }
 
-export const MAX_POINTS = 750;
+export const MAX_POINTS = 20_000;
 export const perfKey = (p: Pick<AutoPlan, "label" | "startDate" | "budget">, env?: "real" | "mock") => `${p.label}|${p.startDate}|${p.budget}|${env ?? "?"}`;
 
 export function loadPerf(user: string = OWNER_ID, e: Env = process.env): PerfFile | null {

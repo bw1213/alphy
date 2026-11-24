@@ -72,7 +72,7 @@ export interface History {
   flows?: Record<string, Flow[]>;
 }
 
-export const MAX_POINTS = 750;
+export const MAX_POINTS = 20_000;
 
 export function loadHistory(user: string = OWNER_ID, e: Env = process.env): History {
   try {
@@ -187,7 +187,7 @@ export async function refreshHistory(user: string, opts: { e?: Env; load?: (q: D
   return { history: h, warnings };
 }
 
-export const MAX_FLOWS = 500;
+export const MAX_FLOWS = 20_000;
 
 const flowId = () => Math.random().toString(36).slice(2, 10);
 
@@ -293,4 +293,21 @@ export function recordEdit(user: string, prev: ManualAccount, next: ManualAccoun
   saveHistory({ ...h, points }, user, e);
   if (diff === 0) return null;
   return addFlow(user, next.id, { date, amount: diff, note: "계좌 고침", auto: true }, e, now - 1);
+}
+
+/** 입출금이 아닌 돈(배당·이자·비용)을 수동 계좌 예수금에 더하고, 그날부터의 기록도 같은 돈만큼 옮김 */
+export function moveCash(user: string, accountId: string, date: string, amount: number, e: Env = process.env, now = Date.now()): ManualAccount {
+  const accounts = loadAccounts(user, e);
+  const ai = accounts.findIndex((a) => a.id === accountId);
+  if (ai < 0) throw new Error("그 계좌를 찾지 못했습니다.");
+  const cash = Math.round(accounts[ai].cash + amount);
+  if (cash < 0) throw new Error(`예수금(${Math.round(accounts[ai].cash).toLocaleString("ko-KR")}원)이 모자랍니다.`);
+  const account = { ...accounts[ai], cash, updatedAt: new Date(now).toISOString() };
+  accounts[ai] = account;
+  saveAccounts(accounts, user, e);
+  const h = loadHistory(user, e);
+  const at = date < kst(now).date ? `${minusDays(date, 1)}T15:00:00.000Z` : new Date(now).toISOString();
+  h.points = { ...h.points, [accountId]: todayPoint(shiftPoints(h.points[accountId] ?? [], { date, at }, Math.round(amount)), account, h.prices, now) };
+  saveHistory(h, user, e);
+  return account;
 }

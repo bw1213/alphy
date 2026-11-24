@@ -23,6 +23,7 @@ interface DashState {
   prices: PriceBook | null;
   points: Record<string, Snapshot[]>;
   flows: Record<string, Flow[]>;
+  retFlows?: Record<string, Flow[]>;
   kis: { view: KisView | null; plan: { label: string; budget: number; enabled: boolean; market: "KR" | "US" } | null; last: Last | null } | null;
   kisId: string;
   manual: { id: string; name: string; broker: string; cash: number; positions: ManualPosition[]; plan: { label: string; budget: number; enabled: boolean } | null; last: Last | null }[];
@@ -201,8 +202,9 @@ export default function DashboardPage() {
     const from = range === "ALL" ? "" : (() => { const d = new Date(`${st.today}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - (range === "1M" ? 1 : range === "3M" ? 3 : 12)); return d.toISOString().slice(0, 10); })();
     const lastVal: Record<string, number> = {};
     const rows: Record<string, number | string>[] = [];
+    const byDate = Object.fromEntries(ids.map((id) => [id, new Map((st.points[id] ?? []).map((p) => [p.date, p.total]))]));
     for (const date of dates) {
-      for (const id of ids) { const p = (st.points[id] ?? []).find((x) => x.date === date); if (p) lastVal[id] = p.total; }
+      for (const id of ids) { const v = byDate[id].get(date); if (v != null) lastVal[id] = v; }
       if (date < from) continue;
       const row: Record<string, number | string> = { date };
       for (const a of accts) { const k = seriesOf(a); row[k] = ((row[k] as number) ?? 0) + (lastVal[a.id] ?? 0); }
@@ -214,10 +216,10 @@ export default function DashboardPage() {
 
   const rets = useMemo(() => {
     const m: Record<string, ReturnPoint[]> = {};
-    if (st) for (const a of all) m[a.id] = accountReturns(st.points[a.id] ?? [], st.flows?.[a.id] ?? []);
+    if (st) for (const a of all) m[a.id] = accountReturns(st.points[a.id] ?? [], (st.retFlows ?? st.flows)?.[a.id] ?? []);
     return m;
   }, [st, all]);
-  const combined = useMemo(() => (st ? combinedReturns(accts.map((a) => ({ points: st.points[a.id] ?? [], flows: st.flows?.[a.id] ?? [] }))) : []), [st, accts]);
+  const combined = useMemo(() => (st ? combinedReturns(accts.map((a) => ({ points: st.points[a.id] ?? [], flows: (st.retFlows ?? st.flows)?.[a.id] ?? [] }))) : []), [st, accts]);
   const fromDate = useMemo(() => {
     if (!st || range === "ALL") return "";
     const d = new Date(`${st.today}T00:00:00Z`);

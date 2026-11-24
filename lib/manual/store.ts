@@ -44,7 +44,7 @@ export interface ManualTrade {
 
 export const MAX_ACCOUNTS = 20;
 export const MAX_LOG = 30;
-export const MAX_TRADES = 1000;
+export const MAX_TRADES = 50_000;
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export const BROKERS = ["토스증권", "미래에셋증권", "한화투자증권", "키움증권", "삼성증권", "NH투자증권", "KB증권", "한국투자증권", "기타"];
