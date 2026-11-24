@@ -12,7 +12,7 @@ import { holdTickers, runBuyAndHold } from "@/lib/engine/buyhold";
 import { StockChips, StockSearch, appendCode, cachedStockName, splitCodes } from "@/components/StockSearch";
 import { staleWarnings } from "@/lib/data/stale";
 import { summarize, type IndexBars, type Summary } from "@/lib/engine/metrics";
-import type { BacktestResult, CostSettings, Rebalance } from "@/lib/engine/types";
+import type { BacktestResult, CostSettings, Fill, Rebalance } from "@/lib/engine/types";
 import { isUsTicker, parseTickers } from "@/lib/data/market";
 import type { DataResponse, Source } from "@/lib/data/server";
 import { paramVariants, summarizeSensitivity, type SensitivityResult, type SensitivityRow } from "@/lib/engine/validate";
@@ -99,6 +99,7 @@ export default function Page() {
   const [monthly, setMonthly] = useState(0);
   const [commission, setCommission] = useState("0.015");
   const [slippage, setSlippage] = useState("0.1");
+  const [fill, setFill] = useState<Fill>("open");
   const [sellTax, setSellTax] = useState("");
   const [usCommission, setUsCommission] = useState("0.25");
   const [usFx, setUsFx] = useState("0.1");
@@ -203,7 +204,7 @@ export default function Page() {
     setSource(s.source); setStart(s.start); setEnd(s.end || today());
     setUniverseMode(s.universeMode); setUniverseSize(s.universeSize); setPit(!!s.pit); setTickers(s.tickers ?? ""); setBackfill(cleanBackfillState(s.backfill));
     setCash(s.cash); setMonthly(s.monthly ?? 0);
-    setCommission(s.commission); setSlippage(s.slippage); setSellTax(s.sellTax ?? "");
+    setCommission(s.commission); setSlippage(s.slippage); setFill(s.fill ?? "open"); setSellTax(s.sellTax ?? "");
     if (s.usCommission) setUsCommission(s.usCommission);
     if (s.usFx) setUsFx(s.usFx);
     setUseDiv(s.dividends !== false); setDivTax(s.divTax ?? "15.4");
@@ -215,9 +216,9 @@ export default function Page() {
   const snapshot = useMemo<LastState>(() => ({
     version: 1, sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec,
     rebalance, stopLoss, takeProfit, intraday, source, start, end: end === today() ? "" : end,
-    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, dividends: useDiv, divTax, usCommission, usFx, backfill, compare: compareIds,
+    universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, fill, sellTax, dividends: useDiv, divTax, usCommission, usFx, backfill, compare: compareIds,
   }), [sid, mode, params, code, customParams, customName, customWarmup, spec, cycleSpec, rebalance, stopLoss, takeProfit, intraday,
-    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, sellTax, useDiv, divTax, usCommission, usFx, backfill, compareIds]);
+    source, start, end, universeMode, universeSize, pit, tickers, cash, monthly, commission, slippage, fill, sellTax, useDiv, divTax, usCommission, usFx, backfill, compareIds]);
   const snapRef = useRef(snapshot);
   snapRef.current = snapshot;
   const saveNow = (keepalive = false) => {
@@ -421,7 +422,7 @@ export default function Page() {
       let errInStrategy: Error | null = null;
       const exec = (pp: Params, w: number) => runBacktest({
         data: data!.data, benchmark: data!.benchmark, names: data!.names, universe: data!.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
-        settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w, intraday },
+        settings: { rebalance: !builtin && mode === "cycle" ? "D" : rebalance, stopLoss: toFrac(stopLoss), takeProfit: toFrac(takeProfit), rebalanceBand: 0.02, warmup: w, intraday, fill },
         costs,
         strategy: (ctx) => {
           try { return fn(ctx, pp); }
@@ -511,7 +512,7 @@ export default function Page() {
           const s0 = st;
           const res = runBacktest({
             data: data.data, benchmark: data.benchmark, names: data.names, universe: data.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
-            settings: { rebalance: s0.rebalance, stopLoss: s0.stopLoss, takeProfit: s0.takeProfit, rebalanceBand: 0.02, warmup: s0.warmup, intraday: id.startsWith("saved:") ? s0.intraday : intraday },
+            settings: { rebalance: s0.rebalance, stopLoss: s0.stopLoss, takeProfit: s0.takeProfit, rebalanceBand: 0.02, warmup: s0.warmup, intraday: id.startsWith("saved:") ? s0.intraday : intraday, fill },
             costs,
             strategy: (ctx) => {
               try { return s0.fn(ctx, s0.p); }
@@ -571,7 +572,7 @@ export default function Page() {
         try {
           runs.push({ c, res: runBacktest({
             data: data.data, benchmark: data.benchmark, names: data.names, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
-            settings: { rebalance: c.rebalance, stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: c.warmup },
+            settings: { rebalance: c.rebalance, stopLoss: null, takeProfit: null, rebalanceBand: 0.02, warmup: c.warmup, fill },
             costs, strategy: (ctx) => fn(ctx, c.params),
           }) });
         } catch { /* 이 후보는 건너뜀 */ }
@@ -782,7 +783,7 @@ export default function Page() {
           </div>
 
           <div className="card">
-            <h2>자금 · 비용<Info>신호는 당일 종가, 체결은 다음 날 시가. 추가 입금은 다음 달부터 매월 첫 거래일 장 전에 들어오며, 수익률은 입금 효과를 뺀 값입니다. 매도세를 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%)을 씁니다.
+            <h2>자금 · 비용<Info>신호는 당일 종가, 체결은 다음 날(기본 시가). 추가 입금은 다음 달부터 매월 첫 거래일 장 전에 들어오며, 수익률은 입금 효과를 뺀 값입니다. 매도세를 비우면 연도별 법정세율(2024 0.18%, 2025 0.15%, 2026 0.20%)을 씁니다.
               {useDiv && " 배당금은 배당락일에 세후 현금으로 들어와 수익으로 계산합니다. 배당소득세 기본 15.4%(ISA·연금은 0), 미국은 원천징수 15%."}
               {hasUs && " 미국 종목은 그날 환율로 원화 환산하며 거래세·양도소득세는 빼고 계산합니다(한국투자증권 기본 수수료 0.25%)."}</Info></h2>
             <div className="row">
@@ -791,6 +792,11 @@ export default function Page() {
               <label className="f">수수료 % (매수·매도)<input value={commission} onChange={(e) => setCommission(e.target.value)} /></label>
               <label className="f">슬리피지 %<input value={slippage} onChange={(e) => setSlippage(e.target.value)} /></label>
               <label className="f">매도세 %<input placeholder="연도별 자동" value={sellTax} onChange={(e) => setSellTax(e.target.value)} /></label>
+              <label className="f"><span>리밸런싱 체결 가격<Info>시가: 다음 날 시가에 팔고 바로 삽니다. 중간: 시가와 그날 고가(살 때)·저가(팔 때)의 중간. 최악: 그날 가장 비싼 값에 사고 가장 싼 값에 팝니다. 지수로 채운 기간 중 고가·저가가 없는 종목은 시가로 계산합니다.</Info></span>
+                <select value={fill} onChange={(e) => setFill(e.target.value as Fill)}>
+                  <option value="open">시가</option><option value="mid">시가·고저 중간</option><option value="worst">최악 (고가 매수·저가 매도)</option>
+                </select>
+              </label>
             </div>
             {hasUs && (
               <div className="row" style={{ marginTop: 8 }}>

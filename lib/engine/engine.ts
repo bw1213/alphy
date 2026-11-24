@@ -200,6 +200,13 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         return Number.isFinite(o) && o > 0 && Number.isFinite(v) && v > 0;
       };
       const mark = (t: string) => (tradable(t) ? P.open[col(t)][i] : P.closeFilled[col(t)][Math.max(0, i - 1)]);
+      const fillAt = (t: string, side: "buy" | "sell") => {
+        const k = col(t), o = P.open[k][i];
+        if (!st.fill || st.fill === "open") return o;
+        const x = side === "buy" ? P.high[k][i] : P.low[k][i];
+        const ext = Number.isFinite(x) && x > 0 ? (side === "buy" ? Math.max(o, x) : Math.min(o, x)) : o;
+        return st.fill === "worst" ? ext : (o + ext) / 2;
+      };
       const eqOpen = cash + Object.entries(pos).reduce((s, [t, q]) => s + q * mark(t), 0);
 
       let target: Record<string, number> = { ...pos };
@@ -213,7 +220,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
             target[t] = pos[t];
             continue;
           }
-          const px = o * (1 + costs.slippage) * (1 + buyFeeRate(costs, t));
+          const px = fillAt(t, "buy") * (1 + costs.slippage) * (1 + buyFeeRate(costs, t));
           target[t] = Math.floor((eqOpen * w) / px);
           const from = pendingExact ? pendingFrom[t] : undefined;
           if (from !== undefined) {
@@ -235,7 +242,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
         const q = pos[t], tgt = target[t] ?? 0;
         if (q > tgt && tradable(t)) {
           const n = q - tgt;
-          const px = P.open[col(t)][i] * (1 - costs.slippage);
+          const px = fillAt(t, "sell") * (1 - costs.slippage);
           const gross = n * px;
           const fee = gross * sellFeeRate(costs, t, year);
           cash += gross - fee;
@@ -250,7 +257,7 @@ export function runBacktest(opt: RunOptions): BacktestResult {
       for (const [t, tgt] of Object.entries(target)) {
         const q = pos[t] ?? 0;
         if (tgt > q && tradable(t)) {
-          const px = P.open[col(t)][i] * (1 + costs.slippage);
+          const px = fillAt(t, "buy") * (1 + costs.slippage);
           const rate = buyFeeRate(costs, t);
           const n = Math.min(tgt - q, Math.floor(cash / (px * (1 + rate))));
           if (n <= 0) continue;

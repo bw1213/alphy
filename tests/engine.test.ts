@@ -39,6 +39,15 @@ describe("engine", () => {
     expect(res.trades[0].date).toBe(B[2].date);
   });
 
+  it("리밸런싱 체결 가격: 최악은 고가 매수·저가 매도, 중간은 시가와의 중간", () => {
+    const D = A.slice(0, 6).map((b) => ({ ...b, open: 100, high: 110, low: 90, close: 100 }));
+    const strategy = (c: any): Record<string, number> | null => (c.dayIndex === 0 ? { D: 1 } : c.dayIndex === 2 ? {} : null);
+    const run = (fill?: RunSettings["fill"]) => runBacktest({ data: { D }, strategy, settings: { ...base, fill }, costs: noCost, initialCash: 1e6 }).trades.map((t) => [t.side, t.price]);
+    expect(run()).toEqual([["BUY", 100], ["SELL", 100]]);
+    expect(run("worst")).toEqual([["BUY", 110], ["SELL", 90]]);
+    expect(run("mid")).toEqual([["BUY", 105], ["SELL", 95]]);
+  });
+
   it("손절 규칙", () => {
     const C = A.map((b, k) => ({ ...b, open: k < 5 ? 100 : 80, close: k < 4 ? 100 : 80, high: 100, low: 80 }));
     const res = runBacktest({ data: { C }, settings: { ...base, stopLoss: 0.1 }, costs: noCost,
