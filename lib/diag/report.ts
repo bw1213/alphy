@@ -203,6 +203,7 @@ export interface DiagBacktestRequest {
   dividendTax?: number;
   /** 기본 전략의 파라미터 덮어쓰기 */
   params?: Record<string, number>;
+  fill?: unknown;
   /** 거래 내역 몇 건까지 돌려줄지 (최근부터, 기본 50, 최대 500) */
   trades?: number;
   /** 상장 전 기간을 지수로 채우기 (화면의 같은 옵션, 모든 종목 자동 대용) */
@@ -263,7 +264,7 @@ export async function backtestReport(r: DiagBacktestRequest, e: Env = process.en
   const div = useDiv ? { dividends: d.dividends, dividendTax: divTax } : {};
   const res = runBacktest({
     data: d.data, benchmark: d.benchmark, names: d.names, universe: d.universe, startDate: start, initialCash: cash, monthlyDeposit: monthly, ...div,
-    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup },
+    settings: { rebalance: st.rebalance, stopLoss: st.stopLoss, takeProfit: st.takeProfit, rebalanceBand: 0.02, warmup: st.warmup, ...(r.fill === "mid" || r.fill === "worst" ? { fill: r.fill } : {}) },
     costs: { commission: def.commission / 100, slippage: def.slippage / 100, sellTax: def.sellTax == null ? null : def.sellTax / 100, ...(d.fx ? { us: { commission: def.usCommission / 100, fx: def.usFx / 100 } } : {}) },
     strategy: (ctx) => st.fn(ctx, st.p),
   });

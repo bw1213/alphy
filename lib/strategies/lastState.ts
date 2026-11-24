@@ -5,7 +5,7 @@
  */
 import fs from "fs";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
-import type { Rebalance } from "../engine/types";
+import type { Fill, Rebalance } from "../engine/types";
 import { normalizeSpec, type BuilderSpec } from "./builder";
 import { normalizeCycleSpec, type CycleSpec } from "./cycle";
 import { cleanBackfillState, type BackfillState } from "../data/backfillPick";
@@ -28,6 +28,7 @@ export interface LastState {
   takeProfit: string;
   /** 장중 매도 (손절·익절·하락 매도를 장중 가격으로). 없으면 끔 */
   intraday?: boolean;
+  fill?: Fill;
   source: "naver" | "kis" | "csv" | "synthetic";
   start: string;
   /** "" = 오늘 (열 때마다 오늘 날짜로) */
@@ -96,6 +97,7 @@ export function cleanLastState(x: any): LastState {
     stopLoss: str(x.stopLoss, 20),
     takeProfit: str(x.takeProfit, 20),
     intraday: x.intraday === true,
+    ...(x.fill === "mid" || x.fill === "worst" ? { fill: x.fill } : {}),
     source,
     start: date(x.start) || "2018-01-01",
     end: date(x.end),

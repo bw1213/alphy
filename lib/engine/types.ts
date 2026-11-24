@@ -49,7 +49,11 @@ export interface RunSettings {
    * 닿은 날 바로 그 가격(시가가 이미 넘었으면 시가)에 판 것으로 계산. 끄면 종가로 확인하고 다음 날 시가에 판다.
    */
   intraday?: boolean;
+  /** 리밸런싱 체결 가격: 시가(기본), 시가와 고가·저가의 중간, 최악(살 때 고가·팔 때 저가) */
+  fill?: Fill;
 }
+
+export type Fill = "open" | "mid" | "worst";
 
 /** 전략이 장 마감 때 걸어 두는 다음 날 장중 매도: 가격이 below 이하로 내려오면 qty 주를 판다 */
 export interface StopOrder { below: number; qty: number; note: string }
