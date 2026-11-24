@@ -18,6 +18,7 @@ import Info from "@/components/Info";
 import AppNav from "@/components/AppNav";
 import AccountList from "@/components/AccountList";
 import AccountReturn from "@/components/accounts/AccountReturn";
+import Ledger from "@/components/accounts/Ledger";
 import { marketOf, planMarkets } from "@/lib/auto/session";
 
 interface PlanView {
@@ -312,6 +313,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
   const [realPw, setRealPw] = useState("");
   const [sendTg, setSendTg] = useState(false);
   const [open, setOpen] = useState(0);
+  const [retKey, setRetKey] = useState(0);
 
   const load = useCallback(async () => {
     const [a, t, l] = await Promise.all([
@@ -350,7 +352,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
       <main className="app">
         <section className="stack">
           <AccountList current="kis" onPick={onSwitch} />
-          <AccountReturn id="kis" />
+          <AccountReturn id="kis" reload={retKey} />
           <div className="card">
             <h2>운용 전략</h2>
             <label className="f">전략
@@ -600,6 +602,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
               </details>
             ))}
           </div>
+          <Ledger id="kis" onChanged={() => setRetKey((k) => k + 1)} />
         </section>
       </main>
     </>

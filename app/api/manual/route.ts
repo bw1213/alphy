@@ -10,6 +10,7 @@ import { manualEveningFor } from "@/lib/manual/evening";
 import { MAX_ACCOUNTS, brokerList, cleanAccount, forgetBroker, resetBasis, loadAccounts, loadManualLog, loadTrades, recordTrade, rewriteTrade, saveAccounts, undoLastTrade, type FeeRates } from "@/lib/manual/store";
 import { fetchPrices, loadHistory, recordEdit, refreshHistory } from "@/lib/manual/value";
 import type { EveningReport } from "@/lib/auto/evening";
+import { dropAccount } from "@/lib/accounts/ledgerStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -87,6 +88,7 @@ export async function POST(req: Request) {
         const next = list.filter((a) => a.id !== String(body.id ?? ""));
         if (next.length === list.length) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
         saveAccounts(next, user.id);
+        dropAccount(user.id, String(body.id ?? ""));
         return NextResponse.json({ ok: true });
       }
       case "trade": {

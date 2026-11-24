@@ -8,6 +8,7 @@ import { loadAccounts, loadManualLog, loadTrades } from "@/lib/manual/store";
 import { KIS_ID, deleteFlow, putFlow, loadHistory, refreshHistory } from "@/lib/manual/value";
 import { hasKisAccount, kisReader } from "@/lib/manual/kis";
 import { allFills } from "@/lib/accounts/fills";
+import { mergedHistory } from "@/lib/accounts/ledgerStore";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function GET(req: Request) {
   return NextResponse.json({
     today: kst().date,
     prices: h.prices,
-    points: h.points,
+    ...(() => { const m = mergedHistory(user.id, h); return { points: m.points, retFlows: m.flows }; })(),
     flows: h.flows ?? {},
     kis: hasKisAccount(user) ? { view: h.kis ?? null, plan: plan ? { label: plan.label, budget: plan.budget, enabled: plan.enabled, market: planMarket(plan) } : null, last: pick(autoLast) } : null,
     kisId: KIS_ID,

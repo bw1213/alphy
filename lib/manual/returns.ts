@@ -91,3 +91,61 @@ export function since(list: ReturnPoint[], from: string): ReturnPoint[] {
   const b = 1 + list[start].ret / 100;
   return list.slice(start).map((p) => ({ ...p, ret: ((1 + p.ret / 100) / b - 1) * 100 }));
 }
+
+const days = (a: string, b: string) => (Date.parse(b) - Date.parse(a)) / 864e5;
+
+/** 해마다 수익률 (그해 마지막 기록 ÷ 전해 마지막 기록). 첫해는 첫 기록부터 */
+export function yearlyReturns(list: ReturnPoint[]): { year: string; ret: number; from: string; to: string }[] {
+  const out: { year: string; ret: number; from: string; to: string }[] = [];
+  let base = list[0];
+  for (let i = 0; i < list.length; i++) {
+    const p = list[i];
+    const y = p.date.slice(0, 4);
+    if (i === list.length - 1 || list[i + 1].date.slice(0, 4) !== y) {
+      out.push({ year: y, ret: ((1 + p.ret / 100) / (1 + base.ret / 100) - 1) * 100, from: base.date, to: p.date });
+      base = p;
+    }
+  }
+  return out;
+}
+
+/** 연평균 (시간가중). 1년 안 되면 null */
+export function annualized(list: ReturnPoint[]): number | null {
+  if (list.length < 2) return null;
+  const d = days(list[0].date, list.at(-1)!.date);
+  if (d < 365) return null;
+  return (Math.pow(1 + list.at(-1)!.ret / 100, 365 / d) - 1) * 100;
+}
+
+/** 넣은 돈(첫 평가액 + 그 뒤 순입금)과 지금 평가액 */
+export function moneySummary(list: ReturnPoint[]): { invested: number; value: number; profit: number } | null {
+  if (!list.length) return null;
+  const invested = list[0].total + list.slice(1).reduce((s, p) => s + p.flow, 0);
+  const value = list.at(-1)!.total;
+  return { invested, value, profit: value - invested };
+}
+
+/** 금액가중 수익률(연, %): 첫 평가액과 입출금을 넣은 돈으로, 지금 평가액을 받는 돈으로 보는 내부수익률 */
+export function moneyWeighted(list: ReturnPoint[]): number | null {
+  if (list.length < 2) return null;
+  const t0 = list[0].date;
+  const end = list.at(-1)!;
+  if (days(t0, end.date) < 30) return null;
+  const cfs = [{ t: 0, v: -list[0].total }, ...list.slice(1).filter((p) => p.flow).map((p) => ({ t: days(t0, p.date) / 365, v: -p.flow })), { t: days(t0, end.date) / 365, v: end.total }];
+  const npv = (r: number) => cfs.reduce((s, c) => s + c.v / Math.pow(1 + r, c.t), 0);
+  let lo = -0.99, hi = 10;
+  const a = npv(lo), b = npv(hi);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a * b > 0) return null;
+  for (let i = 0; i < 200; i++) {
+    const m = (lo + hi) / 2;
+    if (npv(m) * a > 0) lo = m; else hi = m;
+  }
+  return ((lo + hi) / 2) * 100;
+}
+
+/** 가장 크게 빠진 폭 (%) */
+export function maxDrawdown(list: ReturnPoint[]): number {
+  let peak = 1, mdd = 0;
+  for (const p of list) { const g = 1 + p.ret / 100; peak = Math.max(peak, g); mdd = Math.min(mdd, g / peak - 1); }
+  return mdd * 100;
+}
