@@ -35,6 +35,8 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
   const [limit, setLimit] = useState(20);
   const [progress, setProgress] = useState("");
   const [open, setOpen] = useState(false);
+  const [pdf, setPdf] = useState<{ file: File | null; password: string } | null>(null);
+  const [pdfNote, setPdfNote] = useState<{ ok: string; bad: string[]; lines?: string } | null>(null);
 
   const post = async (body: Record<string, unknown>) => {
     const r = await fetch("/api/ledger", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: id, ...body }) });
@@ -90,9 +92,29 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
     setDelAsk(""); setPaste(null);
     setForm({ id: x.id, date: x.date, kind: x.kind, ticker: x.ticker ?? "", name: x.name ?? "", qty: x.qty != null ? String(x.qty) : "", price: x.price != null ? String(x.price) : "", amount: x.amount != null ? String(x.amount) : "", fee: x.fee != null ? String(x.fee) : "", usd: x.currency === "USD", note: x.note ?? "" });
   };
-  const readPaste = async () => {
+  const readPaste = async (text = paste ?? "") => {
     setBusy("parse"); setError(""); setSkipped([]);
-    try { setRows((await post({ action: "parse", text: paste ?? "" })).rows); } catch (e) { setError((e as Error).message); } finally { setBusy(""); }
+    try { setRows((await post({ action: "parse", text })).rows); } catch (e) { setError((e as Error).message); } finally { setBusy(""); }
+  };
+  const readPdf = async () => {
+    if (!pdf?.file) return;
+    setBusy("pdf"); setError(""); setPdfNote(null); setRows(null);
+    try {
+      const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
+      const { readPdfText, parseStatement, pageLines, toLedgerTsv } = await import("@/lib/accounts/statement");
+      const pages = await readPdfText(pdfjs, new Uint8Array(await pdf.file.arrayBuffer()), pdf.password);
+      const r = parseStatement(pages);
+      if (!r.rows.length) {
+        setPdfNote({ ok: "", bad: ["이 PDF 모양은 아직 읽지 못합니다. 아래 \"읽은 글자 받기\" 파일을 보내 주시면 맞춰 드릴게요."], lines: pages.map((pg, i) => [`--- ${i + 1}쪽`, ...pageLines(pg)].join("\n")).join("\n") });
+        return;
+      }
+      const text = toLedgerTsv(r.rows);
+      setPdf((p) => (p ? { ...p, password: "" } : p));
+      setPaste(text);
+      setPdfNote({ ok: `${r.broker} ${r.rows.length}건을 읽었습니다${r.checked ? ` · 예수금 잔액으로 ${r.checked - r.mismatches.length}/${r.checked}건 맞음` : ""}.${r.fx ? ` 환전 ${r.fx}건은 따로 넣지 않고 달러 거래를 그날 환율로 계산합니다.` : ""}`, bad: [...r.mismatches.map((m) => `잔액 안 맞음: ${m}`), ...r.skipped.map((m) => `건너뜀: ${m}`)] });
+      await readPaste(text);
+    } catch (e) { setError((e as Error).message); } finally { setBusy((b) => (b === "pdf" ? "" : b)); }
   };
   const savePaste = () => rows && run("paste", async () => {
     const good = rows.filter((r) => r.entry);
@@ -146,7 +168,8 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
       {open && <>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
         <button style={{ width: "auto" }} disabled={!!busy} onClick={() => { setPaste(null); setForm(form && !form.id ? null : blank()); }}>{form && !form.id ? "한 건 넣기 닫기" : "한 건 넣기"}</button>
-        <button style={{ width: "auto" }} disabled={!!busy} onClick={() => { setForm(null); setRows(null); setPaste(paste == null ? "" : null); }}>{paste != null ? "붙여넣기 닫기" : "엑셀·CSV 붙여넣기"}</button>
+        <button style={{ width: "auto" }} disabled={!!busy} onClick={() => { setForm(null); setRows(null); setPdf(null); setPdfNote(null); setPaste(paste == null ? "" : null); }}>{paste != null ? "붙여넣기 닫기" : "엑셀·CSV 붙여넣기"}</button>
+        <button style={{ width: "auto" }} disabled={!!busy} onClick={() => { setForm(null); setRows(null); setPdfNote(null); if (pdf) { setPdf(null); setPaste(null); } else { setPdf({ file: null, password: "" }); setPaste(""); } }}>{pdf ? "PDF 닫기" : "PDF 올리기"}</button>
         {!!list.length && <a href={`/api/ledger?account=${encodeURIComponent(id)}&csv=1`} style={{ alignSelf: "center", fontSize: 13 }}>CSV로 받기</a>}
         {!!status?.count && (
           !clearAsk ? <button style={{ width: "auto" }} disabled={!!busy} onClick={() => setClearAsk(true)}>모두 지우기</button>
@@ -184,6 +207,26 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
         </div>
       )}
 
+      {pdf && (
+        <div style={{ marginTop: 8, padding: 10, border: "1px solid var(--border)", borderRadius: 8, display: "grid", gap: 8 }}>
+          <p className="help" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}>증권사 거래내역 PDF
+            <Info>지금은 한화투자증권 &quot;거래명세서(고객확인용)&quot;와 미래에셋증권 &quot;거래내역서&quot;를 읽습니다. 펀드는 기준가를 받지 못해 마지막 거래 기준가로 평가합니다. PDF와 암호는 이 브라우저 안에서만 쓰고 서버로 보내지 않습니다. 읽은 내용은 아래 붙여넣기 칸에 표로 들어가니, 확인하고 고친 뒤 넣으세요. 예수금 잔액으로 줄마다 맞춰 보고, 안 맞으면 빠진 장이나 잘못 읽은 줄이 있다는 뜻입니다.</Info>
+          </p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: 8 }}>
+            <label className="f">파일<input type="file" accept="application/pdf,.pdf" onChange={(e) => setPdf({ ...pdf, file: e.target.files?.[0] ?? null })} /></label>
+            <label className="f">PDF 암호 (없으면 비움)<input type="password" autoComplete="off" value={pdf.password} onChange={(e) => setPdf({ ...pdf, password: e.target.value })} onKeyDown={(e) => { if (e.key === "Enter") readPdf(); }} /></label>
+          </div>
+          <div><button className="primary" style={{ width: "auto" }} disabled={!!busy || !pdf.file} onClick={readPdf}>{busy === "pdf" ? "읽는 중…" : "PDF 읽기"}</button></div>
+          {pdfNote && (
+            <div style={{ fontSize: 13 }}>
+              {pdfNote.ok && <p style={{ margin: 0 }}>{pdfNote.ok}</p>}
+              {pdfNote.bad.slice(0, 30).map((b, i) => <p key={i} className="help" style={{ margin: "2px 0 0", color: "var(--bad)" }}>{b}</p>)}
+              {pdfNote.lines && <a style={{ fontSize: 13 }} download="statement-text.txt" href={`data:text/plain;charset=utf-8,${encodeURIComponent(pdfNote.lines)}`}>읽은 글자 받기</a>}
+            </div>
+          )}
+        </div>
+      )}
+
       {paste != null && (
         <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
           <p className="help" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}>엑셀에서 표를 복사해 붙여넣으세요.
@@ -192,7 +235,7 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
           </p>
           <textarea rows={6} style={{ width: "100%", fontFamily: "ui-monospace, monospace", fontSize: 12 }} value={paste} onChange={(e) => { setPaste(e.target.value); setRows(null); }} placeholder={SAMPLE} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <button style={{ width: "auto" }} disabled={!!busy || !paste.trim()} onClick={readPaste}>{busy === "parse" ? "읽는 중…" : "읽어 보기"}</button>
+            <button style={{ width: "auto" }} disabled={!!busy || !paste.trim()} onClick={() => readPaste()}>{busy === "parse" ? "읽는 중…" : "읽어 보기"}</button>
             {rows && <button className="primary" style={{ width: "auto" }} disabled={!!busy || !rows.some((r) => r.entry)} onClick={savePaste}>{busy === "paste" ? "저장 중…" : `${rows.filter((r) => r.entry).length}건 넣기`}</button>}
           </div>
           {rows && (

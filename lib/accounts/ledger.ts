@@ -15,6 +15,7 @@ export const KIND_LABEL: Record<LedgerKind, string> = {
   deposit: "입금", withdraw: "출금", buy: "매수", sell: "매도", dividend: "배당", interest: "이자", fee: "비용", in: "입고", out: "출고",
 };
 export const STOCK_KINDS: LedgerKind[] = ["buy", "sell", "in", "out"];
+export const isFundCode = (t: string) => /^KR[0-9A-Z]{10}$/.test(t);
 export const CASH_KINDS: LedgerKind[] = ["deposit", "withdraw", "dividend", "interest", "fee"];
 /** 앱 기록이 시작된 뒤에도 넣을 수 있는 것 (수동 계좌 예수금에 바로 반영) */
 export const LIVE_KINDS: LedgerKind[] = ["dividend", "interest", "fee"];
@@ -75,10 +76,11 @@ export function resolveTicker(raw: unknown, find?: (name: string) => { code: str
   const s = String(raw ?? "").trim();
   if (!s) return null;
   const m = s.match(/^(.*?)\s*\(([0-9A-Za-z.\-/]+)\)\s*$/);
-  if (m) { const t = normalizeTicker(m[2]); if (t) return { ticker: t, ...(m[1].trim() ? { name: m[1].trim() } : {}) }; }
+  const code = (x: string) => (isFundCode(x.toUpperCase()) ? x.toUpperCase() : normalizeTicker(x));
+  if (m) { const t = code(m[2]); if (t) return { ticker: t, ...(m[1].trim() ? { name: m[1].trim() } : {}) }; }
   const byName = /[가-힣]/.test(s) || /\s/.test(s) ? find?.(s) : null;
   if (byName) return { ticker: byName.code, name: byName.name };
-  const t = normalizeTicker(s);
+  const t = code(s);
   if (t) return { ticker: t };
   const again = find?.(s);
   return again ? { ticker: again.code, name: again.name } : null;
@@ -270,7 +272,7 @@ export function buildLedger(all: LedgerEntry[], upTo: string, px: PriceSet, now 
   const tickers = [...new Set(list.filter((x) => STOCK_KINDS.includes(x.kind)).map((x) => x.ticker!))];
   for (const t of tickers) {
     const bars = px.data[t];
-    if (!bars?.length) warn(`nodata:${t}`, `${nameOf(t)} 시세를 받지 못해 마지막 거래 가격으로 평가했습니다.`);
+    if (!bars?.length) warn(`nodata:${t}`, isFundCode(t) ? `${nameOf(t)}: 펀드는 기준가를 받지 못해 마지막 거래 기준가로 평가했습니다.` : `${nameOf(t)} 시세를 받지 못해 마지막 거래 가격으로 평가했습니다.`);
     for (const b of bars ?? []) if (b.date >= from && b.date <= upTo) dates.add(b.date);
   }
   function nameOf(t: string) { const n = list.find((x) => x.ticker === t && x.name)?.name ?? px.names?.[t]; return n ? `${n} (${t})` : t; }
