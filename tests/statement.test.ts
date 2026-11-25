@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
 import * as pdfjs from "pdfjs-dist/legacy/build/pdf.mjs";
-import { PdfPasswordError, parseHanwha, parseStatement, readPdfText, toLedgerTsv } from "@/lib/accounts/statement";
+import { PdfPasswordError, findLabel, parseHanwha, parseStatement, readPdfText, toLedgerTsv } from "@/lib/accounts/statement";
 import { parseLedgerText } from "@/lib/accounts/ledger";
 
 const file = (name = "hanwha") => new Uint8Array(readFileSync(path.join(__dirname, `fixtures/${name}-statement-locked.pdf`)));
@@ -59,5 +59,14 @@ describe("미래에셋증권 거래내역서 PDF", () => {
 
   it("한화 거래명세서는 한화로 읽음", async () => {
     expect(parseStatement(await readPdfText(pdfjs as any, file(), "1234")).broker).toBe("한화투자증권");
+  });
+});
+
+describe("머리글 찾기", () => {
+  it("글자마다 따로 나뉜 머리글도 이어 붙여 찾음", () => {
+    const page = [..."예수금잔액"].map((c, i) => ({ str: c, x: 100 + i * 9, y: 50, w: 7 })).concat([{ str: "거래금액", x: 10, y: 50, w: 30 }]);
+    expect(findLabel(page, /^예수금잔액$/)).toMatchObject({ x: 100, w: 43 });
+    expect(findLabel(page, /^거래금액$/)).toMatchObject({ x: 10 });
+    expect(findLabel(page, /^없는말$/)).toBeUndefined();
   });
 });

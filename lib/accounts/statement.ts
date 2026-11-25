@@ -21,9 +21,12 @@ export async function readPdfText(pdfjs: PdfLib, data: Uint8Array, password = ""
   const pages: Page[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
-    const h = page.getViewport({ scale: 1 }).height;
+    const [a, b, c, d, e, f] = page.getViewport({ scale: 1 }).transform as number[];
     const tc = await page.getTextContent();
-    pages.push(tc.items.filter((t: any) => typeof t.str === "string" && t.str.trim()).map((t: any) => ({ str: t.str.trim(), x: t.transform[4], y: h - t.transform[5], w: t.width })));
+    pages.push(tc.items.filter((t: any) => typeof t.str === "string" && t.str.trim()).map((t: any) => {
+      const [tx, ty] = [t.transform[4], t.transform[5]];
+      return { str: t.str.trim(), x: a * tx + c * ty + e, y: b * tx + d * ty + f, w: t.width };
+    }));
   }
   await doc.destroy?.();
   return pages;
@@ -39,6 +42,23 @@ export function pageLines(page: Page): string[] {
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function findLabel(page: Page, re: RegExp): TextItem | undefined {
+  const plain = (t: string) => t.replace(/\s/g, "");
+  const one = page.find((x) => re.test(plain(x.str)));
+  if (one) return one;
+  const sorted = [...page].sort((a, b) => a.y - b.y || a.x - b.x);
+  for (let i = 0; i < sorted.length; i++) {
+    let s = "";
+    for (let j = i; j < Math.min(sorted.length, i + 12); j++) {
+      const t = sorted[j];
+      if (Math.abs(t.y - sorted[i].y) > 2 || (j > i && t.x - (sorted[j - 1].x + sorted[j - 1].w) > Math.max(6, sorted[j - 1].w))) break;
+      s += plain(t.str);
+      if (j > i && re.test(s)) return { str: s, x: sorted[i].x, y: sorted[i].y, w: t.x + t.w - sorted[i].x };
+    }
+  }
+  return undefined;
+}
 const NUM = /^-?[\d,]+(\.\d+)?$/;
 const num = (s: string) => Number(s.replace(/,/g, ""));
 const center = (t: TextItem) => t.x + t.w / 2;
@@ -72,15 +92,15 @@ const HEAD1: [Col, RegExp][] = [["qty", /^수량$/], ["amount", /^거래금액$/
 function columns(page: Page): { cols: { col: Col; c: number }[]; textLeft: number; textRight: number; top: number } | null {
   const found: { col: Col; c: number; y: number }[] = [];
   for (const [col, re] of HEAD1) {
-    const t = page.find((x) => re.test(x.str.replace(/\s/g, "")));
+    const t = findLabel(page, re);
     if (t) found.push({ col, c: center(t), y: t.y });
   }
   if (!found.some((f) => f.col === "qty") || !found.some((f) => f.col === "amount") || !found.some((f) => f.col === "balance")) return null;
-  const memo = page.find((x) => /^(적요|종목명)$/.test(x.str.replace(/\s/g, "")));
-  const head = page.filter((x) => /^(잔고수량|정산금액|단가)$/.test(x.str.replace(/\s/g, "")));
+  const memo = findLabel(page, /^(적요|종목명)$/);
+  const head = [/^잔고수량$/, /^정산금액$/, /^단가$/].flatMap((re) => findLabel(page, re) ?? []);
   const top = Math.max(...found.map((f) => f.y), ...head.map((h) => h.y));
   const qtyC = found.find((f) => f.col === "qty")!.c;
-  const no = page.find((x) => /^거래No$/i.test(x.str.replace(/\s/g, "")));
+  const no = findLabel(page, /^거래No$/i);
   const textRight = memo ? (center(memo) + qtyC) / 2 : qtyC - 80;
   return { cols: found.sort((a, b) => a.c - b.c).map(({ col, c }) => ({ col, c })), textLeft: no ? no.x + no.w + 2 : textRight - 120, textRight, top };
 }
@@ -209,7 +229,7 @@ const MHEAD2: [MCol, RegExp][] = [["no", /^거래번호$/], ["orig", /^원번호
 
 function miraeColumns(page: Page) {
   const find = (heads: [MCol, RegExp][]) => heads.flatMap(([col, re]) => {
-    const t = page.find((x) => re.test(x.str.replace(/\s/g, "")));
+    const t = findLabel(page, re);
     return t ? [{ col, c: center(t), y: t.y }] : [];
   }).sort((a, b) => a.c - b.c);
   const l1 = find(MHEAD1), l2 = find(MHEAD2);

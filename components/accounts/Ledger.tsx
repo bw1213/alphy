@@ -36,7 +36,7 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
   const [progress, setProgress] = useState("");
   const [open, setOpen] = useState(false);
   const [pdf, setPdf] = useState<{ file: File | null; password: string } | null>(null);
-  const [pdfNote, setPdfNote] = useState<{ ok: string; bad: string[]; lines?: string } | null>(null);
+  const [pdfNote, setPdfNote] = useState<{ ok: string; bad: string[]; lines?: string; pages?: unknown[]; name?: string; sent?: string } | null>(null);
 
   const post = async (body: Record<string, unknown>) => {
     const r = await fetch("/api/ledger", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId: id, ...body }) });
@@ -106,15 +106,30 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
       const pages = await readPdfText(pdfjs, new Uint8Array(await pdf.file.arrayBuffer()), pdf.password);
       const r = parseStatement(pages);
       if (!r.rows.length) {
-        setPdfNote({ ok: "", bad: ["이 PDF 모양은 아직 읽지 못합니다. 아래 \"읽은 글자 받기\" 파일을 보내 주시면 맞춰 드릴게요."], lines: pages.map((pg, i) => [`--- ${i + 1}쪽`, ...pageLines(pg)].join("\n")).join("\n") });
+        setPdfNote({ ok: "", bad: ["이 PDF 모양은 아직 읽지 못합니다. 아래 \"점검용으로 보내기\"를 누르고 알려 주시면 맞춰 드릴게요."], lines: pages.map((pg, i) => [`--- ${i + 1}쪽`, ...pageLines(pg)].join("\n")).join("\n"), pages, name: pdf.file.name });
         return;
       }
       const text = toLedgerTsv(r.rows);
       setPdf((p) => (p ? { ...p, password: "" } : p));
       setPaste(text);
-      setPdfNote({ ok: `${r.broker} ${r.rows.length}건을 읽었습니다${r.checked ? ` · 예수금 잔액으로 ${r.checked - r.mismatches.length}/${r.checked}건 맞음` : ""}.${r.fx ? ` 환전 ${r.fx}건은 따로 넣지 않고 달러 거래를 그날 환율로 계산합니다.` : ""}`, bad: [...r.mismatches.map((m) => `잔액 안 맞음: ${m}`), ...r.skipped.map((m) => `건너뜀: ${m}`)] });
+      setPdfNote({ ok: `${r.broker} ${r.rows.length}건을 읽었습니다${r.checked ? ` · 예수금 잔액으로 ${r.checked - r.mismatches.length}/${r.checked}건 맞음` : ""}.${r.fx ? ` 환전 ${r.fx}건은 따로 넣지 않고 달러 거래를 그날 환율로 계산합니다.` : ""}`, bad: [...r.mismatches.map((m) => `잔액 안 맞음: ${m}`), ...r.skipped.map((m) => `건너뜀: ${m}`)], ...(r.mismatches.length || r.skipped.length ? { pages, name: pdf.file.name } : {}) });
       await readPaste(text);
     } catch (e) { setError((e as Error).message); } finally { setBusy((b) => (b === "pdf" ? "" : b)); }
+  };
+  const sendDebug = async () => {
+    if (!pdfNote?.pages) return;
+    setBusy("debug"); setError("");
+    try {
+      await post({ action: "statementDebug", pages: pdfNote.pages, name: pdfNote.name });
+      setPdfNote((n) => (n ? { ...n, sent: "보냈습니다. 보냈다고 알려 주세요." } : n));
+    } catch (e) { setError((e as Error).message); } finally { setBusy(""); }
+  };
+  const saveText = (text: string) => {
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "statement-text.txt"; a.target = "_blank";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
   const savePaste = () => rows && run("paste", async () => {
     const good = rows.filter((r) => r.entry);
@@ -221,7 +236,14 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
             <div style={{ fontSize: 13 }}>
               {pdfNote.ok && <p style={{ margin: 0 }}>{pdfNote.ok}</p>}
               {pdfNote.bad.slice(0, 30).map((b, i) => <p key={i} className="help" style={{ margin: "2px 0 0", color: "var(--bad)" }}>{b}</p>)}
-              {pdfNote.lines && <a style={{ fontSize: 13 }} download="statement-text.txt" href={`data:text/plain;charset=utf-8,${encodeURIComponent(pdfNote.lines)}`}>읽은 글자 받기</a>}
+              {pdfNote.pages && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                  <button style={{ width: "auto" }} disabled={!!busy || !!pdfNote.sent} onClick={sendDebug}>{busy === "debug" ? "보내는 중…" : "점검용으로 보내기"}</button>
+                  {pdfNote.lines && <button style={{ width: "auto" }} onClick={() => saveText(pdfNote.lines!)}>읽은 글자 받기</button>}
+                  <Info>읽은 글자와 위치(거래 내역 포함)를 내 알피 서버에만 남깁니다. PDF 파일과 암호는 보내지 않습니다. 다음에 보내면 덮어씁니다.</Info>
+                  {pdfNote.sent && <span className="help">{pdfNote.sent}</span>}
+                </div>
+              )}
             </div>
           )}
         </div>
