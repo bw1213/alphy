@@ -16,6 +16,9 @@ export default function AccountReturn({ id, reload = 0, onChange }: { id: string
   const [flows, setFlows] = useState<Flow[]>([]);
   const [today, setToday] = useState("");
   const [mine, setMine] = useState(0);
+  const [start, setStart] = useState("");
+  const [startForm, setStartForm] = useState<string | null>(null);
+  const [startErr, setStartErr] = useState("");
   useEffect(() => {
     if (!id) return;
     fetch("/api/dashboard", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
@@ -23,10 +26,19 @@ export default function AccountReturn({ id, reload = 0, onChange }: { id: string
       const fl: Flow[] = j?.flows?.[id] ?? [];
       setFlows(fl);
       setToday(j?.today ?? "");
+      setStart(j?.starts?.[id] ?? "");
       setRows(accountReturns(pts, j?.retFlows?.[id] ?? fl));
     }).catch(() => setRows([]));
   }, [id, reload, mine]);
   const [showFlows, setShowFlows] = useState(false);
+  const saveStart = async (date: string | null) => {
+    setStartErr("");
+    const r = await fetch("/api/dashboard", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retStart", accountId: id, date }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { setStartErr(j.error ?? "저장하지 못했습니다."); return; }
+    setStartForm(null);
+    setMine((k) => k + 1);
+  };
   const last = rows?.at(-1);
   const cagr = rows ? annualized(rows) : null;
   const mwr = rows ? moneyWeighted(rows) : null;
@@ -43,7 +55,7 @@ export default function AccountReturn({ id, reload = 0, onChange }: { id: string
       </h2>
       {!rows ? <p className="help">불러오는 중…</p> : rows.length < 2 ? <p className="help">기록이 이틀 이상 쌓이면 계산합니다.</p> : (
         <>
-          <p className="help" style={{ marginTop: 0 }}>{rows[0].date}부터{flows.length ? ` · 앱 입출금 ${flows.length}건 (순 ${net >= 0 ? "입금" : "출금"} ${won(Math.abs(net))}) 뺌` : ""}</p>
+          <p className="help" style={{ marginTop: 0 }}>{rows[0].date}부터{start ? " (시작일 지정)" : ""}{flows.length ? ` · 앱 입출금 ${flows.length}건 (순 ${net >= 0 ? "입금" : "출금"} ${won(Math.abs(net))}) 뺌` : ""}</p>
           <div className="kpis" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 120px), 1fr))", margin: "6px 0" }}>
             {cagr != null && <div className="kpi"><div className="k">연평균</div><div className="v" style={{ fontSize: 18, color: color(cagr) }}>{pct(cagr)}</div></div>}
             {mwr != null && <div className="kpi"><div className="k">금액가중 (연)</div><div className="v" style={{ fontSize: 18, color: color(mwr) }}>{pct(mwr)}</div></div>}
@@ -72,7 +84,17 @@ export default function AccountReturn({ id, reload = 0, onChange }: { id: string
       )}
       <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
         <button style={{ width: "auto", padding: "4px 10px" }} onClick={() => setShowFlows((v) => !v)}>입금·출금 {flows.length ? `${flows.length}건 ` : ""}{showFlows ? "닫기" : "보기·넣기"}</button>
+        <button style={{ width: "auto", padding: "4px 10px" }} onClick={() => { setStartErr(""); setStartForm(startForm == null ? start || today : null); }}>{startForm != null ? "시작일 닫기" : start ? `시작일 ${start}` : "시작일 바꾸기"}</button>
       </div>
+      {startForm != null && (
+        <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "end" }}>
+          <label className="f" style={{ flex: "1 1 160px" }}>수익률 시작일<input type="date" value={startForm} max={today || undefined} onChange={(e) => setStartForm(e.target.value)} /></label>
+          <button className="primary" style={{ width: "auto" }} disabled={!startForm} onClick={() => saveStart(startForm)}>저장</button>
+          {start && <button style={{ width: "auto" }} onClick={() => saveStart(null)}>처음부터</button>}
+          <Info>이 날짜의 평가액을 출발점으로 삼고, 그 전 기록과 입출금은 수익률에서 뺍니다. 기록 자체는 지우지 않아 언제든 &quot;처음부터&quot;로 되돌릴 수 있습니다. 초기 금액이 잘못 잡혔을 때 바로잡은 날로 정하세요.</Info>
+          {startErr && <p className="help" style={{ color: "var(--bad)", margin: 0, flexBasis: "100%" }}>{startErr}</p>}
+        </div>
+      )}
 
       {showFlows && today && (
         <div style={{ marginTop: 8 }}>

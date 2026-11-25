@@ -6,7 +6,7 @@ import { buildLedger, cleanEntry, mergeSeries, parseLedgerText, splitFactor, typ
 import { addEntries, deleteEntry, ledgerStatus, mergedHistory, rebuildAccount } from "@/lib/accounts/ledgerStore";
 import { accountReturns, annualized, moneySummary, moneyWeighted, yearlyReturns } from "@/lib/manual/returns";
 import { loadAccounts, saveAccounts } from "@/lib/manual/store";
-import { loadHistory, saveHistory } from "@/lib/manual/value";
+import { loadHistory, saveHistory, setReturnStart } from "@/lib/manual/value";
 
 const rates = { commission: 0, sellTax: 0, usCommission: 0, usFx: 0 };
 const ctx = { today: "2026-11-24", rates, find: (n: string) => (n === "삼성전자" ? { code: "005930", name: "삼성전자" } : null) };
@@ -135,5 +135,20 @@ describe("과거 기록 저장", () => {
     expect(r.added.map((x) => x.date)).toEqual(["2026-10-19"]);
     expect(r.skipped[0].error).toMatch(/2026-11-17부터는 앱이/);
     expect(loadAccounts("owner", env)[0].cash).toBe(1000);
+  });
+
+  it("수익률 시작일을 정하면 그 전 점과 입출금은 빼고, 지우면 처음부터", () => {
+    saveHistory({ prices: null, points: { kis: [
+      { date: "2026-11-17", total: 10_000_000, cash: 0, stock: 0, cost: 0 },
+      { date: "2026-11-18", total: 140_000_000, cash: 0, stock: 0, cost: 0 },
+      { date: "2026-11-19", total: 141_400_000, cash: 0, stock: 0, cost: 0 },
+    ] }, kis: null, flows: { kis: [{ id: "f1", date: "2026-11-17", amount: 5, at: "2026-11-17T00:00:00.000Z" }, { id: "f2", date: "2026-11-19", amount: 7, at: "2026-11-19T00:00:00.000Z" }] } }, "owner", env);
+    setReturnStart("owner", "kis", "2026-11-18", env);
+    const m = mergedHistory("owner", loadHistory("owner", env), env);
+    expect(m.points.kis.map((p) => p.date)).toEqual(["2026-11-18", "2026-11-19"]);
+    expect(m.flows.kis.map((f) => f.id)).toEqual(["f2"]);
+    setReturnStart("owner", "kis", null, env);
+    expect(mergedHistory("owner", loadHistory("owner", env), env).points.kis.length).toBe(3);
+    expect(() => setReturnStart("owner", "kis", "어제", env)).toThrow(/날짜/);
   });
 });

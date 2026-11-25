@@ -5,7 +5,7 @@ import { loadLog, loadPlan } from "@/lib/auto/store";
 import { planMarket } from "@/lib/auto/session";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { loadAccounts, loadManualLog, loadTrades } from "@/lib/manual/store";
-import { KIS_ID, deleteFlow, putFlow, loadHistory, refreshHistory } from "@/lib/manual/value";
+import { KIS_ID, deleteFlow, putFlow, loadHistory, refreshHistory, setReturnStart } from "@/lib/manual/value";
 import { hasKisAccount, kisReader } from "@/lib/manual/kis";
 import { allFills } from "@/lib/accounts/fills";
 import { mergedHistory } from "@/lib/accounts/ledgerStore";
@@ -33,6 +33,7 @@ export async function GET(req: Request) {
     prices: h.prices,
     ...(() => { const m = mergedHistory(user.id, h); return { points: m.points, retFlows: m.flows }; })(),
     flows: h.flows ?? {},
+    starts: h.starts ?? {},
     kis: hasKisAccount(user) ? { view: h.kis ?? null, plan: plan ? { label: plan.label, budget: plan.budget, enabled: plan.enabled, market: planMarket(plan) } : null, last: pick(autoLast) } : null,
     kisId: KIS_ID,
     manual: loadAccounts(user.id).map((a) => ({
@@ -49,6 +50,7 @@ export async function GET(req: Request) {
  * { action: "refresh" } 시세·한국투자증권 잔고를 새로 받아 오늘 점 기록
  * { action: "flow", accountId, date, amount, note?, id? } 입금(+)·출금(−) 기록 (id 는 고치기). 수동 계좌는 예수금에도 반영
  * { action: "deleteFlow", id }
+ * { action: "retStart", accountId, date | null }   누적 수익률을 그날부터 계산 (null 은 처음부터)
  */
 export async function POST(req: Request) {
   const { user, denied } = requireUser(req);
@@ -63,6 +65,13 @@ export async function POST(req: Request) {
       if (!ok) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
       return NextResponse.json({ ok: true, ...putFlow(user.id, id, { date: String(body.date ?? ""), amount: Number(body.amount), note: body.note }, body.id ? String(body.id) : undefined) });
     } catch (err) { return NextResponse.json({ error: (err as Error).message }, { status: 400 }); }
+  }
+  if (body?.action === "retStart") {
+    const id = String(body.accountId ?? "");
+    const ok = id === KIS_ID ? hasKisAccount(user) : loadAccounts(user.id).some((a) => a.id === id);
+    if (!ok) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
+    try { return NextResponse.json({ ok: true, starts: setReturnStart(user.id, id, body.date ? String(body.date) : null) }); }
+    catch (err) { return NextResponse.json({ error: (err as Error).message }, { status: 400 }); }
   }
   if (body?.action !== "refresh") return NextResponse.json({ error: "알 수 없는 요청" }, { status: 400 });
   return startJob(refreshJobs, user.id, "refresh", async () => {

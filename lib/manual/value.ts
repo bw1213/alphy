@@ -70,6 +70,7 @@ export interface History {
   points: Record<string, Snapshot[]>;
   kis?: KisView | null;
   flows?: Record<string, Flow[]>;
+  starts?: Record<string, string>;
 }
 
 export const MAX_POINTS = 20_000;
@@ -77,8 +78,8 @@ export const MAX_POINTS = 20_000;
 export function loadHistory(user: string = OWNER_ID, e: Env = process.env): History {
   try {
     const j = JSON.parse(fs.readFileSync(userFile("manual-history.json", user, e), "utf8"));
-    return { prices: j?.prices ?? null, points: j?.points && typeof j.points === "object" ? j.points : {}, kis: j?.kis ?? null, flows: j?.flows && typeof j.flows === "object" ? j.flows : {} };
-  } catch { return { prices: null, points: {}, kis: null, flows: {} }; }
+    return { prices: j?.prices ?? null, points: j?.points && typeof j.points === "object" ? j.points : {}, kis: j?.kis ?? null, flows: j?.flows && typeof j.flows === "object" ? j.flows : {}, starts: j?.starts && typeof j.starts === "object" ? j.starts : {} };
+  } catch { return { prices: null, points: {}, kis: null, flows: {}, starts: {} }; }
 }
 
 export function saveHistory(h: History, user: string = OWNER_ID, e: Env = process.env) {
@@ -310,4 +311,13 @@ export function moveCash(user: string, accountId: string, date: string, amount: 
   h.points = { ...h.points, [accountId]: todayPoint(shiftPoints(h.points[accountId] ?? [], { date, at }, Math.round(amount)), account, h.prices, now) };
   saveHistory(h, user, e);
   return account;
+}
+
+export function setReturnStart(user: string, accountId: string, date: string | null, e: Env = process.env): Record<string, string> {
+  if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("날짜 형식이 아닙니다 (예: 2026-11-20).");
+  const h = loadHistory(user, e);
+  const starts = { ...(h.starts ?? {}) };
+  if (date) starts[accountId] = date; else delete starts[accountId];
+  saveHistory({ ...h, starts }, user, e);
+  return starts;
 }
