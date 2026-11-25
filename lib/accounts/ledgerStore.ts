@@ -49,7 +49,7 @@ export interface AddResult { added: LedgerEntry[]; skipped: { index: number; err
  * 기록 넣기. 앱 기록이 시작된 날부터는 배당·이자·비용만 받고(수동 계좌 예수금에 바로 반영),
  * 매매·입출금은 계좌 화면의 체결 기록·입금·출금으로 넣도록 건너뜀. 이미 있는 것과 똑같은 기록도 건너뜀.
  */
-export function addEntries(user: string, accountId: string, inputs: EntryInput[], opts: { manual: boolean; e?: Env; now?: number }): AddResult {
+export function addEntries(user: string, accountId: string, inputs: EntryInput[], opts: { manual: boolean; bulk?: boolean; e?: Env; now?: number }): AddResult {
   const e = opts.e ?? process.env;
   const now = opts.now ?? Date.now();
   const f = loadLedger(user, e);
@@ -65,6 +65,7 @@ export function addEntries(user: string, accountId: string, inputs: EntryInput[]
       const at = new Date(now + index).toISOString();
       const entry: LedgerEntry = { ...x, id: randomBytes(5).toString("hex"), at };
       if (started && x.date >= upTo) {
+        if (opts.bulk) throw new Error(`${upTo}부터는 앱이 이 계좌를 기록하고 있어 예수금·보유에 이미 들어 있으므로 넣지 않았습니다.`);
         if (!LIVE_KINDS.includes(x.kind)) throw new Error(`${upTo}부터는 앱이 기록 중이라 ${KIND_LABEL[x.kind]}은(는) 계좌 화면의 ${x.kind === "deposit" || x.kind === "withdraw" ? "입금·출금" : x.kind === "buy" || x.kind === "sell" ? "체결 기록" : "계좌 고치기"}으로 넣으세요.`);
         if (!opts.manual) throw new Error(`${upTo}부터의 ${KIND_LABEL[x.kind]}은(는) 증권사 잔고에 이미 들어 있습니다.`);
         if (x.currency === "USD") throw new Error("앱 기록이 시작된 뒤의 배당·이자·비용은 원화로 넣으세요.");

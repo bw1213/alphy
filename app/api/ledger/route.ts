@@ -63,7 +63,7 @@ export async function GET(req: Request) {
 
 /**
  * { action: "parse", accountId, text }   붙여넣은 표 읽어 보기 (저장 안 함)
- * { action: "add", accountId, entries: [...] }   기록 넣기 (한 건도 같은 모양)
+ * { action: "add", accountId, entries: [...], bulk? }   기록 넣기 (한 건도 같은 모양). bulk 는 붙여넣기·PDF: 앱 기록 시작일부터는 넣지 않음
  * { action: "edit", accountId, id, entry }
  * { action: "delete", accountId, id }
  * { action: "clear", accountId }   과거 기록 모두 지우기
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
         const bad: { index: number; error: string }[] = [];
         const good: { i: number; x: ReturnType<typeof cleanEntry> }[] = [];
         raw.forEach((x, i) => { try { good.push({ i, x: named(cleanEntry(x, c)) }); } catch (e) { bad.push({ index: i, error: (e as Error).message }); } });
-        const r = addEntries(user.id, id, good.map((g) => g.x), { manual: kind === "manual" });
+        const r = addEntries(user.id, id, good.map((g) => g.x), { manual: kind === "manual", bulk: body.bulk === true });
         return NextResponse.json({ ok: true, added: r.added.length, skipped: [...bad, ...r.skipped.map((s) => ({ index: good[s.index].i, error: s.error }))].sort((a, b) => a.index - b.index) });
       }
       case "edit":
