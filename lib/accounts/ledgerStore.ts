@@ -197,8 +197,9 @@ export function mergedHistory(user: string, h: History = loadHistory(user), e: E
   const flows: Record<string, Flow[]> = {};
   for (const id of new Set([...Object.keys(h.points), ...Object.keys(h.flows ?? {}), ...Object.keys(built)])) {
     const m = mergeSeries(h.points[id] ?? [], h.flows?.[id] ?? [], built[id]);
-    points[id] = m.points;
-    flows[id] = m.flows;
+    const start = h.starts?.[id];
+    points[id] = start ? m.points.filter((p) => p.date >= start) : m.points;
+    flows[id] = start ? m.flows.filter((f) => f.date > start) : m.flows;
   }
   return { points, flows };
 }
