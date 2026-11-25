@@ -70,3 +70,51 @@ describe("머리글 찾기", () => {
     expect(findLabel(page, /^없는말$/)).toBeUndefined();
   });
 });
+
+describe("글자마다 따로 나온 PDF", () => {
+  const split = (pages: Awaited<ReturnType<typeof readPdfText>>) => pages.map((pg) => pg.flatMap((t) => {
+    const parts = t.str.split(/(\s+)/);
+    const per = t.w / t.str.length;
+    let x = t.x;
+    return parts.flatMap((part) => {
+      const out = /^\s+$/.test(part) ? [] : [...part].map((c, i) => ({ str: c, x: x + i * per, y: t.y, w: per }));
+      x += part.length * per;
+      return out;
+    });
+  }).concat([{ str: "2026-11-25", x: 200, y: 800, w: 39 }]));
+
+  it("한화: 글자를 이어 붙이고 바닥글 날짜는 거래로 보지 않음", async () => {
+    const whole = parseStatement(await readPdfText(pdfjs as any, file(), "1234"));
+    const r = parseStatement(split(await readPdfText(pdfjs as any, file(), "1234")));
+    expect(r.skipped).toEqual([]);
+    expect(r.rows).toEqual(whole.rows);
+    expect(r.checked).toBe(whole.checked);
+  });
+
+  it("미래에셋: 글자를 이어 붙여 읽음", async () => {
+    const whole = parseStatement(await readPdfText(pdfjs as any, file("mirae"), "1234"));
+    const r = parseStatement(split(await readPdfText(pdfjs as any, file("mirae"), "1234")));
+    expect(r.skipped).toEqual([]);
+    expect(r.rows).toEqual(whole.rows);
+    expect(r.checked).toBe(8);
+  });
+
+  it("예탁금이용료는 이자", async () => {
+    const { joinGlyphs } = await import("@/lib/accounts/statement");
+    expect(joinGlyphs([{ str: "[입금]", x: 0, y: 1, w: 20 }, { str: "예탁금", x: 22, y: 1, w: 15 }, { str: "이용료입금", x: 37, y: 1, w: 25 }])).toEqual([{ str: "[입금] 예탁금이용료입금", x: 0, y: 1, w: 62 }]);
+  });
+});
+
+describe("미래에셋 실제 모양", () => {
+  it("단가와 종목명이 한 덩어리로 나와도 나눠 읽음", async () => {
+    const pages = await readPdfText(pdfjs as any, file("mirae"), "1234");
+    const whole = parseStatement(pages);
+    const merged = pages.map((pg) => {
+      const price = pg.find((t) => t.str === "35,000");
+      const name = price && pg.find((t) => t.str === "KODEX 200" && Math.abs(t.y - price.y) < 1);
+      if (!price || !name) return pg;
+      return [...pg.filter((t) => t !== price && t !== name), { str: `${price.str} ${name.str}`, x: price.x, y: price.y, w: name.x + name.w - price.x }];
+    });
+    expect(parseStatement(merged).rows).toEqual(whole.rows);
+  });
+});

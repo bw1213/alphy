@@ -32,6 +32,21 @@ export async function readPdfText(pdfjs: PdfLib, data: Uint8Array, password = ""
   return pages;
 }
 
+export function joinGlyphs(page: Page): Page {
+  const out: TextItem[] = [];
+  const sorted = [...page].sort((a, b) => a.y - b.y || a.x - b.x);
+  for (const t of sorted) {
+    const p = out[out.length - 1];
+    const gap = p ? t.x - (p.x + p.w) : Infinity;
+    const numberEdge = gap >= 1 && p && (NUM.test(t.str) || NUM.test(p.str.split(" ").pop() ?? ""));
+    if (p && Math.abs(p.y - t.y) < 0.8 && gap > -1 && gap < 3 && !numberEdge) {
+      p.str += (gap >= 1 ? " " : "") + t.str;
+      p.w = t.x + t.w - p.x;
+    } else out.push({ ...t });
+  }
+  return out;
+}
+
 export function pageLines(page: Page): string[] {
   const rows: { y: number; items: TextItem[] }[] = [];
   for (const t of [...page].sort((a, b) => a.y - b.y)) {
@@ -122,7 +137,7 @@ function kindOf(text: string): string | null {
   if (/\[매수\]|매수/.test(s)) return "매수";
   if (/\[매도\]|매도/.test(s)) return "매도";
   if (/배당|분배/.test(s)) return "배당";
-  if (/이자/.test(s)) return "이자";
+  if (/이자|이용료/.test(s)) return "이자";
   if (/\[입금\]/.test(s)) return "입금";
   if (/\[출금\]/.test(s)) return /세금|수수료/.test(s) ? "비용" : "출금";
   if (/입금/.test(s)) return "입금";
@@ -141,7 +156,7 @@ export function parseHanwha(pages: Page[]): StatementResult {
     if (!cols) continue;
     const { cols: cs, textLeft, textRight } = cols;
     const top = columns(page)?.top ?? 0;
-    const anchors = page.filter((t) => DATE.test(t.str) && t.x < textRight && t.y > top).sort((a, b) => a.y - b.y);
+    const anchors = page.filter((t) => DATE.test(t.str) && t.x < textLeft && t.y > top).sort((a, b) => a.y - b.y);
     if (!anchors.length) continue;
     const gaps = anchors.slice(1).map((a, i) => a.y - anchors[i].y).filter((g) => g > 5).sort((a, b) => a - b);
     const step = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 32;
@@ -215,7 +230,7 @@ const MDATE = /^(\d{4})[/.-](\d{2})[/.-](\d{2})$/;
 
 function splitDates(page: Page): Page {
   return page.flatMap((t) => {
-    const m = t.str.match(/^(\d{4}[/.-]\d{2}[/.-]\d{2})\s+(.+)$/);
+    const m = t.str.match(/^(\d{4}[/.-]\d{2}[/.-]\d{2}|-?[\d,]+(?:\.\d+)?)\s+(\D.*)$/);
     if (!m) return [t];
     const k = m[1].length / t.str.length;
     return [{ ...t, str: m[1], w: t.w * k }, { ...t, str: m[2], x: t.x + t.w * (1 - m[2].length / t.str.length), w: (t.w * m[2].length) / t.str.length }];
@@ -251,6 +266,7 @@ function miraeKind(s: string): { kind: string; leg?: "cash" | "fx" } | null {
   if (/입고/.test(s)) return { kind: "입고" };
   if (/출고/.test(s)) return { kind: "출고" };
   if (/(세금|수수료|제비용).*출금|출금.*(세금|수수료)/.test(s)) return { kind: "비용" };
+  if (/송금/.test(s)) return { kind: "출금" };
   if (/입금/.test(s)) return { kind: "입금" };
   if (/출금/.test(s)) return { kind: "출금" };
   return null;
@@ -276,7 +292,8 @@ export function parseMirae(pages: Page[]): StatementResult {
     const { l1, l2 } = cols;
     const top = here?.top ?? 0;
     const textRight = l1.find((x) => x.col === "fee")?.c ?? Infinity;
-    const anchors = page.filter((t) => MDATE.test(t.str) && t.y > top + 2 && t.x < textRight).sort((a, b) => a.y - b.y);
+    const kindC = l1.find((x) => x.col === "kind")?.c ?? textRight;
+    const anchors = page.filter((t) => MDATE.test(t.str) && t.y > top + 2 && t.x < kindC).sort((a, b) => a.y - b.y);
     if (!anchors.length) continue;
     const gaps = anchors.slice(1).map((a, i) => a.y - anchors[i].y).filter((g) => g > 5).sort((a, b) => a - b);
     const step = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 40;
@@ -286,32 +303,38 @@ export function parseMirae(pages: Page[]): StatementResult {
       const n: Partial<Record<MCol, number>> = {};
       const kindText: string[] = [], code: string[] = [], name: TextItem[] = [];
       let cur = "";
+      const nums: { t: TextItem; first: boolean; cs: typeof l1 }[] = [];
       for (const t of page.filter((x) => x !== a && x.y >= lo && x.y < hi).sort((p, q) => p.y - q.y || p.x - q.x)) {
         const first = Math.abs(t.y - a.y) < step / 4;
         const cs = first ? l1 : l2;
-        if (NUM.test(t.str)) {
-          const c = rightOf(cs, t.x + t.w);
-          if (c && n[c] === undefined) n[c] = num(t.str);
-          continue;
-        }
+        if (NUM.test(t.str)) { nums.push({ t, first, cs }); continue; }
         const c = leftOf(cs, t.x);
         if (first) { if (c === "date" || c === "kind") kindText.push(t.str); else if (c === "code") code.push(t.str); }
         else if (c === "cur" && /^[A-Z]{3}$/.test(t.str)) cur = t.str;
         else if (c === "name" || c === "price" || c === "qty") name.push(t);
       }
+      const nameX = Math.min(...name.map((t) => t.x));
+      for (const { t, first, cs } of nums) {
+        const c = rightOf(cs, t.x + t.w);
+        if (!first && t.x >= nameX - 1 && name.some((m) => Math.abs(m.y - t.y) < 2.5 && t.x < (cs.find((x) => x.col === "tax")?.c ?? Infinity))) name.push(t);
+        else if (first && c === "code") code.push(t.str);
+        else if (c && n[c] === undefined) n[c] = num(t.str);
+      }
+      name.sort((p, q) => p.y - q.y || p.x - q.x);
       const [, y, mo, d] = a.str.match(MDATE)!;
       const date = `${y}-${mo}-${d}`;
       const desc = kindText.join("").replace(/\s/g, "");
       const label = `${date} ${desc.slice(0, 30)}`;
       const won = n.cash ?? n.amount;
       const usd = cur === "USD" || /^해외/.test(desc) || (won === undefined && (n.fxCash ?? n.fxAmount) !== undefined);
-      const cashSign = /입금$|환매/.test(desc) ? 1 : /출금$|매수$/.test(desc) ? -1 : 0;
+      const cashSign = /입금$|환매/.test(desc) ? 1 : /출금$|송금$|매수$/.test(desc) ? -1 : 0;
       if (cashSign && won !== undefined && !/취소/.test(desc)) {
-        const now = n.balance ?? 0;
+        let now = n.balance ?? 0;
         if (bal !== undefined) {
           checked++;
           const want = bal + cashSign * won;
-          if (Math.abs(want - now) > 1) mismatches.push(`${date} ${desc}: 예수금 ${want.toLocaleString("ko-KR")}원이어야 하는데 ${now.toLocaleString("ko-KR")}원`);
+          if (n.balance === undefined && want < 0) now = want;
+          else if (Math.abs(want - now) > 1 && !(cashSign > 0 && Math.abs(now - won) <= 1)) mismatches.push(`${date} ${desc}: 예수금 ${want.toLocaleString("ko-KR")}원이어야 하는데 ${now.toLocaleString("ko-KR")}원`);
         }
         bal = now;
       } else if (n.balance !== undefined) bal = n.balance;
@@ -343,7 +366,8 @@ export function parseMirae(pages: Page[]): StatementResult {
   return { broker: "미래에셋증권", rows, checked, mismatches, skipped, ...(fx ? { fx } : {}) };
 }
 
-export function parseStatement(pages: Page[]): StatementResult {
+export function parseStatement(raw: Page[]): StatementResult {
+  const pages = raw.map(joinGlyphs);
   const m = parseMirae(pages);
   const h = parseHanwha(pages);
   return m.rows.length + m.skipped.length >= h.rows.length + h.skipped.length ? m : h;
