@@ -9,6 +9,7 @@ import { loadAccounts, type FeeRates } from "@/lib/manual/store";
 import { KIS_ID } from "@/lib/manual/value";
 import { hasKisAccount } from "@/lib/manual/kis";
 import { cleanEntry, parseLedgerText, toCsv, type CleanCtx } from "@/lib/accounts/ledger";
+import { saveStatementDebug } from "@/lib/accounts/statementDebug";
 import { addEntries, clearEntries, deleteEntry, editEntry, ledgerStatus, rebuildAccount, MAX_ENTRIES } from "@/lib/accounts/ledgerStore";
 
 export const runtime = "nodejs";
@@ -67,6 +68,7 @@ export async function GET(req: Request) {
  * { action: "delete", accountId, id }
  * { action: "clear", accountId }   과거 기록 모두 지우기
  * { action: "build", accountId }   과거 평가액 다시 계산. 결과는 ?job=
+ * { action: "statementDebug", accountId, pages }   못 읽은 PDF 글자 위치를 점검용으로 남김
  */
 export async function POST(req: Request) {
   const { user, denied } = requireUser(req);
@@ -104,6 +106,9 @@ export async function POST(req: Request) {
           const b = await rebuildAccount(user.id, id, { onProgress: progress });
           return { ok: true as const, points: b?.points.length ?? 0, warnings: b?.warnings ?? [] };
         }, { errStatus: () => 400 });
+      case "statementDebug":
+        saveStatementDebug(user.id, body.pages, String(body.name ?? ""));
+        return NextResponse.json({ ok: true });
       default:
         return NextResponse.json({ error: "알 수 없는 요청" }, { status: 400 });
     }
