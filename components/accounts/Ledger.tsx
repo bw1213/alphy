@@ -102,9 +102,9 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
     try {
       const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
       pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
-      const { readPdfText, parseHanwha, pageLines, toLedgerTsv } = await import("@/lib/accounts/statement");
+      const { readPdfText, parseStatement, pageLines, toLedgerTsv } = await import("@/lib/accounts/statement");
       const pages = await readPdfText(pdfjs, new Uint8Array(await pdf.file.arrayBuffer()), pdf.password);
-      const r = parseHanwha(pages);
+      const r = parseStatement(pages);
       if (!r.rows.length) {
         setPdfNote({ ok: "", bad: ["이 PDF 모양은 아직 읽지 못합니다. 아래 \"읽은 글자 받기\" 파일을 보내 주시면 맞춰 드릴게요."], lines: pages.map((pg, i) => [`--- ${i + 1}쪽`, ...pageLines(pg)].join("\n")).join("\n") });
         return;
@@ -112,7 +112,7 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
       const text = toLedgerTsv(r.rows);
       setPdf((p) => (p ? { ...p, password: "" } : p));
       setPaste(text);
-      setPdfNote({ ok: `${r.broker} ${r.rows.length}건을 읽었습니다${r.checked ? ` · 원화예수금 잔액으로 ${r.checked - r.mismatches.length}/${r.checked}건 맞음` : ""}.`, bad: [...r.mismatches.map((m) => `잔액 안 맞음: ${m}`), ...r.skipped.map((m) => `건너뜀: ${m}`)] });
+      setPdfNote({ ok: `${r.broker} ${r.rows.length}건을 읽었습니다${r.checked ? ` · 예수금 잔액으로 ${r.checked - r.mismatches.length}/${r.checked}건 맞음` : ""}.${r.fx ? ` 환전 ${r.fx}건은 따로 넣지 않고 달러 거래를 그날 환율로 계산합니다.` : ""}`, bad: [...r.mismatches.map((m) => `잔액 안 맞음: ${m}`), ...r.skipped.map((m) => `건너뜀: ${m}`)] });
       await readPaste(text);
     } catch (e) { setError((e as Error).message); } finally { setBusy((b) => (b === "pdf" ? "" : b)); }
   };
@@ -210,7 +210,7 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
       {pdf && (
         <div style={{ marginTop: 8, padding: 10, border: "1px solid var(--border)", borderRadius: 8, display: "grid", gap: 8 }}>
           <p className="help" style={{ margin: 0, display: "flex", alignItems: "center", gap: 4 }}>증권사 거래내역 PDF
-            <Info>지금은 한화투자증권 &quot;거래명세서(고객확인용)&quot;를 읽습니다. PDF와 암호는 이 브라우저 안에서만 쓰고 서버로 보내지 않습니다. 읽은 내용은 아래 붙여넣기 칸에 표로 들어가니, 확인하고 고친 뒤 넣으세요. 원화예수금 잔액으로 줄마다 맞춰 보고, 안 맞으면 빠진 장이나 잘못 읽은 줄이 있다는 뜻입니다.</Info>
+            <Info>지금은 한화투자증권 &quot;거래명세서(고객확인용)&quot;와 미래에셋증권 &quot;거래내역서&quot;를 읽습니다. 펀드는 기준가를 받지 못해 마지막 거래 기준가로 평가합니다. PDF와 암호는 이 브라우저 안에서만 쓰고 서버로 보내지 않습니다. 읽은 내용은 아래 붙여넣기 칸에 표로 들어가니, 확인하고 고친 뒤 넣으세요. 예수금 잔액으로 줄마다 맞춰 보고, 안 맞으면 빠진 장이나 잘못 읽은 줄이 있다는 뜻입니다.</Info>
           </p>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))", gap: 8 }}>
             <label className="f">파일<input type="file" accept="application/pdf,.pdf" onChange={(e) => setPdf({ ...pdf, file: e.target.files?.[0] ?? null })} /></label>

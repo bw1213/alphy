@@ -13,7 +13,7 @@ import { loadSettings } from "../settings/store";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import { kst, minusDays } from "../auto/time";
 import { loadHistory, moveCash, type History } from "../manual/value";
-import { buildLedger, ledgerKey, mergeSeries, LIVE_KINDS, KIND_LABEL, type Built, type EntryInput, type Join, type LedgerEntry, type PriceSet } from "./ledger";
+import { buildLedger, isFundCode, ledgerKey, mergeSeries, LIVE_KINDS, KIND_LABEL, type Built, type EntryInput, type Join, type LedgerEntry, type PriceSet } from "./ledger";
 import type { Flow } from "../manual/returns";
 import type { Snapshot } from "../manual/value";
 
@@ -155,7 +155,7 @@ export async function rebuildAccount(user: string, accountId: string, opts: { e?
   let built: Built | null = null;
   if (entries.length) {
     const from = entries.reduce((m, x) => (x.date < m ? x.date : m), upTo);
-    const tickers = [...new Set(entries.filter((x) => x.ticker && ["buy", "sell", "in", "out"].includes(x.kind)).map((x) => x.ticker!))];
+    const tickers = [...new Set(entries.filter((x) => x.ticker && ["buy", "sell", "in", "out"].includes(x.kind)).map((x) => x.ticker!))].filter((t) => !isFundCode(t));
     const usd = entries.some((x) => x.currency === "USD") || tickers.some((t) => /^[A-Z]/.test(t));
     const px = await (opts.load ?? loadPriceSet)(tickers, from, upTo, usd, opts.onProgress);
     built = buildLedger(entries, upTo, px, now);
