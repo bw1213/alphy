@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   return NextResponse.json(loadStrategies(process.env, user.id));
 }
 
-/** 전략 저장 (같은 이름이면 덮어씀). 사람마다 따로 저장되고, 저장된 코드는 본인 브라우저에서만 실행됨 */
+/** 전략 저장 (같은 이름이면 덮어씀). 저장된 코드는 본인 브라우저와 서버의 격리 공간에서만 실행됨 */
 export async function PUT(req: Request) {
   const { user, denied } = requireUser(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });

@@ -3,14 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "sandbox": "node scripts/build-sandbox.mjs",
+    "predev": "npm run sandbox",
+    "dev": "NODE_OPTIONS=--no-node-snapshot next dev -p 3000",
+    "prebuild": "npm run sandbox",
     "build": "next build",
     "start": "next start -p 3000",
+    "pretest": "npm run sandbox",
     "test": "vitest run",
+    "pretypecheck": "npm run sandbox",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "iconv-lite": "0.6.3",
+    "isolated-vm": "6.2.0",
     "next": "15.5.28",
     "pdfjs-dist": "^4.10.38",
     "qrcode": "1.5.4",
@@ -23,6 +29,7 @@
     "@types/qrcode": "1.5.5",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
+    "esbuild": "0.28.2",
     "typescript": "5.9.3",
     "vitest": "3.2.4"
   }

@@ -342,7 +342,6 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
   const picked = form.strategy.startsWith("saved:") ? lib.find((s) => `saved:${s.name}` === form.strategy) : null;
   const nameOf = useNameOf(picked?.universe?.mode === "list" ? splitCodes(picked.universe.tickers) : []);
   const isCycle = !!picked?.cycle;
-  const isCustom = !!picked && !picked.cycle && !picked.builder;
 
   if (auth && !auth.loggedIn) return <main className="app"><Login auth={auth} title="로그인" onDone={() => fetchAuth().then((a) => { setAuth(a); load(); })} /></main>;
 
@@ -362,7 +361,6 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
                 <optgroup label="기본 전략">{STRATEGIES.map((s) => <option key={s.id} value={`builtin:${s.id}`}>{s.name}</option>)}</optgroup>
               </select>
             </label>
-            {isCustom && !auth?.user?.owner && <p className="help">코드 전략은 관리자만 운용할 수 있습니다.</p>}
             {picked?.universe ? (
               <p className="help" style={{ marginTop: 10 }}>대상 종목: <b>{universeLabel(picked.universe, nameOf)}</b><Info>종목은 내 전략에 저장된 것을 씁니다. 백테스트 화면에서 바꿔 저장하면 여기도 따라 바뀝니다.</Info></p>
             ) : (<>

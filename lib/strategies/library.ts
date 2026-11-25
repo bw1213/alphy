@@ -1,6 +1,6 @@
 /**
  * 내 전략 보관함 (서버 전용). 화면에서 만든 전략을 NAS 에 저장해 어느 기기에서나 같은 목록을 씁니다.
- * 저장 위치: {설정 폴더}/users/<사용자>/strategies.json (lib/settings/userdir.ts). 읽기는 누구나, 저장은 관리자 로그인 필요(코드가 브라우저에서 실행되므로).
+ * 저장 위치: {설정 폴더}/users/<사용자>/strategies.json (lib/settings/userdir.ts). 읽기·저장 모두 본인만.
  */
 import fs from "fs";
 import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";

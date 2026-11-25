@@ -5,3 +5,6 @@ services:
     build: .
     image: alphy:local
     labels: !reset []
+  alphy-runner:
+    image: alphy:local
+    labels: !reset []

@@ -5,6 +5,7 @@ import { requireAdminUser } from "@/lib/settings/auth";
 import { usersSummary } from "@/lib/diag/report";
 import { dataGate, RATE_MAX, RATE_WINDOW_MS } from "@/lib/server/limiter";
 import { configDir } from "@/lib/settings/store";
+import { runnerAlive } from "@/lib/sandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,5 +35,6 @@ export async function GET(req: Request) {
     rate: { max: RATE_MAX, minutes: RATE_WINDOW_MS / 60000 },
     config: configSummary(),
     memoryMb: Math.round(process.memoryUsage().rss / 1048576),
+    runner: await runnerAlive(),
   }, { headers: { "Cache-Control": "no-store" } });
 }

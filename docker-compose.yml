@@ -27,6 +27,30 @@ services:
     volumes:
       - ./nas/cache:/app/.cache       # 화면 설정(config/)·로그인 기록·시세 캐시·KIS 접근토큰
       - ./nas/csv:/app/data/csv       # 내 CSV 데이터 ({종목코드}.csv, KOSPI.csv)
+    networks: [default, sandbox]
+
+  # 전략 실행기: 사용자가 쓴 전략 코드만 여기서 실행. 설정 폴더·비밀값·인터넷 없음 (sandbox 망은 밖으로 나가지 못함)
+  # 이 컨테이너가 없으면 본체 안의 격리 공간에서 실행됩니다
+  alphy-runner:
+    image: ghcr.io/bw1213/alphy:latest
+    container_name: alphy-runner
+    restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    command: ["node", "--no-node-snapshot", "sandbox-runner.js"]
+    user: "65534:65534"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 768m
+    pids_limit: 64
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3100/health"]
+      interval: 60s
+      timeout: 5s
+    networks: [sandbox]
 
   watchtower:
     image: containrrr/watchtower:1.7.1
@@ -43,3 +67,7 @@ services:
       - WATCHTOWER_CLEANUP=true           # 이전 이미지 삭제
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  sandbox:
+    internal: true

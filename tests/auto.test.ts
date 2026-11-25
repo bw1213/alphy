@@ -84,8 +84,8 @@ describe("운용 전략 저장", () => {
     expect(loadPlan("owner", env)?.label).toBe("적립");
   });
 
-  it("직접 작성한 코드 전략은 owner 만", () => {
-    expect(() => cleanPlan({ strategy: "saved:내 코드", budget: 1_000_000 }, "mom", today, [customStrategy])).toThrow(/관리자만/);
+  it("직접 작성한 코드 전략은 누구나 (서버에선 격리 실행)", () => {
+    expect(cleanPlan({ strategy: "saved:내 코드", budget: 1_000_000 }, "mom", today, [customStrategy]).label).toBe("내 코드");
     expect(cleanPlan({ strategy: "saved:내 코드", budget: 1_000_000 }, "owner", today, [customStrategy]).label).toBe("내 코드");
   });
 
