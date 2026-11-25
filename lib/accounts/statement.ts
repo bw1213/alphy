@@ -38,7 +38,8 @@ export function joinGlyphs(page: Page): Page {
   for (const t of sorted) {
     const p = out[out.length - 1];
     const gap = p ? t.x - (p.x + p.w) : Infinity;
-    if (p && Math.abs(p.y - t.y) < 0.8 && gap > -1 && gap < 3) {
+    const numberEdge = gap >= 1 && p && (NUM.test(t.str) || NUM.test(p.str.split(" ").pop() ?? ""));
+    if (p && Math.abs(p.y - t.y) < 0.8 && gap > -1 && gap < 3 && !numberEdge) {
       p.str += (gap >= 1 ? " " : "") + t.str;
       p.w = t.x + t.w - p.x;
     } else out.push({ ...t });
@@ -229,7 +230,7 @@ const MDATE = /^(\d{4})[/.-](\d{2})[/.-](\d{2})$/;
 
 function splitDates(page: Page): Page {
   return page.flatMap((t) => {
-    const m = t.str.match(/^(\d{4}[/.-]\d{2}[/.-]\d{2})\s+(.+)$/);
+    const m = t.str.match(/^(\d{4}[/.-]\d{2}[/.-]\d{2}|-?[\d,]+(?:\.\d+)?)\s+(\D.*)$/);
     if (!m) return [t];
     const k = m[1].length / t.str.length;
     return [{ ...t, str: m[1], w: t.w * k }, { ...t, str: m[2], x: t.x + t.w * (1 - m[2].length / t.str.length), w: (t.w * m[2].length) / t.str.length }];
@@ -265,6 +266,7 @@ function miraeKind(s: string): { kind: string; leg?: "cash" | "fx" } | null {
   if (/입고/.test(s)) return { kind: "입고" };
   if (/출고/.test(s)) return { kind: "출고" };
   if (/(세금|수수료|제비용).*출금|출금.*(세금|수수료)/.test(s)) return { kind: "비용" };
+  if (/송금/.test(s)) return { kind: "출금" };
   if (/입금/.test(s)) return { kind: "입금" };
   if (/출금/.test(s)) return { kind: "출금" };
   return null;
@@ -325,13 +327,14 @@ export function parseMirae(pages: Page[]): StatementResult {
       const label = `${date} ${desc.slice(0, 30)}`;
       const won = n.cash ?? n.amount;
       const usd = cur === "USD" || /^해외/.test(desc) || (won === undefined && (n.fxCash ?? n.fxAmount) !== undefined);
-      const cashSign = /입금$|환매/.test(desc) ? 1 : /출금$|매수$/.test(desc) ? -1 : 0;
+      const cashSign = /입금$|환매/.test(desc) ? 1 : /출금$|송금$|매수$/.test(desc) ? -1 : 0;
       if (cashSign && won !== undefined && !/취소/.test(desc)) {
-        const now = n.balance ?? 0;
+        let now = n.balance ?? 0;
         if (bal !== undefined) {
           checked++;
           const want = bal + cashSign * won;
-          if (Math.abs(want - now) > 1) mismatches.push(`${date} ${desc}: 예수금 ${want.toLocaleString("ko-KR")}원이어야 하는데 ${now.toLocaleString("ko-KR")}원`);
+          if (n.balance === undefined && want < 0) now = want;
+          else if (Math.abs(want - now) > 1 && !(cashSign > 0 && Math.abs(now - won) <= 1)) mismatches.push(`${date} ${desc}: 예수금 ${want.toLocaleString("ko-KR")}원이어야 하는데 ${now.toLocaleString("ko-KR")}원`);
         }
         bal = now;
       } else if (n.balance !== undefined) bal = n.balance;
