@@ -124,4 +124,16 @@ describe("과거 기록 저장", () => {
     deleteEntry("owner", "m1", r.added[1].id, { e: env, now });
     expect(loadAccounts("owner", env)[0].cash).toBe(1000);
   });
+
+  it("붙여넣기·PDF로 한꺼번에 넣을 땐 앱 기록 시작일부터의 줄은 넣지 않음 (예수금에 이미 있음)", () => {
+    saveAccounts([{ id: "m1", name: "한화", broker: "한화투자증권", cash: 1000, positions: [], plan: null, createdAt: "", updatedAt: "" }], "owner", env);
+    saveHistory({ prices: null, points: { m1: [{ date: "2026-11-17", total: 1000, cash: 1000, stock: 0, cost: 0 }] }, kis: null, flows: {} }, "owner", env);
+    const r = addEntries("owner", "m1", [
+      { date: "2026-10-19", kind: "dividend", amount: 30 },
+      { date: "2026-11-17", kind: "dividend", amount: 50 },
+    ], { manual: true, bulk: true, e: env, now });
+    expect(r.added.map((x) => x.date)).toEqual(["2026-10-19"]);
+    expect(r.skipped[0].error).toMatch(/2026-11-17부터는 앱이/);
+    expect(loadAccounts("owner", env)[0].cash).toBe(1000);
+  });
 });

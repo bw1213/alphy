@@ -133,7 +133,7 @@ export default function Ledger({ id, onChanged }: { id: string; onChanged: () =>
   };
   const savePaste = () => rows && run("paste", async () => {
     const good = rows.filter((r) => r.entry);
-    const j = await post({ action: "add", entries: good.map((r) => r.entry) });
+    const j = await post({ action: "add", entries: good.map((r) => r.entry), bulk: true });
     setSkipped((j.skipped ?? []).map((s: { index: number; error: string }) => ({ line: `${good[s.index].line}줄: ${good[s.index].text.slice(0, 60)}`, error: s.error })));
     setRows(null);
     if (!j.skipped?.length) setPaste(null);
