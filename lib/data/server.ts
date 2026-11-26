@@ -12,8 +12,9 @@ import { fetchUsMaster, type UsStock } from "./usMaster";
 import { fetchYahooDaily, SP500, toKrw, USDKRW } from "./yahoo";
 import { applyBackfill, type BackfillNote, type BackfillRequestMap } from "./backfillApply";
 import { lookupCodes } from "../stocks/master";
+import { isDistributionAdjusted, undoDistributionAdjust } from "./distAdjust";
 import { credentialsFor, quoteCredentials, type KisCredentials } from "../kis/config";
-import { kisDividendRows, kisRawMonthly, kisUsDividendRows, mergeDividends, toEngineDividends, toEngineUsDividends, type KisDividendRow } from "../kis/dividends";
+import { exDateFromRecord, kisDividendRows, kisRawMonthly, kisUsDividendRows, mergeDividends, toEngineDividends, toEngineUsDividends, type KisDividendRow } from "../kis/dividends";
 import { getClient } from "../kis/client";
 import { KIS_EXCHANGE, kisDaily, kisIndexDaily, kisSp500Daily, kisUsSplitOnlyDaily, kisUsdKrwDaily, type KisExchange } from "../kis/market";
 
@@ -241,7 +242,12 @@ export interface LoadOptions {
 export async function loadData(req: DataRequest, opts: LoadOptions = {}): Promise<DataResponse> {
   const out = await loadPrices(req, opts);
   if (req.indices !== false) await addIndices(out, req);
-  if (req.dividends === false || req.source === "synthetic") return out;
+  if (req.source === "synthetic") return out;
+  if (req.dividends === false) {
+    const etfs = req.source === "csv" ? [] : Object.keys(out.data).filter((c) => isKrCode(c) && isKrEtf(c));
+    if (etfs.length) { try { await onlineDividends(etfs, req, out, opts, false); } catch { /* 못 받으면 시세 그대로 */ } }
+    return out;
+  }
   try {
     out.dividends = req.source === "csv" ? await csvDividends(Object.keys(out.data)) : await onlineDividends(Object.keys(out.data), req, out, opts);
   } catch (e) { out.warnings.push(`배당금·분배금 이력을 받지 못해 배당 없이 계산합니다: ${(e as Error).message}`); }
@@ -392,7 +398,42 @@ function kisDividendFetcher(cred: KisCredentials, usMarket: Map<string, string>)
   };
 }
 
-async function onlineDividends(codes: string[], req: DataRequest, out: DataResponse, opts: LoadOptions = {}): Promise<DividendData> {
+/** 기간을 자르기 전 국내 종목 시세: 수정주가는 끝 날짜 뒤의 분배금까지 반영돼 있어 되돌릴 때 필요 */
+const fullBars = new WeakMap<DataResponse, Record<string, Bar[]>>();
+
+const withFull = (out: DataResponse, full: Record<string, Bar[]>) => { fullBars.set(out, full); return out; };
+
+const isKrEtf = (code: string) => {
+  try { return lookupCodes([code])[0]?.type === "ETF"; } catch { return false; }
+};
+
+/**
+ * 국내 ETF 시세에 분배금이 이미 들어 있으면(네이버 수정주가) 원래 가격으로 되돌린다. 그래야 분배금을 따로 더해도 두 번 세지 않는다.
+ * 한국투자증권 원주가 월봉이 있으면 그걸로 판단하고, 없으면 네이버 시세의 ETF 만 반영된 것으로 본다.
+ */
+function restoreRawPrices(codes: string[], req: DataRequest, out: DataResponse, yahoo: PromiseSettledResult<Dividend[]>[], kis: (PromiseSettledResult<KisDividendCache> | null)[]) {
+  const fixed: string[] = [];
+  codes.forEach((code, k) => {
+    const clipped = out.data[code];
+    if (!isKrCode(code) || !clipped?.length) return;
+    const bars = fullBars.get(out)?.[code] ?? clipped;
+    const y = yahoo[k].status === "fulfilled" ? (yahoo[k] as PromiseFulfilledResult<Dividend[]>).value : [];
+    const kv = kis[k]?.status === "fulfilled" ? (kis[k] as PromiseFulfilledResult<KisDividendCache>).value : null;
+    const dates = bars.map((b) => b.date);
+    const kisRaw = (kv?.rows ?? []).flatMap((r) => { const ex = exDateFromRecord(r.recordDate, dates); return ex ? [{ date: ex, amount: r.amount }] : []; });
+    const divs = mergeDividends(kisRaw, y).divs;
+    if (!divs.length) return;
+    const undone = undoDistributionAdjust(bars, divs);
+    const judged = kv?.raw ? isDistributionAdjusted(bars, undone, kv.raw) : null;
+    if (judged ?? ((req.source ?? "naver") === "naver" && isKrEtf(code))) {
+      out.data[code] = clip(undone, clipped[0].date, clipped[clipped.length - 1].date);
+      fixed.push(code);
+    }
+  });
+  if (fixed.length) out.warnings.push(`${fixed.slice(0, 5).join(", ")}${fixed.length > 5 ? ` 외 ${fixed.length - 5}개` : ""}: 시세에 분배금이 이미 들어 있어 원래 가격으로 되돌렸습니다 (분배금은 따로 계산).`);
+}
+
+async function onlineDividends(codes: string[], req: DataRequest, out: DataResponse, opts: LoadOptions = {}, attach = true): Promise<DividendData> {
   const yahoo = await pool(codes, 3, (c) => cachedDividends(c));
   // 한국투자증권(한국: 예탁원 배당 일정, 미국: 해외주식 권리) 먼저, 없거나 실패하면 Yahoo
   const cred = opts.kisDividendCred === undefined ? credentialsFor("real") : opts.kisDividendCred;
@@ -402,10 +443,12 @@ async function onlineDividends(codes: string[], req: DataRequest, out: DataRespo
   /** 한국투자증권 기준 배당 (현지 통화: 한국 원, 미국 달러) */
   const kisBy = new Map<string, Dividend[]>();
   let kisError = "", skipped = 0;
+  const kr = cred ? await pool(codes, 3, (c) => cachedKisDividends(c, kisDividendFetcher(cred, usMarket))) : codes.map(() => null);
+  restoreRawPrices(codes, req, out, yahoo, kr);
+  if (!attach) return {};
   if (cred) {
-    const fetcher = kisDividendFetcher(cred, usMarket);
-    const kr = await pool(codes, 3, (c) => cachedKisDividends(c, fetcher));
     kr.forEach((r, k) => {
+      if (!r) return;
       const code = codes[k];
       if (r.status !== "fulfilled") { kisError ||= `${code}: ${(r.reason as Error)?.message ?? r.reason}`; return; }
       const bars = out.data[code] ?? [];
@@ -582,11 +625,12 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
     }
   }
   const usNames = new Map(usMaster.map((u) => [u.code, u.name]));
-  const data: PriceData = {}, names: Record<string, string> = {};
+  const data: PriceData = {}, names: Record<string, string> = {}, full: Record<string, Bar[]> = {};
   results.forEach((r, k) => {
     const s = list[k];
     if (r.status === "fulfilled") {
       const us = isUsTicker(s.code);
+      if (!us) full[s.code] = r.value;
       data[s.code] = clip(us ? toKrw(r.value, fx!) : r.value, req.start, req.end);
       names[s.code] = us ? usNames.get(s.code) ?? s.name : s.name;
     }
@@ -610,7 +654,7 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
       benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
     } catch (e) { warnings.push(`S&P 500 지수 조회 실패: ${(e as Error).message}`); }
     if (fromKrx) warnings.push(`${fromKrx}종목은 KRX 시세를 썼습니다.`);
-    return { data, names, benchmark, warnings, universe, benchmarkName: "S&P 500", fx };
+    return withFull({ data, names, benchmark, warnings, universe, benchmarkName: "S&P 500", fx }, full);
   }
   try {
     let idx: Bar[];
@@ -623,5 +667,5 @@ async function loadPrices(req: DataRequest, opts: LoadOptions = {}): Promise<Dat
     benchmark = clip(idx, req.start, req.end).map((b) => ({ date: b.date, close: b.close }));
   } catch (e) { warnings.push(`KOSPI 지수 조회 실패: ${(e as Error).message}`); }
   if (fromKrx) warnings.push(`${fromKrx}종목은 ${isKis ? "한국투자증권" : "네이버"}에 시세가 없어(상장폐지 등) KRX 시세를 썼습니다.`);
-  return { data, names, benchmark, warnings, universe, benchmarkName: "KOSPI", ...(fx ? { fx } : {}) };
+  return withFull({ data, names, benchmark, warnings, universe, benchmarkName: "KOSPI", ...(fx ? { fx } : {}) }, full);
 }
