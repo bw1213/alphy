@@ -163,10 +163,12 @@ export class KisClient {
 
 const clients = new Map<string, KisClient>();
 
-/** 프로세스 안에서 같은 자격 증명이면 같은 클라이언트(토큰·호출간격 공유) */
+/** 같은 앱키면 토큰·호출 간격을 함께 쓰고, 계좌번호는 부른 쪽 것을 씀 (앱키 하나로 여러 계좌를 넣은 경우) */
 export function getClient(cred: KisCredentials): KisClient {
   const key = `${cred.env}:${cred.appKey}`;
   let c = clients.get(key);
   if (!c) { c = new KisClient(cred); clients.set(key, c); }
-  return c;
+  if (c.cred.cano === cred.cano && c.cred.acntPrdtCd === cred.acntPrdtCd) return c;
+  const own = { ...c.cred, cano: cred.cano, acntPrdtCd: cred.acntPrdtCd };
+  return new Proxy(c, { get: (t, p) => (p === "cred" ? own : Reflect.get(t, p, t)) });
 }

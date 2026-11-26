@@ -2,11 +2,11 @@
  * 실전 주문 금액 상한 (서버 전용). 모의투자 주문에는 적용하지 않습니다.
  * - 1회 상한: 주문 한 건의 금액(수량 × 가격)
  * - 하루 상한: 그날(한국 시간) 실전으로 낸 주문 금액 합계 (매수·매도 모두, 체결 여부와 무관하게 주문 기준)
- * 값은 설정 화면에서 바꾸고, 0 이면 제한 없음. 하루 합계는 사용자별 폴더(users/<사용자>/order-usage.json)에 저장됩니다.
+ * 값은 설정 화면에서 바꾸고, 0 이면 제한 없음. 하루 합계는 계좌마다 따로 (users/<사용자>/order-usage.json, 더 붙인 계좌는 order-usage.kis-xxxx.json).
  */
 import fs from "fs";
 import type { OrderLimit } from "../settings/store";
-import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
+import { acctFile, KIS_ID, OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 
 type Env = Record<string, string | undefined>;
 
@@ -14,16 +14,16 @@ type Env = Record<string, string | undefined>;
 export const kstDate = (now = Date.now()) => new Date(now + 9 * 3600_000).toISOString().slice(0, 10);
 
 /** 오늘 실전으로 주문한 금액 합계(원) */
-export function usedToday(e: Env = process.env, now = Date.now(), user: string = OWNER_ID): number {
+export function usedToday(e: Env = process.env, now = Date.now(), user: string = OWNER_ID, acct: string = KIS_ID): number {
   try {
-    const j = JSON.parse(fs.readFileSync(userFile("order-usage.json", user, e), "utf8")) as { date?: string; amount?: number };
+    const j = JSON.parse(fs.readFileSync(userFile(acctFile("order-usage.json", acct), user, e), "utf8")) as { date?: string; amount?: number };
     return j.date === kstDate(now) && Number.isFinite(j.amount) ? Number(j.amount) : 0;
   } catch { return 0; }
 }
 
-export function addUsage(amount: number, e: Env = process.env, now = Date.now(), user: string = OWNER_ID): number {
-  const total = usedToday(e, now, user) + amount;
-  writeUserFile("order-usage.json", JSON.stringify({ date: kstDate(now), amount: total }), user, e);
+export function addUsage(amount: number, e: Env = process.env, now = Date.now(), user: string = OWNER_ID, acct: string = KIS_ID): number {
+  const total = usedToday(e, now, user, acct) + amount;
+  writeUserFile(acctFile("order-usage.json", acct), JSON.stringify({ date: kstDate(now), amount: total }), user, e);
   return total;
 }
 

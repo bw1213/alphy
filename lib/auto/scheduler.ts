@@ -76,11 +76,11 @@ export function kisReaders(u: User, e: Env = process.env): Record<string, () => 
   return out;
 }
 
-const limitsFor = (u: User, e: Env): MorningLimits => ({
+const limitsFor = (u: User, e: Env, acct: string): MorningLimits => ({
   orderLimit: orderLimitFor(u.id, e),
   realCap: autoLimitFor(u.id, e).realBudget,
-  usedToday: () => usedToday(e, Date.now(), u.id),
-  addUsage: (a) => { addUsage(a, e, Date.now(), u.id); },
+  usedToday: () => usedToday(e, Date.now(), u.id, acct),
+  addUsage: (a) => { addUsage(a, e, Date.now(), u.id, acct); },
 });
 
 export async function morningFor(u: User, now: number, e: Env = process.env, market: Market = "KR", acct: string = KIS_ID): Promise<void> {
@@ -98,7 +98,7 @@ export async function morningFor(u: User, now: number, e: Env = process.env, mar
     const b = brokerFor(u, e, market, acct);
     // 먼저 "시작함"을 적어 두어 같은 날 두 번 주문하지 않게
     saveDay({ date: k.date, label: plan.label, env: b.env, ...mk, phase: "placed", items: [], log: [`${k.hm} 시작`] }, u.id, e, acct);
-    try { d = await morningStart(plan, loadLog(u.id, e, acct), b, now, limitsFor(u, e), market, Object.values(loadDays(u.id, e, acct))); }
+    try { d = await morningStart(plan, loadLog(u.id, e, acct), b, now, limitsFor(u, e, acct), market, Object.values(loadDays(u.id, e, acct))); }
     catch (err) { d = { date: k.date, label: plan.label, env: b.env, ...mk, phase: "skipped", items: [], reason: `시작 실패: ${(err as Error).message}`, log: [`${k.hm} 시작 실패: ${(err as Error).message}`] }; }
     saveDay(d, u.id, e, acct);
     if (d.items.some((x) => x.orderNo) || (d.phase === "skipped" && !/꺼져/.test(d.reason ?? "") && d.reason !== HOLIDAY)) {
@@ -113,7 +113,7 @@ export async function morningFor(u: User, now: number, e: Env = process.env, mar
     // 장이 아직 안 열렸으면 미체결 취소를 미룸
     if (market === "KR" && k.hm >= cutoff && k.hm < "12:00" && (await krTradingStarted(e, { now })) === false) return;
     const before = new Map(d.items.map((it, i) => [i, it.filledQty]));
-    d = await morningFollow(d, brokerFor(u, e, market, acct), now, cutoff, limitsFor(u, e));
+    d = await morningFollow(d, brokerFor(u, e, market, acct), now, cutoff, limitsFor(u, e, acct));
     saveDay(d, u.id, e, acct);
     const fills = fillMessages(d, before);
     if (fills) await notifyAcct(u, acct, fills, e);
@@ -179,7 +179,7 @@ export async function intradayFor(u: User, now: number, e: Env = process.env, ma
     return;
   }
   const b = brokerFor(u, e, market, acct);
-  const { day, messages } = await intradayCheck(plan?.enabled ? d : { ...d, levels: [] }, b, now, limitsFor(u, e));
+  const { day, messages } = await intradayCheck(plan?.enabled ? d : { ...d, levels: [] }, b, now, limitsFor(u, e, acct));
   saveIntradayDay(day, u.id, e, acct);
   for (const m of messages) await notifyAcct(u, acct, m, e);
 }
