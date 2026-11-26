@@ -34,7 +34,7 @@ export default function KisAccountsCard({ accounts, onChanged }: { accounts: Kis
 
   return (
     <div className="card">
-      <h2>한국투자증권 계좌 더 붙이기<Info>위 기본 계좌 말고 연금저축·ISA·다른 종합계좌 등을 더 붙여 계좌마다 다른 전략으로 자동 매매합니다. 한국투자증권은 계좌마다 앱키가 따로 나오니 KIS Developers 에서 계좌별로 앱키를 받으세요. 주문 금액 상한·실전 운용 금액 상한·손실 한도는 계좌마다 같은 값을 씁니다(하루 주문 상한은 계좌를 합친 금액).</Info></h2>
+      <h2>한국투자증권 계좌 더 붙이기<Info>위 기본 계좌 말고 연금저축·ISA·다른 종합계좌 등을 더 붙여 계좌마다 다른 전략으로 자동 매매합니다. 한국투자증권은 계좌마다 앱키가 따로 나오니 KIS Developers 에서 계좌별로 앱키를 받으세요. 잔고·주문·체결·성과·손실 한도·하루 주문 합계는 계좌번호마다 따로 셉니다. 상한 금액 설정값은 모든 계좌에 같은 값을 씁니다.</Info></h2>
       {accounts.length === 0 && !form && <p className="help">더 붙인 계좌가 없습니다.</p>}
       {accounts.length > 0 && (
         <ul className="plain" style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>

@@ -18,7 +18,7 @@ export const OWNER_ID = "owner";
 
 export const USER_FILES = ["strategies.json", "last-state.json", "order-usage.json"] as const;
 export const NEW_USER_FILES = ["auto.json", "auto-log.json", "notify.json", "auto-orders.json", "auto-intraday.json", "auto-perf.json", "manual.json", "manual-log.json", "manual-trades.json", "manual-history.json", "account-ledger.json", "statement-debug.json"] as const;
-export type AcctFileName = "auto.json" | "auto-log.json" | "auto-orders.json" | "auto-intraday.json" | "auto-perf.json";
+export type AcctFileName = "auto.json" | "auto-log.json" | "auto-orders.json" | "auto-intraday.json" | "auto-perf.json" | "order-usage.json";
 export type UserFileName = (typeof USER_FILES)[number] | (typeof NEW_USER_FILES)[number] | `${string}.kis-${string}.json`;
 
 /** 한국투자증권 기본 계좌. 더 붙인 계좌는 kis-<영숫자> */

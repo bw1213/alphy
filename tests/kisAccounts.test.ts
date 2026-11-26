@@ -122,3 +122,15 @@ describe("앱키 하나로 여러 계좌", () => {
     expect((a as any).token).toEqual({ token: "t" });
   });
 });
+
+describe("하루 실전 주문 합계", () => {
+  it("계좌마다 따로 센다", async () => {
+    const { addUsage, usedToday } = await import("@/lib/kis/limits");
+    const now = Date.now();
+    addUsage(300_000, env, now, "owner");
+    addUsage(100_000, env, now, "owner", "kis-aaaa11");
+    expect(usedToday(env, now, "owner")).toBe(300_000);
+    expect(usedToday(env, now, "owner", "kis-aaaa11")).toBe(100_000);
+    expect(usedToday(env, now, "owner", "kis-bbbb22")).toBe(0);
+  });
+});
