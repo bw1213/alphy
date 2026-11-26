@@ -124,8 +124,8 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 const today = () => new Date().toISOString().slice(0, 10);
 const minusDays = (iso: string, n: number) => new Date(Date.parse(iso) - n * 864e5).toISOString().slice(0, 10);
 
-export type DiagSource = "naver" | "csv" | "synthetic";
-export const cleanSource = (v: unknown): DiagSource => (v === "csv" || v === "synthetic" ? v : "naver");
+export type DiagSource = "naver" | "kis" | "csv" | "synthetic";
+export const cleanSource = (v: unknown): DiagSource => (v === "kis" || v === "csv" || v === "synthetic" ? v : "naver");
 
 export function cleanTickers(v: unknown): string[] {
   const raw = Array.isArray(v) ? v.map(String) : String(v ?? "").split(/[\s,]+/);
