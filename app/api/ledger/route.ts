@@ -7,6 +7,7 @@ import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { allStocks, lookupCodes } from "@/lib/stocks/master";
 import { loadAccounts, type FeeRates } from "@/lib/manual/store";
 import { KIS_ID } from "@/lib/manual/value";
+import { isExtraKisId } from "@/lib/settings/userdir";
 import { hasKisAccount } from "@/lib/manual/kis";
 import { cleanEntry, parseLedgerText, toCsv, type CleanCtx } from "@/lib/accounts/ledger";
 import { saveStatementDebug } from "@/lib/accounts/statementDebug";
@@ -41,7 +42,7 @@ function named<T extends { ticker?: string; name?: string }>(x: T): T {
 const ctx = (): CleanCtx => ({ today: kst().date, rates: rates(), find: findByName });
 
 function accountKind(u: Parameters<typeof hasKisAccount>[0], id: string): "auto" | "manual" | null {
-  if (id === KIS_ID) return hasKisAccount(u) ? "auto" : null;
+  if (id === KIS_ID || isExtraKisId(id)) return hasKisAccount(u, process.env, id) ? "auto" : null;
   return loadAccounts(u.id).some((a) => a.id === id) ? "manual" : null;
 }
 

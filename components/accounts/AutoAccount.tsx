@@ -26,6 +26,7 @@ interface PlanView {
   tickers: string[]; budget: number; startDate: string; enabled: boolean; intraday?: boolean; updatedAt: string;
 }
 interface AutoState {
+  acct?: string; acctName?: string;
   plan: PlanView | null; log: EveningReport[]; eveningTime: string; owner: boolean; today: string;
   lastEvening: { date: string; attempts: number; done: boolean } | null;
   lastMix?: { date: string; attempts: number; done: boolean } | null;
@@ -124,7 +125,7 @@ function OrdersCard({ st }: { st: AutoState }) {
   const load = useCallback(async () => {
     setBusy(true); setErr("");
     try {
-      const r = await fetch("/api/auto?orders=1", { cache: "no-store" });
+      const r = await fetch(`/api/auto?orders=1&acct=${encodeURIComponent(st.acct ?? "kis")}`, { cache: "no-store" });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
       setV(j);
@@ -297,7 +298,7 @@ function Report({ r }: { r: EveningReport }) {
   );
 }
 
-export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => void }) {
+export default function AutoAccount({ acct = "kis", onSwitch }: { acct?: string; onSwitch?: (id: string) => void }) {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [st, setSt] = useState<AutoState | null>(null);
   const [tg, setTg] = useState<TgState | null>(null);
@@ -317,7 +318,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
 
   const load = useCallback(async () => {
     const [a, t, l] = await Promise.all([
-      fetch("/api/auto", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/auto?acct=${encodeURIComponent(acct)}`, { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/telegram", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)),
       fetch("/api/strategies", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
     ]);
@@ -329,7 +330,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
     }
     if (t) setTg(t);
     if (Array.isArray(l)) setLib(l);
-  }, []);
+  }, [acct]);
 
   useEffect(() => { fetchAuth().then((a) => { setAuth(a); if (a.loggedIn) load(); }).catch(() => setError("로그인 상태를 읽지 못했습니다")); }, [load]);
 
@@ -350,10 +351,10 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
       <AppNav title="계좌" sub={<>평일 {st?.eveningTime ?? "18:00"} 계산 · 텔레그램 알림</>} />
       <main className="app">
         <section className="stack">
-          <AccountList current="kis" onPick={onSwitch} />
-          <AccountReturn id="kis" reload={retKey} />
+          <AccountList current={acct} onPick={onSwitch} />
+          <AccountReturn id={acct} reload={retKey} />
           <div className="card">
-            <h2>운용 전략</h2>
+            <h2>운용 전략{st?.acctName && st.acct !== "kis" ? ` · ${st.acctName}` : ""}</h2>
             <label className="f">전략
               <select value={form.strategy} onChange={(e) => { const v = e.target.value; const s = lib.find((x) => `saved:${x.name}` === v); const own = universeTickers(s?.universe); setForm({ ...form, strategy: v, ...(own ? { tickers: own } : {}), ...(typeof s?.intraday === "boolean" ? { intraday: s.intraday } : {}) }); }}>
                 <option value="">고르세요</option>
@@ -388,8 +389,8 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
               <Info>끄면 종가 확인 후 다음 날 아침에 팝니다.</Info>
             </label>
             <div className="btns" style={{ marginTop: 12 }}>
-              <button className="primary" disabled={!!busy || !form.strategy} onClick={() => act("save", () => post("/api/auto", { action: "save", ...form, budget: Number(form.budget) }), "저장했습니다. 보관함에서 전략을 고쳐도 여기서 다시 저장해야 운용에 반영됩니다.")}>{busy === "save" ? "저장 중…" : "저장"}</button>
-              {st?.plan && <button disabled={!!busy} onClick={() => act("del", () => post("/api/auto", { action: "delete" }), "운용 전략을 지웠습니다.")}>운용 그만두기</button>}
+              <button className="primary" disabled={!!busy || !form.strategy} onClick={() => act("save", () => post("/api/auto", { acct, action: "save", ...form, budget: Number(form.budget) }), "저장했습니다. 보관함에서 전략을 고쳐도 여기서 다시 저장해야 운용에 반영됩니다.")}>{busy === "save" ? "저장 중…" : "저장"}</button>
+              {st?.plan && <button disabled={!!busy} onClick={() => act("del", () => post("/api/auto", { acct, action: "delete" }), "운용 전략을 지웠습니다.")}>운용 그만두기</button>}
             </div>
             {st && <p className="help">주문 계좌: {st.account === "real" ? "실전" : "모의투자"} · 손실 한도 {st.limit.maxLoss ? `-${st.limit.maxLoss}%` : "없음"}{st.account === "real" ? ` · 실전 운용 금액 상한 ${st.limit.realBudget ? won(st.limit.realBudget) : "없음"}` : ""} (<a href="/settings">설정</a>)</p>}
             {st?.plan && <p className="help">지금 운용: <b>{st.plan.label}</b> · {won(st.plan.budget)} · {st.plan.startDate}부터 · {st.plan.enabled ? "켜짐" : "꺼짐"} · 장중 매도 {st.plan.intraday !== false ? "켜짐" : "꺼짐"}</p>}
@@ -433,21 +434,21 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
 
           {st?.calendar && (
             <HolidayCard cal={st.calendar} markets={st.markets?.length ? st.markets : ["KR"]} owner={!!st.owner} busy={!!busy}
-              onSave={(v) => act("holidays", () => post("/api/auto", { action: "holidays", ...v }), "휴장일 설정을 저장했습니다.")}
-              onRefresh={() => act("holidaysRefresh", () => post("/api/auto", { action: "holidaysRefresh" }), "한국 휴장일을 새로 받았습니다.")} />
+              onSave={(v) => act("holidays", () => post("/api/auto", { acct, action: "holidays", ...v }), "휴장일 설정을 저장했습니다.")}
+              onRefresh={() => act("holidaysRefresh", () => post("/api/auto", { acct, action: "holidaysRefresh" }), "한국 휴장일을 새로 받았습니다.")} />
           )}
           {st?.owner && (
             <div className="card">
               <h2>실행 시각 (관리자)<Info>저녁 계산은 16:00 이후로 정하세요. 아침 주문은 09:00 전에 내면 시가에 체결되어 백테스트와 같습니다.</Info></h2>
               <div className="row">
                 <label className="f">저녁 계산<input value={time} placeholder="18:00" onChange={(e) => setTime(e.target.value)} /></label>
-                <button style={{ alignSelf: "end" }} disabled={!!busy} onClick={() => act("time", () => post("/api/auto", { action: "time", eveningTime: time }), "계산 시각을 바꿨습니다.")}>저장</button>
+                <button style={{ alignSelf: "end" }} disabled={!!busy} onClick={() => act("time", () => post("/api/auto", { acct, action: "time", eveningTime: time }), "계산 시각을 바꿨습니다.")}>저장</button>
               </div>
               <div className="row" style={{ marginTop: 10 }}>
                 <label className="f">아침 주문<input value={mt.morning} placeholder="08:40" onChange={(e) => setMt({ ...mt, morning: e.target.value })} /></label>
                 <label className="f">미체결 취소<input value={mt.cutoff} placeholder="10:00" onChange={(e) => setMt({ ...mt, cutoff: e.target.value })} /></label>
               </div>
-              <button style={{ marginTop: 8 }} disabled={!!busy} onClick={() => act("times", () => post("/api/auto", { action: "times", morningTime: mt.morning, cutoffTime: mt.cutoff }), "아침 시각을 바꿨습니다.")}>저장</button>
+              <button style={{ marginTop: 8 }} disabled={!!busy} onClick={() => act("times", () => post("/api/auto", { acct, action: "times", morningTime: mt.morning, cutoffTime: mt.cutoff }), "아침 시각을 바꿨습니다.")}>저장</button>
             </div>
           )}
           {error && <div className="error">{error}</div>}
@@ -462,8 +463,8 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
               {(st?.markets?.length ?? 0) > 1 && <Info>섞은 운용은 한국 시간 아침 {st?.mixTime ?? "07:00"}에 계산합니다.</Info>}
               <span style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", fontSize: 12, fontWeight: 400 }}>
                 {tg?.linked && <label style={{ display: "flex", gap: 4, alignItems: "center" }}><input type="checkbox" style={{ width: "auto", flex: "none" }} checked={sendTg} onChange={(e) => setSendTg(e.target.checked)} />텔레그램으로도</label>}
-                <button disabled={!!busy || !st?.plan} onClick={() => act("run", () => post("/api/auto", { action: "run", notify: sendTg })).then(() => setOpen(0))}>{busy === "run" ? "계산 중…" : "지금 계산해 보기"}</button>
-                <button disabled={!!busy || !st?.plan} title="지금 운용 전략을 저장하기 전의 저녁 계산 기록과 끝난 아침 주문·장중 감시 기록을 지웁니다 (진행 중인 주문은 남김)" onClick={() => { if (confirm("지금 운용 전략을 저장하기 전의 기록과 끝난 주문·감시 기록을 지울까요? 되돌릴 수 없습니다.")) act("clear", () => post("/api/auto", { action: "clear" }), "지난 기록을 지웠습니다."); }}>{busy === "clear" ? "지우는 중…" : "지난 기록 지우기"}</button>
+                <button disabled={!!busy || !st?.plan} onClick={() => act("run", () => post("/api/auto", { acct, action: "run", notify: sendTg })).then(() => setOpen(0))}>{busy === "run" ? "계산 중…" : "지금 계산해 보기"}</button>
+                <button disabled={!!busy || !st?.plan} title="지금 운용 전략을 저장하기 전의 저녁 계산 기록과 끝난 아침 주문·장중 감시 기록을 지웁니다 (진행 중인 주문은 남김)" onClick={() => { if (confirm("지금 운용 전략을 저장하기 전의 기록과 끝난 주문·감시 기록을 지울까요? 되돌릴 수 없습니다.")) act("clear", () => post("/api/auto", { acct, action: "clear" }), "지난 기록을 지웠습니다."); }}>{busy === "clear" ? "지우는 중…" : "지난 기록 지우기"}</button>
               </span>
             </h2>
             {(st?.markets?.length ?? 0) > 1
@@ -492,7 +493,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
               <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                 {!stopAsk ? <button disabled={!!busy || (!st?.plan?.enabled && !st?.days.some((d) => d.date === st.today && ["placed", "buying"].includes(d.phase)))} onClick={() => setStopAsk(true)}>긴급 정지</button> : (
                   <>
-                    <button className="primary" disabled={!!busy} onClick={() => act("stop", () => post("/api/auto", { action: "stop" }), "자동 매매를 멈추고 오늘 남은 자동 주문을 취소했습니다.").then(() => setStopAsk(false))}>정말 멈추기</button>
+                    <button className="primary" disabled={!!busy} onClick={() => act("stop", () => post("/api/auto", { acct, action: "stop" }), "자동 매매를 멈추고 오늘 남은 자동 주문을 취소했습니다.").then(() => setStopAsk(false))}>정말 멈추기</button>
                     <button onClick={() => setStopAsk(false)}>아니요</button>
                   </>
                 )}
@@ -523,7 +524,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
             <h2 style={{ display: "flex", alignItems: "center", gap: 8 }}>성과: 실제 계좌와 전략 비교
               <Info>입금·출금은 <a href="/dashboard">전체 계좌</a> 화면 아래 &quot;입금·출금 기록&quot;에 넣으면 계좌 손익과 손실 한도 계산에서 저절로 빠집니다. 손익이 말이 안 되면 &quot;손익 처음부터&quot;(지금을 0으로)를 누르세요.</Info>
               {st?.perf?.base && <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                <button disabled={!!busy} title="계좌 손익이 말이 안 되는 숫자일 때: 지금 평가액을 손익 0으로" onClick={() => { if (confirm("지금 계좌 평가액을 새 기준(손익 0)으로 잡고 예전 계좌 손익 기록을 지울까요?")) act("reset", () => post("/api/auto", { action: "rebase", reset: true }), "지금 계좌 평가액을 손익 0으로 다시 잡았습니다."); }}>손익 처음부터</button>
+                <button disabled={!!busy} title="계좌 손익이 말이 안 되는 숫자일 때: 지금 평가액을 손익 0으로" onClick={() => { if (confirm("지금 계좌 평가액을 새 기준(손익 0)으로 잡고 예전 계좌 손익 기록을 지울까요?")) act("reset", () => post("/api/auto", { acct, action: "rebase", reset: true }), "지금 계좌 평가액을 손익 0으로 다시 잡았습니다."); }}>손익 처음부터</button>
               </span>}
             </h2>
             {!st?.perf?.summary ? <p className="help">아직 기록이 없습니다.</p> : (
@@ -553,7 +554,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
               <>
                 <p className="help" style={{ marginTop: 0 }}>여기서 확인하기 전에는 실전 계좌로 자동 주문하지 않습니다. 전략·금액을 바꾸면 다시 확인합니다.</p>
                 <ul style={{ fontSize: 13, paddingLeft: 18, margin: "0 0 10px", lineHeight: 1.8 }}>
-                  <li>{st.account === "real" ? "✓" : "○"} 주문 계좌: {st.account === "real" ? "실전" : <>모의투자 (<a href="/settings">설정</a>에서 주문 대상을 실전으로)</>}</li>
+                  <li>{st.account === "real" ? "✓" : "○"} 주문 계좌: {st.account === "real" ? "실전" : <>모의투자 (<a href="/settings">설정</a>에서 {acct === "kis" ? "주문 대상을 실전으로" : "이 계좌를 실전 계좌로"})</>}</li>
                   <li>{st.account === "real" && !st.real.lock ? "✓" : "○"} 실전 주문 잠금: {st.account !== "real" ? "주문 계좌를 실전으로 바꾸면 확인합니다" : st.real.lock ?? "풀려 있음"}</li>
                   <li>{st.real.mockDays >= 5 ? "✓" : "○"} 모의투자로 자동 주문이 체결된 날: {st.real.mockDays}일 (5일 이상 권장)</li>
                   <li>{st.real.telegram ? "✓" : "○"} 텔레그램 알림: {st.real.telegram ? "연결됨" : "연결 안 됨 (권장)"}</li>
@@ -562,12 +563,12 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
                 {st.real.confirmedAt ? (
                   <div className="btns">
                     <span style={{ fontSize: 13 }}>확인됨 ({new Date(st.real.confirmedAt).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })}){st.account === "real" ? " · 실전 계좌로 자동 주문합니다" : ""}</span>
-                    <button disabled={!!busy} onClick={() => act("real", () => post("/api/auto", { action: "real", on: false }), "실전 전환 확인을 취소했습니다. 실전 계좌로는 자동 주문하지 않습니다.")}>확인 취소</button>
+                    <button disabled={!!busy} onClick={() => act("real", () => post("/api/auto", { acct, action: "real", on: false }), "실전 전환 확인을 취소했습니다. 실전 계좌로는 자동 주문하지 않습니다.")}>확인 취소</button>
                   </div>
                 ) : (
                   <div className="row">
                     <label className="f">로그인 비밀번호<input type="password" autoComplete="current-password" value={realPw} onChange={(e) => setRealPw(e.target.value)} /></label>
-                    <label className="f">&nbsp;<button disabled={!!busy || !realPw || !st.plan || st.account !== "real" || !!st.real.lock} onClick={() => act("real", () => post("/api/auto", { action: "real", on: true, password: realPw }), "실전 전환을 확인했습니다. 다음 거래일 아침부터 실전 계좌로 자동 주문합니다.").then(() => setRealPw(""))}>실전 자동 매매 확인</button></label>
+                    <label className="f">&nbsp;<button disabled={!!busy || !realPw || !st.plan || st.account !== "real" || !!st.real.lock} onClick={() => act("real", () => post("/api/auto", { acct, action: "real", on: true, password: realPw }), "실전 전환을 확인했습니다. 다음 거래일 아침부터 실전 계좌로 자동 주문합니다.").then(() => setRealPw(""))}>실전 자동 매매 확인</button></label>
                   </div>
                 )}
               </>
@@ -600,7 +601,7 @@ export default function AutoAccount({ onSwitch }: { onSwitch?: (id: string) => v
               </details>
             ))}
           </div>
-          <Ledger id="kis" onChanged={() => setRetKey((k) => k + 1)} />
+          <Ledger id={acct} onChanged={() => setRetKey((k) => k + 1)} />
         </section>
       </main>
     </>

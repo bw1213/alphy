@@ -13,14 +13,15 @@ import type { KisRaw } from "./value";
 
 type Env = Record<string, string | undefined>;
 
-export function hasKisAccount(u: User, e: Env = process.env): boolean {
-  const ke = kisEnvFor(u, e);
+export function hasKisAccount(u: User, e: Env = process.env, acct?: string): boolean {
+  let ke: Env;
+  try { ke = kisEnvFor(u, e, acct); } catch { return false; }
   const c = credentialsFor(tradeEnv(ke), ke);
   return !!(c?.cano && c.acntPrdtCd);
 }
 
-export const kisReader = (u: User, e: Env = process.env) => async (): Promise<KisRaw | null> => {
-  const ke = kisEnvFor(u, e);
+export const kisReader = (u: User, e: Env = process.env, acct?: string) => async (): Promise<KisRaw | null> => {
+  const ke = kisEnvFor(u, e, acct);
   const c = credentialsFor(tradeEnv(ke), ke);
   if (!c?.cano || !c.acntPrdtCd) return null;
   const client = getClient(c);

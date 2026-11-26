@@ -5,7 +5,7 @@ import { getUser, listUsers, type User } from "../settings/users";
 import type { Holding } from "../kis/trading";
 import { formatReport, runEvening, type EveningReport } from "./evening";
 import { appendLog, loadPlan, savePlan } from "./store";
-import { autoLimitFor, kisEnvFor } from "../kis/userkeys";
+import { autoLimitFor, extraKisAccounts, kisAccountIds, kisAccountName, kisEnvFor } from "../kis/userkeys";
 import { tradeEnv } from "../kis/config";
 import { addPoint, flowsAfter, loadPerf, perfFor, savePerf } from "./perf";
 import { notify, notifyMany } from "./telegram";
@@ -18,7 +18,7 @@ import { loadLog } from "./store";
 import { intradayCheck, intradayStart, loadIntradayDay, saveIntradayDay } from "./intraday";
 import { formatManual, manualEveningFor } from "../manual/evening";
 import { loadAccounts } from "../manual/store";
-import { KIS_ID, kisViewOf, loadHistory, refreshHistory, saveHistory, type KisView } from "../manual/value";
+import { KIS_ID, kisViewOf, loadHistory, refreshHistory, saveHistory, withKisView, type KisRaw, type KisView } from "../manual/value";
 import { hasKisAccount, kisReader } from "../manual/kis";
 import { clockOf, isMixed, krSession, planMarket, planMarkets, US_SESSION, type Market, type Session } from "./session";
 import { withCode } from "../strategies/universe";
@@ -57,7 +57,24 @@ export const sessionFor = (m: Market, e: Env = process.env, date?: string): Sess
   const s = m === "US" ? US_SESSION : krSession(morningTimes(e));
   return date ? sessionOn(s, date, e) : s;
 };
-const marketsOfUser = (u: User, e: Env): Market[] => { const p = loadPlan(u.id, e); return p ? planMarkets(p) : ["KR"]; };
+const marketsOf = (u: User, e: Env, acct: string): Market[] => { const p = loadPlan(u.id, e, acct); return p ? planMarkets(p) : ["KR"]; };
+
+/** 운용이 있는 계좌만 (기본 계좌는 예전처럼 늘 봄) */
+const planAccounts = (u: User, e: Env): string[] => kisAccountIds(u.id, e).filter((a) => a === KIS_ID || !!loadPlan(u.id, e, a));
+
+/** 한국투자증권 계좌를 둘 이상 쓰면 알림 앞에 계좌 이름 */
+export function tagFor(u: User, acct: string, e: Env = process.env): string {
+  return extraKisAccounts(u.id, e).length ? `〔${kisAccountName(u.id, acct, e)}〕\n` : "";
+}
+const notifyAcct = (u: User, acct: string, text: string, e: Env) => notify(u.id, `${tagFor(u, acct, e)}${text}`, e)
+  .catch((err) => { console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`); return false; });
+
+/** 잔고를 읽을 수 있는 한국투자증권 계좌들의 잔고 읽기 */
+export function kisReaders(u: User, e: Env = process.env): Record<string, () => Promise<KisRaw | null>> {
+  const out: Record<string, () => Promise<KisRaw | null>> = {};
+  for (const a of kisAccountIds(u.id, e)) if (hasKisAccount(u, e, a)) out[a] = kisReader(u, e, a);
+  return out;
+}
 
 const limitsFor = (u: User, e: Env): MorningLimits => ({
   orderLimit: orderLimitFor(u.id, e),
@@ -66,29 +83,29 @@ const limitsFor = (u: User, e: Env): MorningLimits => ({
   addUsage: (a) => { addUsage(a, e, Date.now(), u.id); },
 });
 
-export async function morningFor(u: User, now: number, e: Env = process.env, market: Market = "KR"): Promise<void> {
+export async function morningFor(u: User, now: number, e: Env = process.env, market: Market = "KR", acct: string = KIS_ID): Promise<void> {
   const k = clockOf(market, now);
   if (!isWeekday(k)) return;
   const ses = sessionFor(market, e, k.date);
   const cutoff = ses.cutoff;
   if (k.hm < ses.orderAt || k.hm > ses.close) return;
   const mk = market === "US" ? { market } : {};
-  let d = loadDay(k.date, u.id, e, market);
+  let d = loadDay(k.date, u.id, e, market, acct);
   if (!d) {
     if (k.hm >= cutoff) return;
-    const plan = loadPlan(u.id, e);
+    const plan = loadPlan(u.id, e, acct);
     if (!plan || !plan.enabled) return;
-    const b = brokerFor(u, e, market);
+    const b = brokerFor(u, e, market, acct);
     // 먼저 "시작함"을 적어 두어 같은 날 두 번 주문하지 않게
-    saveDay({ date: k.date, label: plan.label, env: b.env, ...mk, phase: "placed", items: [], log: [`${k.hm} 시작`] }, u.id, e);
-    try { d = await morningStart(plan, loadLog(u.id, e), b, now, limitsFor(u, e), market, Object.values(loadDays(u.id, e))); }
+    saveDay({ date: k.date, label: plan.label, env: b.env, ...mk, phase: "placed", items: [], log: [`${k.hm} 시작`] }, u.id, e, acct);
+    try { d = await morningStart(plan, loadLog(u.id, e, acct), b, now, limitsFor(u, e), market, Object.values(loadDays(u.id, e, acct))); }
     catch (err) { d = { date: k.date, label: plan.label, env: b.env, ...mk, phase: "skipped", items: [], reason: `시작 실패: ${(err as Error).message}`, log: [`${k.hm} 시작 실패: ${(err as Error).message}`] }; }
-    saveDay(d, u.id, e);
+    saveDay(d, u.id, e, acct);
     if (d.items.some((x) => x.orderNo) || (d.phase === "skipped" && !/꺼져/.test(d.reason ?? "") && d.reason !== HOLIDAY)) {
-      await notify(u.id, formatDay(d, false), e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
+      await notifyAcct(u, acct, formatDay(d, false), e);
     }
-    if (d.phase === "done" || d.phase === "skipped") { d.notified = true; saveDay(d, u.id, e); }
-    console.log(`[auto] ${k.date} 아침 주문 ${u.id}: ${d.phase} ${d.items.length}건 ${d.reason ?? ""}`);
+    if (d.phase === "done" || d.phase === "skipped") { d.notified = true; saveDay(d, u.id, e, acct); }
+    console.log(`[auto] ${k.date} 아침 주문 ${u.id}/${acct}: ${d.phase} ${d.items.length}건 ${d.reason ?? ""}`);
     return;
   }
   if ((d.market ?? "KR") !== market) return;
@@ -96,15 +113,15 @@ export async function morningFor(u: User, now: number, e: Env = process.env, mar
     // 장이 아직 안 열렸으면 미체결 취소를 미룸
     if (market === "KR" && k.hm >= cutoff && k.hm < "12:00" && (await krTradingStarted(e, { now })) === false) return;
     const before = new Map(d.items.map((it, i) => [i, it.filledQty]));
-    d = await morningFollow(d, brokerFor(u, e, market), now, cutoff, limitsFor(u, e));
-    saveDay(d, u.id, e);
+    d = await morningFollow(d, brokerFor(u, e, market, acct), now, cutoff, limitsFor(u, e));
+    saveDay(d, u.id, e, acct);
     const fills = fillMessages(d, before);
-    if (fills) await notify(u.id, fills, e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
+    if (fills) await notifyAcct(u, acct, fills, e);
   }
   if ((d.phase === "done" || d.phase === "stopped") && !d.notified && d.items.length) {
     d.notified = true;
-    saveDay(d, u.id, e);
-    await notify(u.id, formatDay(d, true), e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
+    saveDay(d, u.id, e, acct);
+    await notifyAcct(u, acct, formatDay(d, true), e);
   }
 }
 
@@ -128,9 +145,11 @@ export async function morningTick(now = Date.now(), e: Env = process.env): Promi
     for (const u of listUsers(e)) {
       if (u.disabled) continue;
       const user = getUser(u.id, e) ?? u;
-      for (const m of marketsOfUser(user, e)) {
-        try { await morningFor(user, now, e, m); }
-        catch (err) { console.error(`[auto] ${u.id} ${m} 주문 오류: ${(err as Error).message}`); }
+      for (const a of planAccounts(user, e)) {
+        for (const m of marketsOf(user, e, a)) {
+          try { await morningFor(user, now, e, m, a); }
+          catch (err) { console.error(`[auto] ${u.id}/${a} ${m} 주문 오류: ${(err as Error).message}`); }
+        }
       }
     }
   } finally { morningRunning = false; }
@@ -141,28 +160,28 @@ const minutesAfter = (hm: string, n: number) => {
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 };
 
-export async function intradayFor(u: User, now: number, e: Env = process.env, market: Market = "KR"): Promise<void> {
+export async function intradayFor(u: User, now: number, e: Env = process.env, market: Market = "KR", acct: string = KIS_ID): Promise<void> {
   const k = clockOf(market, now);
   const ses = sessionFor(market, e, k.date);
   if (!isWeekday(k) || k.hm < ses.watchFrom || k.hm > minutesAfter(ses.close, 10)) return;
-  let d = loadIntradayDay(k.date, u.id, e, market);
-  const plan = loadPlan(u.id, e);
+  let d = loadIntradayDay(k.date, u.id, e, market, acct);
+  const plan = loadPlan(u.id, e, acct);
   if (!d) {
     if (!plan) return;
-    d = await intradayStart(plan, loadLog(u.id, e), brokerFor(u, e, market), now, market);
-    saveIntradayDay(d, u.id, e);
-    console.log(`[auto] ${k.date} 장중 감시 ${u.id}: ${d.done ? d.reason : `${d.levels.length}개 가격`}`);
+    d = await intradayStart(plan, loadLog(u.id, e, acct), brokerFor(u, e, market, acct), now, market);
+    saveIntradayDay(d, u.id, e, acct);
+    console.log(`[auto] ${k.date} 장중 감시 ${u.id}/${acct}: ${d.done ? d.reason : `${d.levels.length}개 가격`}`);
   }
   if (d.done || (d.market ?? "KR") !== market) return;
   if (!plan?.enabled && !d.sells.some((s) => s.orderNo && !s.told)) {
     d = { ...d, done: true, reason: "운용이 꺼져 감시를 멈췄습니다.", log: [...d.log, `${k.hm} 운용이 꺼져 감시를 멈춤`] };
-    saveIntradayDay(d, u.id, e);
+    saveIntradayDay(d, u.id, e, acct);
     return;
   }
-  const b = brokerFor(u, e, market);
+  const b = brokerFor(u, e, market, acct);
   const { day, messages } = await intradayCheck(plan?.enabled ? d : { ...d, levels: [] }, b, now, limitsFor(u, e));
-  saveIntradayDay(day, u.id, e);
-  for (const m of messages) await notify(u.id, m, e).catch((err) => console.error(`[auto] ${u.id} 알림 실패: ${(err as Error).message}`));
+  saveIntradayDay(day, u.id, e, acct);
+  for (const m of messages) await notifyAcct(u, acct, m, e);
 }
 
 let intradayRunning = false;
@@ -174,9 +193,11 @@ export async function intradayTick(now = Date.now(), e: Env = process.env): Prom
     for (const u of listUsers(e)) {
       if (u.disabled) continue;
       const user = getUser(u.id, e) ?? u;
-      for (const m of marketsOfUser(user, e)) {
-        try { await intradayFor(user, now, e, m); }
-        catch (err) { console.error(`[auto] ${u.id} ${m} 장중 감시 오류: ${(err as Error).message}`); }
+      for (const a of planAccounts(user, e)) {
+        for (const m of marketsOf(user, e, a)) {
+          try { await intradayFor(user, now, e, m, a); }
+          catch (err) { console.error(`[auto] ${u.id}/${a} ${m} 장중 감시 오류: ${(err as Error).message}`); }
+        }
       }
     }
   } finally { intradayRunning = false; }
@@ -207,9 +228,9 @@ function slotDue(now: number, ev: Slot | undefined): boolean {
   return now - ev.lastTry >= RETRY_MS;
 }
 
-export async function accountSnapshot(u: User, market: Market | Market[] = "KR", e: Env = process.env, now = Date.now()) {
+export async function accountSnapshot(u: User, market: Market | Market[] = "KR", e: Env = process.env, now = Date.now(), acct: string = KIS_ID) {
   const ms = Array.isArray(market) ? market : [market];
-  const raw = await kisReader(u, e)();
+  const raw = await kisReader(u, e, acct)();
   if (!raw) throw new Error("계좌번호가 설정되지 않았습니다");
   // 미국 잔고를 못 읽었으면 보유 0주로 보고 또 사지 않게 실패로
   if (ms.includes("US") && raw.note) throw new Error(raw.note);
@@ -231,33 +252,32 @@ export async function accountSnapshot(u: User, market: Market | Market[] = "KR",
   };
 }
 
-export async function eveningFor(u: User, trigger: EveningReport["trigger"], opts: { notify?: boolean; e?: Env; mixed?: boolean } = {}): Promise<EveningReport | null> {
+export async function eveningFor(u: User, trigger: EveningReport["trigger"], opts: { notify?: boolean; e?: Env; mixed?: boolean; acct?: string } = {}): Promise<EveningReport | null> {
   const e = opts.e ?? process.env;
-  const plan = loadPlan(u.id, e);
+  const acct = opts.acct ?? KIS_ID;
+  const plan = loadPlan(u.id, e, acct);
   if (!plan) return null;
   if (trigger === "schedule" && (!plan.enabled || isMixed(plan) !== !!opts.mixed)) return null;
-  const perf = perfFor(loadPerf(u.id, e), plan, tradeEnv(kisEnvFor(u, e)));
+  const perf = perfFor(loadPerf(u.id, e, acct), plan, tradeEnv(kisEnvFor(u, e, acct)));
   const market = planMarket(plan);
   const markets = planMarkets(plan);
   const mixed = markets.length > 1;
   const prevDataDate = (market === "US" || mixed) && trigger === "schedule"
-    ? loadLog(u.id, e).find((x) => x.status === "ok" && x.label === plan.label && (mixed ? (x.markets?.length ?? 0) > 1 : x.market === "US") && !(plan.updatedAt && plan.updatedAt > x.ranAt))?.dataDate : undefined;
-  const days = Object.values(loadDays(u.id, e));
+    ? loadLog(u.id, e, acct).find((x) => x.status === "ok" && x.label === plan.label && (mixed ? (x.markets?.length ?? 0) > 1 : x.market === "US") && !(plan.updatedAt && plan.updatedAt > x.ranAt))?.dataDate : undefined;
+  const days = Object.values(loadDays(u.id, e, acct));
   const unfinished = markets.flatMap((m) => unfinishedItems(days, plan.label, m, clockOf(m).date));
   let seen: KisView | undefined;
-  const holdings = async () => { const s = await accountSnapshot(u, markets, e); seen = s.view; return s; };
-  const flow = flowsAfter(perf.base, loadHistory(u.id, e).flows?.[KIS_ID] ?? []);
+  const holdings = async () => { const s = await accountSnapshot(u, markets, e, Date.now(), acct); seen = s.view; return s; };
+  const flow = flowsAfter(perf.base, loadHistory(u.id, e).flows?.[acct] ?? []);
   const r = await runEvening(plan, trigger, { user: u.id, holdings, env: e, maxLoss: autoLimitFor(u.id, e).maxLoss, accountBase: perf.base ? perf.base.total + flow : undefined, prevDataDate, unfinished });
-  appendLog(r, u.id, e);
-  if (seen) { try { saveHistory({ ...loadHistory(u.id, e), kis: seen }, u.id, e); } catch { } }
+  appendLog(r, u.id, e, acct);
+  if (seen) { try { saveHistory(withKisView(loadHistory(u.id, e), acct, seen), u.id, e); } catch { } }
   if (r.status === "ok" && r.equity != null) {
-    try { savePerf(addPoint(perf, { date: r.runDate, total: r.accountTotal, cash: r.accountCash, stock: r.accountStock, strategy: r.equity, flow }), u.id, e); }
-    catch (err) { console.error(`[auto] ${u.id} 성과 기록 실패: ${(err as Error).message}`); }
+    try { savePerf(addPoint(perf, { date: r.runDate, total: r.accountTotal, cash: r.accountCash, stock: r.accountStock, strategy: r.equity, flow }), u.id, e, acct); }
+    catch (err) { console.error(`[auto] ${u.id}/${acct} 성과 기록 실패: ${(err as Error).message}`); }
   }
-  if (r.lossStop && plan.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, u.id, e);
-  if (opts.notify !== false && r.status !== "holiday") {
-    try { await notify(u.id, formatReport(r), e); } catch (err) { console.error(`[auto] ${u.id} 텔레그램 알림 실패: ${(err as Error).message}`); }
-  }
+  if (r.lossStop && plan.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, u.id, e, acct);
+  if (opts.notify !== false && r.status !== "holiday") await notifyAcct(u, acct, formatReport(r), e);
   return r;
 }
 
@@ -278,18 +298,20 @@ export async function tick(now = Date.now(), e: Env = process.env): Promise<void
       const user = getUser(u.id, e) ?? u;
       const strategy: Record<string, number | undefined> = {};
       const parts: string[] = [];
-      try {
-        const r = await eveningFor(user, "schedule", { e, notify: false });
-        if (r && r.status !== "holiday") parts.push(formatReport(r));
-        if (r) {
-          if (r.status === "error") fail++; else ok++;
-          if (r.status === "ok") strategy[KIS_ID] = r.equity;
-          console.log(`[auto] ${k.date} 저녁 계산 ${u.id}: ${r.status}${r.error ? ` ${r.error}` : ""} 주문 ${r.orders.length}건`);
-        } else {
-          const p = loadPlan(u.id, e);
-          if (p?.enabled && isMixed(p)) strategy[KIS_ID] = loadLog(u.id, e).find((x) => x.status === "ok" && x.label === p.label)?.equity;
-        }
-      } catch (err) { fail++; console.error(`[auto] ${u.id} 저녁 계산 오류: ${(err as Error).message}`); }
+      for (const a of planAccounts(user, e)) {
+        try {
+          const r = await eveningFor(user, "schedule", { e, notify: false, acct: a });
+          if (r && r.status !== "holiday") parts.push(`${tagFor(user, a, e)}${formatReport(r)}`);
+          if (r) {
+            if (r.status === "error") fail++; else ok++;
+            if (r.status === "ok") strategy[a] = r.equity;
+            console.log(`[auto] ${k.date} 저녁 계산 ${u.id}/${a}: ${r.status}${r.error ? ` ${r.error}` : ""} 주문 ${r.orders.length}건`);
+          } else {
+            const p = loadPlan(u.id, e, a);
+            if (p?.enabled && isMixed(p)) strategy[a] = loadLog(u.id, e, a).find((x) => x.status === "ok" && x.label === p.label)?.equity;
+          }
+        } catch (err) { fail++; console.error(`[auto] ${u.id}/${a} 저녁 계산 오류: ${(err as Error).message}`); }
+      }
       try {
         const m = await manualEveningFor(u.id, "schedule", { e, notify: false });
         ok += m.ok; fail += m.fail;
@@ -304,8 +326,9 @@ export async function tick(now = Date.now(), e: Env = process.env): Promise<void
       try { await notifyMany(u.id, parts, parts.length > 1 ? `저녁 계산 ${k.date} · 계좌 ${parts.length}개` : "", e); }
       catch (err) { console.error(`[auto] ${u.id} 텔레그램 알림 실패: ${(err as Error).message}`); }
       try {
-        if (loadAccounts(u.id, e).length || hasKisAccount(user, e)) {
-          const h = await refreshHistory(u.id, { e, strategy, kis: hasKisAccount(user, e) ? kisReader(user, e) : undefined });
+        const kis = kisReaders(user, e);
+        if (loadAccounts(u.id, e).length || Object.keys(kis).length) {
+          const h = await refreshHistory(u.id, { e, strategy, kis });
           for (const w of h.warnings) console.log(`[dashboard] ${u.id}: ${w}`);
         }
       } catch (err) { console.error(`[dashboard] ${u.id} 기록 오류: ${(err as Error).message}`); }
@@ -330,12 +353,15 @@ export async function mixTick(now = Date.now(), e: Env = process.env): Promise<v
     let ok = 0, fail = 0;
     for (const u of listUsers(e)) {
       if (u.disabled) continue;
-      try {
-        const r = await eveningFor(getUser(u.id, e) ?? u, "schedule", { e, mixed: true });
-        if (!r) continue;
-        if (r.status === "error") fail++; else ok++;
-        console.log(`[auto] ${k.date} 섞은 운용 계산 ${u.id}: ${r.status}${r.error ? ` ${r.error}` : ""} 주문 ${r.orders.length}건`);
-      } catch (err) { fail++; console.error(`[auto] ${u.id} 섞은 운용 계산 오류: ${(err as Error).message}`); }
+      const user = getUser(u.id, e) ?? u;
+      for (const a of planAccounts(user, e)) {
+        try {
+          const r = await eveningFor(user, "schedule", { e, mixed: true, acct: a });
+          if (!r) continue;
+          if (r.status === "error") fail++; else ok++;
+          console.log(`[auto] ${k.date} 섞은 운용 계산 ${u.id}/${a}: ${r.status}${r.error ? ` ${r.error}` : ""} 주문 ${r.orders.length}건`);
+        } catch (err) { fail++; console.error(`[auto] ${u.id}/${a} 섞은 운용 계산 오류: ${(err as Error).message}`); }
+      }
     }
     const cur = loadState(e);
     saveState({ ...cur, mix: { date: k.date, attempts: cur.mix?.attempts ?? 1, lastTry: now, done: !(fail > 0 && ok === 0) } }, e);

@@ -3,7 +3,7 @@ import type { Balance, OrderRequest, OrderResult } from "../kis/trading";
 import type { DayOrder } from "../kis/orders";
 import type { OrderLimit } from "../settings/store";
 import { checkOrderLimit } from "../kis/limits";
-import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
+import { acctFile, KIS_ID, OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport, Unfinished } from "./evening";
 import { REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
 import { minusDays } from "./time";
@@ -76,19 +76,19 @@ const hhmm = (now: number, m: Market = "KR") => clockOf(m, now).hm;
 
 type OrdersFile = Record<string, MorningDay>;
 
-export function loadDays(user: string = OWNER_ID, e: Env = process.env): OrdersFile {
-  try { const j = JSON.parse(fs.readFileSync(userFile("auto-orders.json", user, e), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; }
+export function loadDays(user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID): OrdersFile {
+  try { const j = JSON.parse(fs.readFileSync(userFile(acctFile("auto-orders.json", acct), user, e), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; }
 }
 export const dayKey = (date: string, market: Market = "KR") => (market === "US" ? `${date}:US` : date);
-export function loadDay(date: string, user: string = OWNER_ID, e: Env = process.env, market: Market = "KR"): MorningDay | null {
-  const all = loadDays(user, e);
+export function loadDay(date: string, user: string = OWNER_ID, e: Env = process.env, market: Market = "KR", acct: string = KIS_ID): MorningDay | null {
+  const all = loadDays(user, e, acct);
   const d = all[dayKey(date, market)] ?? (market === "US" && all[date]?.market === "US" ? all[date] : null);
   return d && (d.market ?? "KR") === market ? d : null;
 }
-export function saveDay(d: MorningDay, user: string = OWNER_ID, e: Env = process.env) {
-  const all = { ...loadDays(user, e), [dayKey(d.date, d.market)]: d };
+export function saveDay(d: MorningDay, user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID) {
+  const all = { ...loadDays(user, e, acct), [dayKey(d.date, d.market)]: d };
   const keep = Object.keys(all).sort().slice(-MAX_DAYS);
-  writeUserFile("auto-orders.json", JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
+  writeUserFile(acctFile("auto-orders.json", acct), JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
 }
 
 export function pickReport(log: EveningReport[], plan: AutoPlan, today: string, sameDay = false, market: Market = "KR"): { report: EveningReport | null; reason?: string } {

@@ -18,7 +18,19 @@ export const OWNER_ID = "owner";
 
 export const USER_FILES = ["strategies.json", "last-state.json", "order-usage.json"] as const;
 export const NEW_USER_FILES = ["auto.json", "auto-log.json", "notify.json", "auto-orders.json", "auto-intraday.json", "auto-perf.json", "manual.json", "manual-log.json", "manual-trades.json", "manual-history.json", "account-ledger.json", "statement-debug.json"] as const;
-export type UserFileName = (typeof USER_FILES)[number] | (typeof NEW_USER_FILES)[number];
+export type AcctFileName = "auto.json" | "auto-log.json" | "auto-orders.json" | "auto-intraday.json" | "auto-perf.json";
+export type UserFileName = (typeof USER_FILES)[number] | (typeof NEW_USER_FILES)[number] | `${string}.kis-${string}.json`;
+
+/** 한국투자증권 기본 계좌. 더 붙인 계좌는 kis-<영숫자> */
+export const KIS_ID = "kis";
+export const isExtraKisId = (id: string) => /^kis-[a-z0-9]{4,12}$/.test(id);
+
+/** 계좌마다 따로 두는 자동 매매 파일: 기본 계좌는 예전 이름 그대로, 더 붙인 계좌는 auto.kis-xxxx.json */
+export function acctFile(name: AcctFileName, acct: string = KIS_ID): UserFileName {
+  if (acct === KIS_ID) return name;
+  if (!isExtraKisId(acct)) throw new Error(`계좌 이름 형식이 아닙니다: ${JSON.stringify(acct).slice(0, 30)}`);
+  return name.replace(/\.json$/, `.${acct}.json`) as UserFileName;
+}
 export type UserFile = (typeof USER_FILES)[number];
 
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;

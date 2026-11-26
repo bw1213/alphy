@@ -12,7 +12,7 @@
 import fs from "fs";
 import { loadData, type DataRequest, type DataResponse } from "../data/server";
 import { loadSettings } from "../settings/store";
-import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
+import { isExtraKisId, KIS_ID, OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import { kst, minusDays } from "../auto/time";
 import { accountValue, loadAccounts, saveAccounts, type ManualAccount } from "./store";
 import { flowIndex, type Flow } from "./returns";
@@ -63,12 +63,14 @@ export interface KisRaw {
   cashNote?: string;
 }
 
-export const KIS_ID = "kis";
+export { KIS_ID };
 
 export interface History {
   prices: PriceBook | null;
   points: Record<string, Snapshot[]>;
   kis?: KisView | null;
+  /** 더 붙인 한국투자증권 계좌의 마지막 잔고 */
+  kisViews?: Record<string, KisView>;
   flows?: Record<string, Flow[]>;
   starts?: Record<string, string>;
 }
@@ -78,8 +80,14 @@ export const MAX_POINTS = 20_000;
 export function loadHistory(user: string = OWNER_ID, e: Env = process.env): History {
   try {
     const j = JSON.parse(fs.readFileSync(userFile("manual-history.json", user, e), "utf8"));
-    return { prices: j?.prices ?? null, points: j?.points && typeof j.points === "object" ? j.points : {}, kis: j?.kis ?? null, flows: j?.flows && typeof j.flows === "object" ? j.flows : {}, starts: j?.starts && typeof j.starts === "object" ? j.starts : {} };
+    return { prices: j?.prices ?? null, points: j?.points && typeof j.points === "object" ? j.points : {}, kis: j?.kis ?? null, ...(j?.kisViews && typeof j.kisViews === "object" ? { kisViews: j.kisViews } : {}), flows: j?.flows && typeof j.flows === "object" ? j.flows : {}, starts: j?.starts && typeof j.starts === "object" ? j.starts : {} };
   } catch { return { prices: null, points: {}, kis: null, flows: {}, starts: {} }; }
+}
+
+export const kisViewIn = (h: History, acct: string = KIS_ID): KisView | null => (acct === KIS_ID ? h.kis ?? null : h.kisViews?.[acct] ?? null);
+
+export function withKisView(h: History, acct: string, v: KisView): History {
+  return acct === KIS_ID ? { ...h, kis: v } : { ...h, kisViews: { ...(h.kisViews ?? {}), [acct]: v } };
 }
 
 export function saveHistory(h: History, user: string = OWNER_ID, e: Env = process.env) {
@@ -146,20 +154,22 @@ export function kisViewOf(raw: KisRaw, prices: PriceBook | null, now: number): K
 
 /**
  * 시세를 새로 받아 모든 계좌의 오늘 점을 기록. strategy 는 계좌별 그날 전략 평가액 (저녁 계산에서).
- * kis 를 주면 한국투자증권 잔고도 읽어 함께 기록 (못 읽으면 경고만).
+ * kis 를 주면 한국투자증권 계좌(id → 잔고 읽기)들의 잔고도 읽어 함께 기록 (못 읽으면 경고만).
  * 시세를 못 받으면 예전 시세(없으면 평균단가)로 기록하고 오류를 그대로 던지지 않음 → 돌려주는 warnings 에
  */
-export async function refreshHistory(user: string, opts: { e?: Env; load?: (q: DataRequest) => Promise<DataResponse>; now?: number; strategy?: Record<string, number | undefined>; kis?: () => Promise<KisRaw | null> } = {}): Promise<{ history: History; warnings: string[] }> {
+export async function refreshHistory(user: string, opts: { e?: Env; load?: (q: DataRequest) => Promise<DataResponse>; now?: number; strategy?: Record<string, number | undefined>; kis?: Record<string, () => Promise<KisRaw | null>> } = {}): Promise<{ history: History; warnings: string[] }> {
   const e = opts.e ?? process.env;
   const now = opts.now ?? Date.now();
   const accounts = loadAccounts(user, e);
   const h = loadHistory(user, e);
   const warnings: string[] = [];
-  let raw: KisRaw | null = null;
-  if (opts.kis) {
-    try { raw = await opts.kis(); } catch (err) { warnings.push(`한국투자증권 잔고를 읽지 못했습니다: ${(err as Error).message}`); }
+  const raws: [string, KisRaw][] = [];
+  const kisIds = Object.keys(opts.kis ?? {});
+  for (const id of kisIds) {
+    try { const r = await opts.kis![id](); if (r) raws.push([id, r]); }
+    catch (err) { warnings.push(`한국투자증권${kisIds.length > 1 ? `(${id})` : ""} 잔고를 읽지 못했습니다: ${(err as Error).message}`); }
   }
-  const tickers = [...new Set([...accounts.flatMap((a) => a.positions.map((p) => p.ticker)), ...(raw?.us?.holdings ?? []).map((x) => x.code)])];
+  const tickers = [...new Set([...accounts.flatMap((a) => a.positions.map((p) => p.ticker)), ...raws.flatMap(([, r]) => (r.us?.holdings ?? []).map((x) => x.code))])];
   try {
     const fresh = await fetchPrices(tickers, e, opts.load, now);
     h.prices = { at: fresh.at, map: { ...(h.prices?.map ?? {}), ...fresh.map }, ...(fresh.fx ?? h.prices?.fx ? { fx: fresh.fx ?? h.prices?.fx } : {}) };
@@ -172,16 +182,16 @@ export async function refreshHistory(user: string, opts: { e?: Env; load?: (q: D
   const at = new Date(now).toISOString();
   const ids = new Set([...accounts.map((a) => a.id), KIS_ID]);
   const points: History["points"] = {};
-  for (const [k, v] of Object.entries(h.points)) if (ids.has(k)) points[k] = v;
+  for (const [k, v] of Object.entries(h.points)) if (ids.has(k) || isExtraKisId(k)) points[k] = v;
   const flows: NonNullable<History["flows"]> = {};
-  for (const [k, v] of Object.entries(h.flows ?? {})) if (ids.has(k)) flows[k] = v;
+  for (const [k, v] of Object.entries(h.flows ?? {})) if (ids.has(k) || isExtraKisId(k)) flows[k] = v;
   h.flows = flows;
   for (const a of accounts) points[a.id] = addSnapshot(points[a.id] ?? [], snapshotOf(a, date, h.prices, opts.strategy?.[a.id], at));
-  if (raw) {
-    h.kis = kisViewOf(raw, h.prices, now);
-    const k = h.kis;
+  for (const [id, raw] of raws) {
+    const k = kisViewOf(raw, h.prices, now);
+    Object.assign(h, withKisView(h, id, k));
     const stock = k.positions.reduce((a, p) => a + p.value, 0);
-    points[KIS_ID] = addSnapshot(points[KIS_ID] ?? [], { date, total: k.total, cash: k.cash, stock: Math.round(stock), cost: Math.round(k.positions.reduce((a, p) => a + p.qty * p.avgPrice, 0)), ...(opts.strategy?.[KIS_ID] != null ? { strategy: Math.round(opts.strategy[KIS_ID]!) } : {}), at });
+    points[id] = addSnapshot(points[id] ?? [], { date, total: k.total, cash: k.cash, stock: Math.round(stock), cost: Math.round(k.positions.reduce((a, p) => a + p.qty * p.avgPrice, 0)), ...(opts.strategy?.[id] != null ? { strategy: Math.round(opts.strategy[id]!) } : {}), at });
   }
   h.points = points;
   saveHistory(h, user, e);

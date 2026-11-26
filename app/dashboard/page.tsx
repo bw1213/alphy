@@ -26,6 +26,7 @@ interface DashState {
   retFlows?: Record<string, Flow[]>;
   kis: { view: KisView | null; plan: { label: string; budget: number; enabled: boolean; market: "KR" | "US" } | null; last: Last | null } | null;
   kisId: string;
+  kisMore?: { id: string; name: string; view: KisView | null; plan: { label: string; budget: number; enabled: boolean; market: "KR" | "US" } | null; last: Last | null }[];
   manual: { id: string; name: string; broker: string; cash: number; positions: ManualPosition[]; plan: { label: string; budget: number; enabled: boolean } | null; last: Last | null }[];
   trades: ManualTrade[];
   fills?: Fill[];
@@ -142,13 +143,14 @@ export default function DashboardPage() {
   const all = useMemo<Acct[]>(() => {
     if (!st) return [];
     const out: Acct[] = [];
-    if (st.kis) {
-      const v = st.kis.view;
+    const kisAccts = [...(st.kis ? [{ id: st.kisId, name: "한국투자증권", ...st.kis }] : []), ...(st.kisMore ?? [])];
+    for (const k of kisAccts) {
+      const v = k.view;
       out.push({
-        id: st.kisId, name: `한국투자증권${v?.env === "mock" ? " (모의)" : ""}`, broker: "한국투자증권", kind: "auto",
+        id: k.id, name: `${k.name}${v?.env === "mock" ? " (모의)" : ""}`, broker: "한국투자증권", kind: "auto",
         total: v?.total ?? 0, cash: v?.cash ?? 0, cost: v ? v.positions.reduce((s, p) => s + p.qty * p.avgPrice, 0) : 0,
         holdings: (v?.positions ?? []).map((p) => ({ ticker: p.ticker, name: p.name, qty: p.qty, avgPrice: p.avgPrice, price: p.price || null, value: p.value })),
-        plan: st.kis.plan ? `${st.kis.plan.label} (자동${st.kis.plan.enabled ? "" : ", 꺼짐"})` : null, last: st.kis.last, slot: 0,
+        plan: k.plan ? `${k.plan.label} (자동${k.plan.enabled ? "" : ", 꺼짐"})` : null, last: k.last, slot: 0,
       });
     }
     for (const a of st.manual) {

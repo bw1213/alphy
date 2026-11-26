@@ -5,8 +5,10 @@ import { loadLog, loadPlan } from "@/lib/auto/store";
 import { planMarket } from "@/lib/auto/session";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import { loadAccounts, loadManualLog, loadTrades } from "@/lib/manual/store";
-import { KIS_ID, deleteFlow, putFlow, loadHistory, refreshHistory, setReturnStart } from "@/lib/manual/value";
-import { hasKisAccount, kisReader } from "@/lib/manual/kis";
+import { KIS_ID, deleteFlow, kisViewIn, putFlow, loadHistory, refreshHistory, setReturnStart } from "@/lib/manual/value";
+import { hasKisAccount } from "@/lib/manual/kis";
+import { kisReaders } from "@/lib/auto/scheduler";
+import { extraKisAccounts } from "@/lib/kis/userkeys";
 import { allFills } from "@/lib/accounts/fills";
 import { mergedHistory } from "@/lib/accounts/ledgerStore";
 
@@ -36,6 +38,14 @@ export async function GET(req: Request) {
     starts: h.starts ?? {},
     kis: hasKisAccount(user) ? { view: h.kis ?? null, plan: plan ? { label: plan.label, budget: plan.budget, enabled: plan.enabled, market: planMarket(plan) } : null, last: pick(autoLast) } : null,
     kisId: KIS_ID,
+    kisMore: extraKisAccounts(user.id).filter((a) => hasKisAccount(user, process.env, a.id)).map((a) => {
+      const p = loadPlan(user.id, process.env, a.id);
+      return {
+        id: a.id, name: a.name, view: kisViewIn(h, a.id),
+        plan: p ? { label: p.label, budget: p.budget, enabled: p.enabled, market: planMarket(p) } : null,
+        last: pick(p ? loadLog(user.id, process.env, a.id).find((r) => r.status === "ok") : null),
+      };
+    }),
     manual: loadAccounts(user.id).map((a) => ({
       id: a.id, name: a.name, broker: a.broker, cash: a.cash, positions: a.positions,
       plan: a.plan ? { label: a.plan.label, budget: a.plan.budget, enabled: a.plan.enabled } : null,
@@ -44,6 +54,11 @@ export async function GET(req: Request) {
     trades: loadTrades(user.id).slice(0, 30),
     fills: allFills(user.id),
   }, { headers: { "Cache-Control": "no-store" } });
+}
+
+function accountOk(user: Parameters<typeof hasKisAccount>[0], id: string): boolean {
+  if (id === KIS_ID || extraKisAccounts(user.id).some((a) => a.id === id)) return hasKisAccount(user, process.env, id);
+  return loadAccounts(user.id).some((a) => a.id === id);
 }
 
 /**
@@ -61,21 +76,19 @@ export async function POST(req: Request) {
     try {
       if (body.action === "deleteFlow") return NextResponse.json({ ok: true, account: deleteFlow(user.id, String(body.id ?? "")) });
       const id = String(body.accountId ?? "");
-      const ok = id === KIS_ID ? hasKisAccount(user) : loadAccounts(user.id).some((a) => a.id === id);
-      if (!ok) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
+      if (!accountOk(user, id)) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
       return NextResponse.json({ ok: true, ...putFlow(user.id, id, { date: String(body.date ?? ""), amount: Number(body.amount), note: body.note }, body.id ? String(body.id) : undefined) });
     } catch (err) { return NextResponse.json({ error: (err as Error).message }, { status: 400 }); }
   }
   if (body?.action === "retStart") {
     const id = String(body.accountId ?? "");
-    const ok = id === KIS_ID ? hasKisAccount(user) : loadAccounts(user.id).some((a) => a.id === id);
-    if (!ok) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
+    if (!accountOk(user, id)) return NextResponse.json({ error: "그 계좌를 찾지 못했습니다." }, { status: 404 });
     try { return NextResponse.json({ ok: true, starts: setReturnStart(user.id, id, body.date ? String(body.date) : null) }); }
     catch (err) { return NextResponse.json({ error: (err as Error).message }, { status: 400 }); }
   }
   if (body?.action !== "refresh") return NextResponse.json({ error: "알 수 없는 요청" }, { status: 400 });
   return startJob(refreshJobs, user.id, "refresh", async () => {
-    const r = await refreshHistory(user.id, { kis: hasKisAccount(user) ? kisReader(user) : undefined });
+    const r = await refreshHistory(user.id, { kis: kisReaders(user) });
     return { warnings: r.warnings };
   }, { errStatus: () => 400 });
 }
