@@ -109,3 +109,16 @@ describe("계좌별 자격 증명·파일", () => {
     expect(tradeCredentialsFor(getUser("mom", env)!, env, "kis-cccc33").appKey).toBe("MOM-PEN");
   });
 });
+
+describe("앱키 하나로 여러 계좌", () => {
+  it("같은 앱키여도 계좌번호는 부른 계좌 것을 쓰고 토큰은 함께 쓴다", async () => {
+    const { getClient } = await import("@/lib/kis/client");
+    const a = getClient({ env: "mock", appKey: "SAME-KEY-1", appSecret: "s", cano: "50011111", acntPrdtCd: "01" });
+    const b = getClient({ env: "mock", appKey: "SAME-KEY-1", appSecret: "s", cano: "50022222", acntPrdtCd: "22" });
+    expect(a.cred.cano).toBe("50011111");
+    expect(b.cred).toMatchObject({ cano: "50022222", acntPrdtCd: "22", appKey: "SAME-KEY-1" });
+    expect(b.env).toBe("mock");
+    (b as any).token = { token: "t" };
+    expect((a as any).token).toEqual({ token: "t" });
+  });
+});
