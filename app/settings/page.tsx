@@ -9,6 +9,7 @@ import ServerStatusCard from "@/components/ServerStatusCard";
 import StockListCard from "@/components/StockListCard";
 import Info from "@/components/Info";
 import AppNav from "@/components/AppNav";
+import KisAccountsCard from "@/components/KisAccountsCard";
 import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
 
 type ServerLock = { at?: number; ownerTotp: boolean };
@@ -253,6 +254,7 @@ export default function SettingsPage() {
         <div className="wide section"><h2>내 설정</h2></div>
         {keyCard("mock")}
         {keyCard("real")}
+        <KisAccountsCard accounts={view.kisAccounts ?? []} onChanged={(m) => { refresh(); flash(m); }} />
         {tradeCard}
         {pwCard()}
         <SecurityCard />
@@ -275,6 +277,7 @@ export default function SettingsPage() {
         <div className="wide section"><h2>내 설정</h2></div>
         {keyCard("mock")}
         {keyCard("real")}
+        <KisAccountsCard accounts={view.kisAccounts ?? []} onChanged={(m) => { refresh(); flash(m); }} />
 
         {tradeCard}
 

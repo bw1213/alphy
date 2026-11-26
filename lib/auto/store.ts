@@ -2,7 +2,7 @@ import fs from "fs";
 import { normalizeTicker } from "../data/market";
 import { STRATEGIES } from "../strategies";
 import { cleanStrategy, loadStrategies, type SavedStrategy } from "../strategies/library";
-import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
+import { acctFile, KIS_ID, OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport } from "./evening";
 
 type Env = Record<string, string | undefined>;
@@ -92,27 +92,27 @@ export function syncPlan(plan: AutoPlan, lib: SavedStrategy[]): AutoPlan {
   return { ...plan, strategy: fresh, tickers, intraday, ...(changed ? { realConfirmedAt: undefined } : {}) };
 }
 
-export function loadPlan(user: string = OWNER_ID, e: Env = process.env): AutoPlan | null {
+export function loadPlan(user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID): AutoPlan | null {
   try {
-    const j = JSON.parse(fs.readFileSync(userFile("auto.json", user, e), "utf8"));
+    const j = JSON.parse(fs.readFileSync(userFile(acctFile("auto.json", acct), user, e), "utf8"));
     if (!(j && typeof j === "object" && j.plan && typeof j.plan === "object")) return null;
     return syncPlan(j.plan as AutoPlan, loadStrategies(e, user));
   } catch { return null; }
 }
 
-export function savePlan(plan: AutoPlan | null, user: string = OWNER_ID, e: Env = process.env): void {
-  writeUserFile("auto.json", JSON.stringify({ plan }, null, 1), user, e);
+export function savePlan(plan: AutoPlan | null, user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID): void {
+  writeUserFile(acctFile("auto.json", acct), JSON.stringify({ plan }, null, 1), user, e);
 }
 
-export function loadLog(user: string = OWNER_ID, e: Env = process.env): EveningReport[] {
+export function loadLog(user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID): EveningReport[] {
   try {
-    const j = JSON.parse(fs.readFileSync(userFile("auto-log.json", user, e), "utf8"));
+    const j = JSON.parse(fs.readFileSync(userFile(acctFile("auto-log.json", acct), user, e), "utf8"));
     return Array.isArray(j) ? j : [];
   } catch { return []; }
 }
 
-export function appendLog(r: EveningReport, user: string = OWNER_ID, e: Env = process.env): EveningReport[] {
-  const list = [r, ...loadLog(user, e).filter((x) => !(x.runDate === r.runDate && x.trigger === r.trigger))].slice(0, MAX_LOG);
-  writeUserFile("auto-log.json", JSON.stringify(list), user, e);
+export function appendLog(r: EveningReport, user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID): EveningReport[] {
+  const list = [r, ...loadLog(user, e, acct).filter((x) => !(x.runDate === r.runDate && x.trigger === r.trigger))].slice(0, MAX_LOG);
+  writeUserFile(acctFile("auto-log.json", acct), JSON.stringify(list), user, e);
   return list;
 }

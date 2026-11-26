@@ -6,7 +6,7 @@ import ManualAccount from "@/components/accounts/ManualAccount";
 
 const KIS = "kis";
 
-/** 계좌 화면 하나: ?id=kis 는 한국투자증권(자동 주문), 그 밖은 수동 계좌 */
+/** 계좌 화면 하나: ?id=kis·kis-xxxx 는 한국투자증권(자동 주문), 그 밖은 수동 계좌 */
 export default function AccountsPage() {
   const [id, setId] = useState<string | null>(null);
   useEffect(() => {
@@ -25,5 +25,5 @@ export default function AccountsPage() {
     return () => window.removeEventListener("popstate", back);
   }, []);
   if (id === null) return null;
-  return id === KIS ? <AutoAccount onSwitch={go} /> : <ManualAccount key="manual" onSwitch={go} />;
+  return id === KIS || /^kis-[a-z0-9]+$/.test(id) ? <AutoAccount key={id} acct={id} onSwitch={go} /> : <ManualAccount key="manual" onSwitch={go} />;
 }

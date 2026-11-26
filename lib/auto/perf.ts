@@ -8,7 +8,7 @@
  * 저장: users/<사용자>/auto-perf.json
  */
 import fs from "fs";
-import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
+import { acctFile, KIS_ID, OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { AutoPlan } from "./store";
 
 type Env = Record<string, string | undefined>;
@@ -38,11 +38,11 @@ export interface PerfFile {
 export const MAX_POINTS = 20_000;
 export const perfKey = (p: Pick<AutoPlan, "label" | "startDate" | "budget">, env?: "real" | "mock") => `${p.label}|${p.startDate}|${p.budget}|${env ?? "?"}`;
 
-export function loadPerf(user: string = OWNER_ID, e: Env = process.env): PerfFile | null {
-  try { const j = JSON.parse(fs.readFileSync(userFile("auto-perf.json", user, e), "utf8")); return j && Array.isArray(j.points) ? j : null; } catch { return null; }
+export function loadPerf(user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID): PerfFile | null {
+  try { const j = JSON.parse(fs.readFileSync(userFile(acctFile("auto-perf.json", acct), user, e), "utf8")); return j && Array.isArray(j.points) ? j : null; } catch { return null; }
 }
-export function savePerf(f: PerfFile | null, user: string = OWNER_ID, e: Env = process.env) {
-  writeUserFile("auto-perf.json", JSON.stringify(f ?? {}), user, e);
+export function savePerf(f: PerfFile | null, user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID) {
+  writeUserFile(acctFile("auto-perf.json", acct), JSON.stringify(f ?? {}), user, e);
 }
 
 /** 이 운용의 기록 (운용이 바뀌었으면 빈 기록) */

@@ -19,6 +19,6 @@ export function realLockReason(u: User, e: Env = process.env): string | undefine
   return `실전 주문이 잠겨 있습니다. 필요한 것: ${need}.`;
 }
 
-export function tradeCredentialsFor(u: User, e: Env = process.env): KisCredentials {
-  return tradeCredentials({ ...kisEnvFor(u, e), ALPHY_REAL_LOCK_REASON: realLockReason(u, e) });
+export function tradeCredentialsFor(u: User, e: Env = process.env, acct?: string): KisCredentials {
+  return tradeCredentials({ ...kisEnvFor(u, e, acct), ALPHY_REAL_LOCK_REASON: realLockReason(u, e) });
 }

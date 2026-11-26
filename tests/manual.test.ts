@@ -200,7 +200,10 @@ describe("대시보드 기록", () => {
     const data = { "069500": bars(today, 10, () => 45_000), QQQ: bars(today, 10, () => 700_000) };
     const r = await refreshHistory("owner", {
       e: env, load: loader(data, 1400), now: at(today, "19:00"), strategy: { [a.id]: 1_010_000 },
-      kis: async () => ({ env: "mock", kr: { cash: 100_000, total: 600_000, holdings: [{ code: "005930", name: "삼성전자", qty: 10, avgPrice: 45_000, price: 50_000, value: 500_000 }] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 2, avgPrice: 450, price: 500, value: 1000 }] } }),
+      kis: {
+        kis: async () => ({ env: "mock", kr: { cash: 100_000, total: 600_000, holdings: [{ code: "005930", name: "삼성전자", qty: 10, avgPrice: 45_000, price: 50_000, value: 500_000 }] }, us: { holdings: [{ code: "QQQ", name: "QQQ", qty: 2, avgPrice: 450, price: 500, value: 1000 }] } }),
+        "kis-ab12": async () => ({ env: "real", kr: { cash: 300_000, total: 300_000, holdings: [] } }),
+      },
     });
     expect(r.warnings).toEqual([]);
     const h = loadHistory("owner", env);
@@ -208,11 +211,13 @@ describe("대시보드 기록", () => {
     expect(h.kis?.total).toBe(600_000 + 2 * 700_000);
     expect(h.kis?.positions.find((p) => p.ticker === "QQQ")).toMatchObject({ value: 1_400_000, avgPrice: 450 * 1400 });
     expect(h.points[KIS_ID][0].total).toBe(2_000_000);
+    expect(h.kisViews?.["kis-ab12"]?.total).toBe(300_000);
+    expect(h.points["kis-ab12"][0].total).toBe(300_000);
   });
 
   it("시세·잔고를 못 받아도 평균단가로 기록하고 경고", async () => {
     saveAccounts([account({ positions: [{ ticker: "069500", qty: 1, avgPrice: 40000 }] } as any)], "owner", env);
-    const r = await refreshHistory("owner", { e: env, load: async () => { throw new Error("네트워크"); }, kis: async () => { throw new Error("키 오류"); }, now: at(today, "19:00") });
+    const r = await refreshHistory("owner", { e: env, load: async () => { throw new Error("네트워크"); }, kis: { kis: async () => { throw new Error("키 오류"); } }, now: at(today, "19:00") });
     expect(r.warnings.join(" ")).toMatch(/잔고를 읽지 못했습니다.*/);
     expect(r.warnings.join(" ")).toContain("평균단가");
     const h = loadHistory("owner", env);

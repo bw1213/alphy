@@ -8,20 +8,20 @@ import { loadPerf, perfFor, rebase, resetBase, savePerf, summarize } from "@/lib
 import { loadNotify } from "@/lib/auto/telegram";
 import { checkPassword, clientIp, loginBlockedFor, recordFail } from "@/lib/settings/auth";
 import { tradeCredentialsFor } from "@/lib/kis/access";
-import { accountSnapshot, eveningFor, eveningTime, loadState, MIX_TIME, morningTimes } from "@/lib/auto/scheduler";
+import { accountSnapshot, tagFor, eveningFor, eveningTime, loadState, MIX_TIME, morningTimes } from "@/lib/auto/scheduler";
 import { formatDay, loadDay, loadDays, saveDay, stopDay } from "@/lib/auto/morning";
 import { brokerFor } from "@/lib/auto/broker";
 import { loadIntradayDays } from "@/lib/auto/intraday";
 import { clockOf, planMarket, planMarkets } from "@/lib/auto/session";
 import { notify } from "@/lib/auto/telegram";
 import { cleanHm, kst } from "@/lib/auto/time";
-import { autoLimitFor, kisEnvFor } from "@/lib/kis/userkeys";
+import { autoLimitFor, kisAccountIds, kisAccountName, kisEnvFor } from "@/lib/kis/userkeys";
 import { tradeEnv } from "@/lib/kis/config";
 import { namedJobs, pollJob, startJob } from "@/lib/server/jobReply";
 import type { EveningReport } from "@/lib/auto/evening";
 import { clearOldRecords } from "@/lib/auto/clear";
 import { hasKisAccount } from "@/lib/manual/kis";
-import { loadHistory } from "@/lib/manual/value";
+import { KIS_ID, kisViewIn, loadHistory } from "@/lib/manual/value";
 import { cleanDates, extraClosed, lateOpenDays, loadCalendar, refreshKrCalendar, tradingDay, upcomingClosed } from "@/lib/market/holidays";
 
 export const runtime = "nodejs";
@@ -31,19 +31,29 @@ export const maxDuration = 300;
 // 시세를 새로 받느라 오래 걸릴 수 있어 작업으로 돌림 (프록시 60초 제한)
 const runJobs = namedJobs<EveningReport>("auto-run");
 
+/** 요청의 계좌 id (없으면 기본 계좌). 내 계좌가 아니면 에러 */
+function acctOf(userId: string, raw: unknown): string {
+  const id = String(raw ?? "").trim() || KIS_ID;
+  if (!kisAccountIds(userId).includes(id)) throw new Error("그 한국투자증권 계좌를 찾지 못했습니다.");
+  return id;
+}
+
 export async function GET(req: Request) {
   const { user, denied } = requireUser(req);
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   const job = new URL(req.url).searchParams.get("job");
   if (job) return pollJob(runJobs, user.id, job);
+  let acct: string;
+  try { acct = acctOf(user.id, new URL(req.url).searchParams.get("acct")); }
+  catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 404 }); }
   if (new URL(req.url).searchParams.get("orders")) {
-    const p = loadPlan(user.id);
+    const p = loadPlan(user.id, process.env, acct);
     const markets = p ? planMarkets(p) : ["KR" as const];
     try {
       let env: "real" | "mock" = "mock";
       const orders = [];
       for (const m of markets) {
-        const b = brokerFor(user, process.env, m);
+        const b = brokerFor(user, process.env, m, acct);
         env = b.env;
         orders.push(...(await b.orders(clockOf(m).date)).map((o) => ({ ...o, market: m })));
       }
@@ -52,12 +62,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: `주문 내역을 읽지 못했습니다: ${(e as Error).message}` }, { status: 500 });
     }
   }
-  const plan = loadPlan(user.id);
-  const account = tradeEnv(kisEnvFor(user));
-  const days = loadDays(user.id);
-  const perf = plan ? perfFor(loadPerf(user.id), plan, account) : null;
+  const plan = loadPlan(user.id, process.env, acct);
+  const account = tradeEnv(kisEnvFor(user, process.env, acct));
+  const days = loadDays(user.id, process.env, acct);
+  const perf = plan ? perfFor(loadPerf(user.id, process.env, acct), plan, account) : null;
   let lock: string | null = null;
-  if (account === "real") { try { tradeCredentialsFor(user); } catch (e) { lock = (e as Error).message; } }
+  if (account === "real") { try { tradeCredentialsFor(user, process.env, acct); } catch (e) { lock = (e as Error).message; } }
   return NextResponse.json({
     perf: perf ? { base: perf.base ?? null, budget: perf.budget, env: perf.env ?? account, points: perf.points.slice(-250), summary: summarize(perf) } : null,
     real: {
@@ -67,7 +77,7 @@ export async function GET(req: Request) {
       telegram: !!loadNotify(user.id).chatId,
     },
     plan: plan ? { ...plan, kind: planKind(plan), strategy: undefined, strategyName: plan.strategy?.name ?? null, builtin: plan.builtin ?? null } : null,
-    log: loadLog(user.id).slice(0, 30),
+    log: loadLog(user.id, process.env, acct).slice(0, 30),
     eveningTime: eveningTime(),
     lastEvening: loadState().evening ?? null,
     lastMix: loadState().mix ?? null,
@@ -75,14 +85,16 @@ export async function GET(req: Request) {
     limit: autoLimitFor(user.id),
     times: morningTimes(),
     days: Object.values(days).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
-    intradayDays: Object.values(loadIntradayDays(user.id)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
+    intradayDays: Object.values(loadIntradayDays(user.id, process.env, acct)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
     account,
     market: plan ? planMarket(plan) : "KR",
     markets: plan ? planMarkets(plan) : ["KR"],
     owner: user.id === OWNER_ID,
+    acct,
+    acctName: kisAccountName(user.id, acct),
     today: kst().date,
     calendar: calendarView(),
-    ...(hasKisAccount(user) ? { accountView: loadHistory(user.id).kis ?? null } : {}),
+    ...(hasKisAccount(user, process.env, acct) ? { accountView: kisViewIn(loadHistory(user.id), acct) } : {}),
   }, { headers: { "Cache-Control": "no-store" } });
 }
 
@@ -102,22 +114,25 @@ export async function POST(req: Request) {
   if (denied) return NextResponse.json({ error: denied[1] }, { status: denied[0] });
   let body: any;
   try { body = await req.json(); } catch { return NextResponse.json({ error: "요청 형식 오류" }, { status: 400 }); }
+  let acct: string;
+  try { acct = acctOf(user.id, body?.acct); }
+  catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 404 }); }
   try {
     switch (body?.action) {
       case "save": {
-        const real = tradeEnv(kisEnvFor(user)) === "real" ? { cap: autoLimitFor(user.id).realBudget } : undefined;
-        const plan = keepRealConfirm(loadPlan(user.id), cleanPlan(body, user.id, kst().date, loadStrategies(process.env, user.id), real));
-        savePlan(plan, user.id);
+        const real = tradeEnv(kisEnvFor(user, process.env, acct)) === "real" ? { cap: autoLimitFor(user.id).realBudget } : undefined;
+        const plan = keepRealConfirm(loadPlan(user.id, process.env, acct), cleanPlan(body, user.id, kst().date, loadStrategies(process.env, user.id), real));
+        savePlan(plan, user.id, process.env, acct);
         return NextResponse.json({ ok: true });
       }
       case "delete":
-        savePlan(null, user.id);
+        savePlan(null, user.id, process.env, acct);
         return NextResponse.json({ ok: true });
       case "run": {
-        if (!loadPlan(user.id)) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
+        if (!loadPlan(user.id, process.env, acct)) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
         const notifyTg = body.notify === true;
-        return startJob(runJobs, user.id, `run:${notifyTg}`, async () => {
-          const r = await eveningFor(user, "manual", { notify: notifyTg });
+        return startJob(runJobs, user.id, `run:${acct}:${notifyTg}`, async () => {
+          const r = await eveningFor(user, "manual", { notify: notifyTg, acct });
           if (!r) throw new Error("먼저 운용 전략을 저장하세요.");
           return r;
         }, { errStatus: () => 400 });
@@ -150,52 +165,52 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, calendar: calendarView() });
       }
       case "real": {
-        const plan = loadPlan(user.id);
+        const plan = loadPlan(user.id, process.env, acct);
         if (!plan) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
         if (body.on !== true) {
-          savePlan({ ...plan, realConfirmedAt: undefined }, user.id);
+          savePlan({ ...plan, realConfirmedAt: undefined }, user.id, process.env, acct);
           return NextResponse.json({ ok: true, confirmedAt: null });
         }
         const ip = clientIp(req);
         if (loginBlockedFor(ip, Date.now(), user.id) > 0) return NextResponse.json({ error: "여러 번 틀려서 잠겼습니다. 잠시 뒤에 다시 하세요." }, { status: 429 });
         if (!checkPassword(String(body.password ?? ""), process.env, user.id)) { recordFail(ip, Date.now(), user.id); return NextResponse.json({ error: "비밀번호가 틀렸습니다." }, { status: 401 }); }
-        if (tradeEnv(kisEnvFor(user)) !== "real") return NextResponse.json({ error: "주문 계좌가 모의투자입니다. 먼저 설정에서 주문 대상을 실전으로 바꾸세요." }, { status: 400 });
-        tradeCredentialsFor(user); // 실전 잠금이 걸려 있으면 이유와 함께 오류
+        if (tradeEnv(kisEnvFor(user, process.env, acct)) !== "real") return NextResponse.json({ error: acct === KIS_ID ? "주문 계좌가 모의투자입니다. 먼저 설정에서 주문 대상을 실전으로 바꾸세요." : "이 계좌는 모의투자 계좌입니다." }, { status: 400 });
+        tradeCredentialsFor(user, process.env, acct); // 실전 잠금이 걸려 있으면 이유와 함께 오류
         const cap = autoLimitFor(user.id).realBudget;
         if (cap > 0 && plan.budget > cap) return NextResponse.json({ error: `운용 금액이 실전 운용 금액 상한(${cap.toLocaleString("ko-KR")}원)을 넘습니다.` }, { status: 400 });
         const at = new Date().toISOString();
         // updatedAt 은 그대로 두어 이미 한 계산을 다음 주문에 그대로 씀
-        savePlan({ ...plan, realConfirmedAt: at }, user.id);
-        await notify(user.id, `[알피] 실전 전환을 확인했습니다. 다음 거래일 아침부터 실전 계좌로 자동 주문합니다 (${plan.label}, 운용 금액 ${plan.budget.toLocaleString("ko-KR")}원).`).catch(() => false);
+        savePlan({ ...plan, realConfirmedAt: at }, user.id, process.env, acct);
+        await notify(user.id, `${tagFor(user, acct)}[알피] 실전 전환을 확인했습니다. 다음 거래일 아침부터 실전 계좌로 자동 주문합니다 (${plan.label}, 운용 금액 ${plan.budget.toLocaleString("ko-KR")}원).`).catch(() => false);
         return NextResponse.json({ ok: true, confirmedAt: at });
       }
       case "clear": {
-        const plan = loadPlan(user.id);
+        const plan = loadPlan(user.id, process.env, acct);
         const before = plan?.updatedAt || new Date().toISOString();
-        const n = clearOldRecords(before, user.id);
+        const n = clearOldRecords(before, user.id, process.env, acct);
         return NextResponse.json({ ok: true, ...n });
       }
       case "rebase": {
-        const plan = loadPlan(user.id);
+        const plan = loadPlan(user.id, process.env, acct);
         if (!plan) return NextResponse.json({ error: "먼저 운용 전략을 저장하세요." }, { status: 400 });
-        const snap = await accountSnapshot(user, planMarkets(plan));
+        const snap = await accountSnapshot(user, planMarkets(plan), process.env, Date.now(), acct);
         if (snap.total == null) return NextResponse.json({ error: `계좌 평가액을 정확히 읽지 못했습니다. ${snap.note ?? ""}`.trim() }, { status: 400 });
-        const perf = perfFor(loadPerf(user.id), plan, snap.env);
-        savePerf(body.reset ? resetBase(perf, snap.total, kst().date) : rebase(perf, snap.total, kst().date), user.id);
+        const perf = perfFor(loadPerf(user.id, process.env, acct), plan, snap.env);
+        savePerf(body.reset ? resetBase(perf, snap.total, kst().date) : rebase(perf, snap.total, kst().date), user.id, process.env, acct);
         return NextResponse.json({ ok: true });
       }
       case "stop": {
-        const plan = loadPlan(user.id);
-        if (plan?.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, user.id);
+        const plan = loadPlan(user.id, process.env, acct);
+        if (plan?.enabled) savePlan({ ...plan, enabled: false, updatedAt: new Date().toISOString() }, user.id, process.env, acct);
         let cancelled = false;
         for (const market of plan ? planMarkets(plan) : ["KR" as const]) {
-          let d = loadDay(clockOf(market).date, user.id, process.env, market);
+          let d = loadDay(clockOf(market).date, user.id, process.env, market, acct);
           if (!d || !["placed", "buying"].includes(d.phase)) continue;
-          d = await stopDay(d, brokerFor(user, process.env, market), Date.now());
+          d = await stopDay(d, brokerFor(user, process.env, market, acct), Date.now());
           d.notified = true;
-          saveDay(d, user.id);
+          saveDay(d, user.id, process.env, acct);
           cancelled = true;
-          await notify(user.id, formatDay(d, true)).catch(() => false);
+          await notify(user.id, `${tagFor(user, acct)}${formatDay(d, true)}`).catch(() => false);
         }
         return NextResponse.json({ ok: true, cancelled });
       }

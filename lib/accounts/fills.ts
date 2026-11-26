@@ -2,7 +2,7 @@
 import { loadDays } from "../auto/morning";
 import { loadIntradayDays } from "../auto/intraday";
 import { loadTrades } from "../manual/store";
-import { KIS_ID } from "../manual/value";
+import { kisAccountIds } from "../kis/userkeys";
 
 type Env = Record<string, string | undefined>;
 
@@ -23,11 +23,13 @@ export function allFills(user: string, e: Env = process.env, limit = 100): Fill[
   const out: Fill[] = loadTrades(user, e).map((t) => ({
     accountId: t.accountId, date: t.date, ticker: t.ticker, name: t.name ?? t.ticker, side: t.side, qty: t.qty, price: t.price, market: "KR" as const, source: "manual" as const,
   }));
-  for (const d of Object.values(loadDays(user, e))) {
-    for (const it of d.items) if (it.filledQty > 0) out.push({ accountId: KIS_ID, date: d.date, ticker: it.ticker, name: it.name, side: it.side, qty: it.filledQty, price: it.avgPrice, market: d.market ?? "KR", source: "morning" });
-  }
-  for (const d of Object.values(loadIntradayDays(user, e))) {
-    for (const s of d.sells) if (s.filledQty > 0) out.push({ accountId: KIS_ID, date: d.date, ticker: s.ticker, name: s.name, side: "sell", qty: s.filledQty, price: s.avgPrice, market: d.market ?? "KR", source: "intraday" });
+  for (const acct of kisAccountIds(user, e)) {
+    for (const d of Object.values(loadDays(user, e, acct))) {
+      for (const it of d.items) if (it.filledQty > 0) out.push({ accountId: acct, date: d.date, ticker: it.ticker, name: it.name, side: it.side, qty: it.filledQty, price: it.avgPrice, market: d.market ?? "KR", source: "morning" });
+    }
+    for (const d of Object.values(loadIntradayDays(user, e, acct))) {
+      for (const s of d.sells) if (s.filledQty > 0) out.push({ accountId: acct, date: d.date, ticker: s.ticker, name: s.name, side: "sell", qty: s.filledQty, price: s.avgPrice, market: d.market ?? "KR", source: "intraday" });
+    }
   }
   return out.sort((a, b) => b.date.localeCompare(a.date)).slice(0, limit);
 }

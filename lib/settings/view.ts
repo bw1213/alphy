@@ -1,14 +1,16 @@
 /** 설정 화면용: 비밀값을 가린 보기 + 화면에서 보낸 변경 적용 */
 import { parseAccount } from "../kis/config";
-import { serverRealLock, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type AutoLimit, type Settings } from "./store";
+import { serverRealLock, settingsPath, type BacktestDefaults, type DataSource, type KisEnvName, type KisKeySet, type OrderLimit, type AutoLimit, type Settings, type KisAccount } from "./store";
 
 type Env = Record<string, string | undefined>;
 
 export interface FieldView { set: boolean; hint?: string }
+export interface KisAccountView { id: string; name: string; env: KisEnvName; appKey: FieldView; appSecret: FieldView; account: FieldView }
 export interface SettingsView {
   kis: Record<KisEnvName, { appKey: FieldView; appSecret: FieldView; account: FieldView }> & {
     tradeEnv: { value: KisEnvName };
   };
+  kisAccounts: KisAccountView[];
   realOrdersAllowed: boolean;
   orderLimit: OrderLimit;
   autoLimit: AutoLimit;
@@ -21,19 +23,24 @@ const maskAccount = (s: string) => {
   return a ? `${a.cano.slice(0, 4)}****-${a.acntPrdtCd}` : "형식 오류";
 };
 
+const keyField = (v: string | undefined, f: keyof KisKeySet): FieldView => {
+  const t = v?.trim() ?? "";
+  if (!t) return { set: false };
+  return { set: true, hint: f === "appKey" ? `…${t.slice(-4)}` : f === "account" ? maskAccount(t) : undefined };
+};
+
+export const kisAccountsView = (list: KisAccount[] = []): KisAccountView[] =>
+  list.map((a) => ({ id: a.id, name: a.name, env: a.env, appKey: keyField(a.appKey, "appKey"), appSecret: keyField(a.appSecret, "appSecret"), account: keyField(a.account, "account") }));
+
 export function settingsView(s: Settings, e: Env = process.env): SettingsView {
-  const field = (env: KisEnvName, f: keyof KisKeySet): FieldView => {
-    const v = s.kis[env][f]?.trim() ?? "";
-    if (!v) return { set: false };
-    const hint = f === "appKey" ? `…${v.slice(-4)}` : f === "account" ? maskAccount(v) : undefined;
-    return { set: true, hint };
-  };
+  const field = (env: KisEnvName, f: keyof KisKeySet): FieldView => keyField(s.kis[env][f], f);
   const one = (env: KisEnvName) => ({ appKey: field(env, "appKey"), appSecret: field(env, "appSecret"), account: field(env, "account") });
   return {
     kis: {
       real: one("real"), mock: one("mock"),
       tradeEnv: { value: s.kis.tradeEnv === "real" ? "real" : "mock" },
     },
+    kisAccounts: kisAccountsView(s.kis.accounts),
     realOrdersAllowed: serverRealLock(e, s).open,
     orderLimit: s.kis.orderLimit,
     autoLimit: s.kis.autoLimit,

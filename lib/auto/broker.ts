@@ -20,8 +20,8 @@ type Env = Record<string, string | undefined>;
 const exchangeCache = new Map<string, OrderExchange>();
 
 /** 미국 주식 계좌 연결: 시장가가 없어 현재가 ±1% 지정가로 주문. 가격은 달러 */
-export function usBrokerFor(u: User, e: Env = process.env): Broker {
-  const client = getClient(tradeCredentialsFor(u, e));
+export function usBrokerFor(u: User, e: Env = process.env, acct?: string): Broker {
+  const client = getClient(tradeCredentialsFor(u, e, acct));
   const exchangeOf = async (ticker: string): Promise<OrderExchange> => {
     const hit = exchangeCache.get(ticker);
     if (hit) return hit;
@@ -71,9 +71,9 @@ export function usBrokerFor(u: User, e: Env = process.env): Broker {
   };
 }
 
-export function brokerFor(u: User, e: Env = process.env, market: Market = "KR"): Broker {
-  if (market === "US") return usBrokerFor(u, e);
-  const client = getClient(tradeCredentialsFor(u, e));
+export function brokerFor(u: User, e: Env = process.env, market: Market = "KR", acct?: string): Broker {
+  if (market === "US") return usBrokerFor(u, e, acct);
+  const client = getClient(tradeCredentialsFor(u, e, acct));
   return {
     env: client.env,
     balance: () => getBalance(client),

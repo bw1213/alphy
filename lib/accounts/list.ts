@@ -5,11 +5,11 @@
 import { loadLog, loadPlan, type AutoPlan } from "../auto/store";
 import { planMarkets } from "../auto/session";
 import { tradeEnv } from "../kis/config";
-import { kisEnvFor } from "../kis/userkeys";
+import { kisAccountIds, kisAccountName, kisEnvFor } from "../kis/userkeys";
 import { hasKisAccount } from "../manual/kis";
 import { accountReturns } from "../manual/returns";
 import { accountValue, loadAccounts, loadManualLog } from "../manual/store";
-import { KIS_ID, loadHistory } from "../manual/value";
+import { KIS_ID, kisViewIn, loadHistory } from "../manual/value";
 import type { User } from "../settings/users";
 import { mergedHistory } from "./ledgerStore";
 
@@ -44,14 +44,15 @@ export function listAccounts(u: User, e: Env = process.env): AccountSummary[] {
     return r.length > 1 ? { ret: r.at(-1)!.ret, since: r[0].date } : { ret: null, since: null };
   };
   const out: AccountSummary[] = [];
-  if (hasKisAccount(u, e)) {
-    const plan = loadPlan(u.id, e);
-    const last = plan ? loadLog(u.id, e).find((r) => r.status === "ok") : undefined;
-    const env = tradeEnv(kisEnvFor(u, e));
+  for (const id of kisAccountIds(u.id, e)) {
+    if (!hasKisAccount(u, e, id)) continue;
+    const plan = loadPlan(u.id, e, id);
+    const last = plan ? loadLog(u.id, e, id).find((r) => r.status === "ok") : undefined;
+    const env = tradeEnv(kisEnvFor(u, e, id));
     out.push({
-      id: KIS_ID, name: `한국투자증권${env === "mock" ? " (모의)" : ""}`, broker: "한국투자증권", mode: "auto", env,
-      plan: planOf(plan, plan ? planMarkets(plan) : []), total: h.kis?.total ?? null, ...retOf(KIS_ID),
-      todo: last?.orders.length ?? 0, runDate: last?.runDate ?? null, href: `/accounts?id=${KIS_ID}`,
+      id, name: `${kisAccountName(u.id, id, e)}${env === "mock" ? " (모의)" : ""}`, broker: "한국투자증권", mode: "auto", env,
+      plan: planOf(plan, plan ? planMarkets(plan) : []), total: kisViewIn(h, id)?.total ?? null, ...retOf(id),
+      todo: last?.orders.length ?? 0, runDate: last?.runDate ?? null, href: `/accounts?id=${id}`,
     });
   }
   const logs = loadManualLog(u.id, e);

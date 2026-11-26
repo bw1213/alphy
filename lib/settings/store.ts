@@ -18,6 +18,15 @@ export type DataSource = "naver" | "kis" | "csv" | "synthetic";
 
 export interface KisKeySet { appKey?: string; appSecret?: string; account?: string }
 
+/** 기본 계좌(real·mock) 말고 더 붙인 한국투자증권 계좌. 계좌마다 앱키가 따로 나옴 */
+export interface KisAccount extends KisKeySet { id: string; name: string; env: KisEnvName }
+
+export function cleanKisAccounts(x: unknown): KisAccount[] {
+  if (!Array.isArray(x)) return [];
+  return x.filter((a) => a && typeof a.id === "string" && /^kis-[a-z0-9]{4,12}$/.test(a.id))
+    .map((a) => ({ id: a.id, name: String(a.name ?? "").slice(0, 30) || "한국투자증권", env: a.env === "real" ? "real" as const : "mock" as const, appKey: a.appKey, appSecret: a.appSecret, account: a.account }));
+}
+
 export interface BacktestDefaults {
   source: DataSource;
   /** 초기 자금(원) */
@@ -73,7 +82,7 @@ export interface RealUnlock { at: number; ip?: string }
 export interface Settings {
   version: 1;
   auto: AutoSettings;
-  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit; realUnlock?: RealUnlock };
+  kis: { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit; realUnlock?: RealUnlock; accounts?: KisAccount[] };
   backtest: BacktestDefaults;
   auth: {
     passwordHash?: string; sessionSecret?: string; setupCode?: string;
@@ -120,6 +129,7 @@ function merge(raw: Partial<Settings> | null): Settings {
       tradeEnv: raw.kis?.tradeEnv === "real" ? "real" : "mock",
       orderLimit: { ...d.kis.orderLimit, ...(raw.kis?.orderLimit ?? {}) },
       autoLimit: { ...d.kis.autoLimit, ...(raw.kis?.autoLimit ?? {}) },
+      ...(raw.kis?.accounts ? { accounts: cleanKisAccounts(raw.kis.accounts) } : {}),
       ...(typeof raw.kis?.realUnlock?.at === "number" ? { realUnlock: { at: raw.kis.realUnlock.at, ip: raw.kis.realUnlock.ip } } : {}),
     },
     backtest: { ...d.backtest, ...(raw.backtest ?? {}) },

@@ -1,6 +1,6 @@
 import fs from "fs";
 import { checkOrderLimit } from "../kis/limits";
-import { OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
+import { acctFile, KIS_ID, OWNER_ID, userFile, writeUserFile } from "../settings/userdir";
 import type { EveningReport, SellLevel } from "./evening";
 import { applyFills, pickReport, type Broker, type ItemStatus, type MorningLimits } from "./morning";
 import { intradayOn, REAL_NOT_CONFIRMED, type AutoPlan } from "./store";
@@ -57,18 +57,18 @@ const sessionOf = (d: Pick<IntradayDay, "market" | "date">): Session => sessionO
 export const levelKey = (l: Pick<SellLevel, "ticker" | "kind" | "price">) => `${l.ticker}:${l.kind}:${l.price}`;
 
 type DaysFile = Record<string, IntradayDay>;
-export function loadIntradayDays(user: string = OWNER_ID, e: Env = process.env): DaysFile {
-  try { const j = JSON.parse(fs.readFileSync(userFile("auto-intraday.json", user, e), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; }
+export function loadIntradayDays(user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID): DaysFile {
+  try { const j = JSON.parse(fs.readFileSync(userFile(acctFile("auto-intraday.json", acct), user, e), "utf8")); return j && typeof j === "object" ? j : {}; } catch { return {}; }
 }
-export function loadIntradayDay(date: string, user: string = OWNER_ID, e: Env = process.env, market: Market = "KR"): IntradayDay | null {
-  const all = loadIntradayDays(user, e);
+export function loadIntradayDay(date: string, user: string = OWNER_ID, e: Env = process.env, market: Market = "KR", acct: string = KIS_ID): IntradayDay | null {
+  const all = loadIntradayDays(user, e, acct);
   const d = all[market === "US" ? `${date}:US` : date] ?? (market === "US" && all[date]?.market === "US" ? all[date] : null);
   return d && (d.market ?? "KR") === market ? d : null;
 }
-export function saveIntradayDay(d: IntradayDay, user: string = OWNER_ID, e: Env = process.env) {
-  const all = { ...loadIntradayDays(user, e), [d.market === "US" ? `${d.date}:US` : d.date]: d };
+export function saveIntradayDay(d: IntradayDay, user: string = OWNER_ID, e: Env = process.env, acct: string = KIS_ID) {
+  const all = { ...loadIntradayDays(user, e, acct), [d.market === "US" ? `${d.date}:US` : d.date]: d };
   const keep = Object.keys(all).sort().slice(-MAX_DAYS);
-  writeUserFile("auto-intraday.json", JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
+  writeUserFile(acctFile("auto-intraday.json", acct), JSON.stringify(Object.fromEntries(keep.map((k) => [k, all[k]]))), user, e);
 }
 
 export async function intradayStart(plan: AutoPlan, log: EveningReport[], b: Broker, now: number, market: Market = "KR"): Promise<IntradayDay> {

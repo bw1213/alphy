@@ -13,14 +13,14 @@
  */
 import fs from "fs";
 import path from "path";
-import { DEFAULT_AUTO_LIMIT, DEFAULT_ORDER_LIMIT, loadSettings, serverRealLock, type AutoLimit, runtimeEnv, type KisEnvName, type KisKeySet, type OrderLimit, type Settings } from "../settings/store";
+import { DEFAULT_AUTO_LIMIT, DEFAULT_ORDER_LIMIT, loadSettings, serverRealLock, type AutoLimit, runtimeEnv, type KisEnvName, type KisKeySet, type OrderLimit, type Settings, type KisAccount, cleanKisAccounts } from "../settings/store";
 import { open, seal } from "../settings/secretbox";
-import { ensureUserDir, OWNER_ID, userDir } from "../settings/userdir";
+import { ensureUserDir, KIS_ID, OWNER_ID, userDir } from "../settings/userdir";
 import type { User } from "../settings/users";
 
 type Env = Record<string, string | undefined>;
 
-export interface UserKis { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit }
+export interface UserKis { real: KisKeySet; mock: KisKeySet; tradeEnv: KisEnvName; orderLimit: OrderLimit; autoLimit: AutoLimit; accounts?: KisAccount[] }
 
 export const emptyUserKis = (): UserKis => ({ real: {}, mock: {}, tradeEnv: "mock", orderLimit: { ...DEFAULT_ORDER_LIMIT }, autoLimit: { ...DEFAULT_AUTO_LIMIT } });
 
@@ -37,6 +37,7 @@ export function loadUserKis(user: string, e: Env = process.env): UserKis {
     tradeEnv: j.tradeEnv === "real" ? "real" : "mock",
     orderLimit: { ...d.orderLimit, ...(j.orderLimit ?? {}) },
     autoLimit: { ...d.autoLimit, ...(j.autoLimit ?? {}) },
+    ...(j.accounts ? { accounts: cleanKisAccounts(j.accounts) } : {}),
   };
 }
 
@@ -65,11 +66,37 @@ export function realLock(u: Pick<User, "id" | "realOrders" | "totpSecret">, e: E
   return { server, granted, totp, open: server && granted && totp };
 }
 
-/** lib/kis/config.ts 함수들에 넘길 값 묶음 (그 사람의 키·주문 대상·실전 잠금) */
-export function kisEnvFor(u: Pick<User, "id" | "realOrders" | "totpSecret">, e: Env = process.env): Env {
+const v = (s?: string) => (s && s.trim() ? s.trim() : undefined);
+
+/** 기본 계좌 말고 더 붙인 한국투자증권 계좌들 */
+export function extraKisAccounts(user: string, e: Env = process.env): KisAccount[] {
+  return (user === OWNER_ID ? loadSettings(e).kis.accounts : loadUserKis(user, e).accounts) ?? [];
+}
+
+/** 자동 매매에 쓸 수 있는 계좌 id: 기본 계좌 + 더 붙인 계좌 */
+export function kisAccountIds(user: string, e: Env = process.env): string[] {
+  return [KIS_ID, ...extraKisAccounts(user, e).map((a) => a.id)];
+}
+
+export function kisAccountName(user: string, acct: string, e: Env = process.env): string {
+  if (acct === KIS_ID) return "한국투자증권";
+  return extraKisAccounts(user, e).find((a) => a.id === acct)?.name ?? acct;
+}
+
+/** lib/kis/config.ts 함수들에 넘길 값 묶음 (그 사람의 키·주문 대상·실전 잠금). acct 는 더 붙인 계좌 id */
+export function kisEnvFor(u: Pick<User, "id" | "realOrders" | "totpSecret">, e: Env = process.env, acct: string = KIS_ID): Env {
+  if (acct !== KIS_ID) {
+    const a = extraKisAccounts(u.id, e).find((x) => x.id === acct);
+    if (!a) throw new Error("그 한국투자증권 계좌를 찾지 못했습니다. 설정 화면에서 확인하세요.");
+    const P = a.env === "real" ? "KIS_REAL_" : "KIS_MOCK_";
+    return {
+      [`${P}APP_KEY`]: v(a.appKey), [`${P}APP_SECRET`]: v(a.appSecret), [`${P}ACCOUNT`]: v(a.account),
+      KIS_TRADE_ENV: a.env,
+      KIS_ALLOW_REAL_ORDERS: realLock(u, e).open ? "yes" : undefined,
+    };
+  }
   if (u.id === OWNER_ID) return runtimeEnv(e);
   const k = loadUserKis(u.id, e);
-  const v = (s?: string) => (s && s.trim() ? s.trim() : undefined);
   return {
     KIS_REAL_APP_KEY: v(k.real.appKey), KIS_REAL_APP_SECRET: v(k.real.appSecret), KIS_REAL_ACCOUNT: v(k.real.account),
     KIS_MOCK_APP_KEY: v(k.mock.appKey), KIS_MOCK_APP_SECRET: v(k.mock.appSecret), KIS_MOCK_ACCOUNT: v(k.mock.account),
