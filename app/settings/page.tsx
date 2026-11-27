@@ -10,25 +10,16 @@ import StockListCard from "@/components/StockListCard";
 import Info from "@/components/Info";
 import AppNav from "@/components/AppNav";
 import KisAccountsCard from "@/components/KisAccountsCard";
-import type { FieldView, SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
+import type { SettingsPatch, SettingsView as BaseView } from "@/lib/settings/view";
 
 type ServerLock = { at?: number; ownerTotp: boolean };
 type SettingsView = BaseView & { scope?: "owner" | "member"; realLock?: { server: boolean; granted: boolean; totp: boolean; open: boolean }; serverLock?: ServerLock };
 import type { DataSource } from "@/lib/settings/store";
 
-type Env = "real" | "mock";
-type KeyForm = { appKey: string; appSecret: string; account: string };
-const emptyKeys = (): KeyForm => ({ appKey: "", appSecret: "", account: "" });
-
-function FieldState({ f }: { f: FieldView }) {
-  if (f.set) return <span className="fieldline"><span className="badge ok">설정됨</span>{f.hint ? ` ${f.hint}` : ""}</span>;
-  return <span className="fieldline"><span className="badge no">없음</span></span>;
-}
 
 export default function SettingsPage() {
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [view, setView] = useState<SettingsView | null>(null);
-  const [keys, setKeys] = useState<Record<Env, KeyForm>>({ real: emptyKeys(), mock: emptyKeys() });
   const [bt, setBt] = useState({ source: "naver" as DataSource, cash: "", commission: "", slippage: "", sellTax: "", usCommission: "", usFx: "", universeSize: "", targetCagr: "", maxDrawdown: "" });
   const [limit, setLimit] = useState({ perOrder: "", perDay: "" });
   const [alim, setAlim] = useState({ realBudget: "", maxLoss: "" });
@@ -70,17 +61,6 @@ export default function SettingsPage() {
     return true;
   };
 
-  const saveKeys = async (env: Env) => {
-    const k = keys[env];
-    const patch: Record<string, string> = {};
-    for (const f of ["appKey", "appSecret", "account"] as const) if (k[f].trim()) patch[f] = k[f].trim();
-    if (!Object.keys(patch).length) return setError("바꿀 값을 입력하세요. 비워 둔 칸은 그대로 유지됩니다.");
-    if (await save({ kis: { [env]: patch } }, `${env === "real" ? "실전" : "모의투자"} 키를 저장했습니다`)) setKeys({ ...keys, [env]: emptyKeys() });
-  };
-  const clearKeys = async (env: Env) => {
-    if (!window.confirm(`${env === "real" ? "실전" : "모의투자"} 앱키·앱시크릿·계좌번호를 모두 지울까요?`)) return;
-    await save({ kis: { [env]: { appKey: "", appSecret: "", account: "" } } }, "지웠습니다");
-  };
 
   const setServerLock = async (on: boolean) => {
     setError("");
@@ -132,31 +112,6 @@ export default function SettingsPage() {
   const trade = view.kis.tradeEnv;
   const isOwner = view.scope !== "member";
   const lock = view.realLock;
-  const keyCard = (env: Env) => {
-    const v = view.kis[env];
-    const label = env === "real" ? "실전투자" : "모의투자";
-    const k = keys[env];
-    const set = (f: keyof KeyForm, val: string) => setKeys({ ...keys, [env]: { ...k, [f]: val } });
-    const any = v.appKey.set || v.appSecret.set || v.account.set;
-    return (
-      <div className="card">
-        <h2>한국투자증권 · {label}<Info>{env === "mock" ? "모의투자 주문·잔고·시세용" : "선택 · 시세를 더 빠르게 받습니다"}</Info></h2>
-        {(["appKey", "appSecret", "account"] as const).map((f) => (
-          <label className="f" key={f} style={{ marginTop: 8 }}>
-            {f === "appKey" ? "앱키 (App Key)" : f === "appSecret" ? "앱시크릿 (App Secret)" : "계좌번호 (12345678-01)"}
-            <input type={f === "account" ? "text" : "password"} value={k[f]} onChange={(e) => set(f, e.target.value)}
-              placeholder={v[f].set ? "저장됨 · 바꿀 때만 입력" : ""} autoComplete="off" spellCheck={false} />
-            <FieldState f={v[f]} />
-          </label>
-        ))}
-        <div className="btns" style={{ marginTop: 12 }}>
-          <button onClick={() => saveKeys(env)}>저장</button>
-          {any && <button onClick={() => clearKeys(env)}>모두 지우기</button>}
-        </div>
-      </div>
-    );
-  };
-
   const sl = view.serverLock;
   const serverLockBox = (
     <div style={{ marginTop: 12 }}>
@@ -252,9 +207,7 @@ export default function SettingsPage() {
           <p className="desc"><b>{auth.user.name}</b> (<code>{auth.user.id}</code>) · {auth.user.role === "admin" ? "관리자" : "일반 사용자"}</p>
         </div>
         <div className="wide section"><h2>내 설정</h2></div>
-        {keyCard("mock")}
-        {keyCard("real")}
-        <KisAccountsCard accounts={view.kisAccounts ?? []} onChanged={(m) => { refresh(); flash(m); }} />
+        <KisAccountsCard base={{ mock: view.kis.mock, real: view.kis.real }} accounts={view.kisAccounts ?? []} onChanged={(m) => { refresh(); flash(m); }} />
         {tradeCard}
         {pwCard()}
         <SecurityCard />
@@ -275,9 +228,7 @@ export default function SettingsPage() {
         {(error || saved) && <div className="wide">{error ? <div className="error">{error}</div> : <span className="saved">✓ {saved}</span>}</div>}
 
         <div className="wide section"><h2>내 설정</h2></div>
-        {keyCard("mock")}
-        {keyCard("real")}
-        <KisAccountsCard accounts={view.kisAccounts ?? []} onChanged={(m) => { refresh(); flash(m); }} />
+        <KisAccountsCard base={{ mock: view.kis.mock, real: view.kis.real }} accounts={view.kisAccounts ?? []} onChanged={(m) => { refresh(); flash(m); }} />
 
         {tradeCard}
 
